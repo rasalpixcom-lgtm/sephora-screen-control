@@ -59,7 +59,6 @@ export default function Workspace({ view }: { view: View }) {
   const [dialog, setDialog] = useState<{ type: EntityType; item?: Entity } | null>(null);
   const [draft, setDraft] = useState({ name: "", parentId: "", liveUrl: "" });
   const [assignGroup, setAssignGroup] = useState<string | null>(null);
-  const seedStarted = useRef(false);
   const pending = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -80,11 +79,6 @@ export default function Workspace({ view }: { view: View }) {
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not load screen data.");
       setState(result); setError("");
-      if (!result.entities.length && !seedStarted.current) {
-        seedStarted.current = true;
-        const seeded = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "seed" }) });
-        if (seeded.ok) setState(await seeded.json() as State);
-      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
     finally { setLoading(false); }
   }, []);

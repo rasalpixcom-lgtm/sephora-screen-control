@@ -22,3 +22,13 @@ export const displayState = sqliteTable("display_state", {
   intervalSeconds: integer("interval_seconds").notNull().default(10),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const activityLog = sqliteTable("activity_log", {
+  id: text("id").primaryKey(),
+  action: text("action").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  entityName: text("entity_name"),
+  actor: text("actor").notNull(),
+  createdAt: text("created_at").notNull(),
+});
