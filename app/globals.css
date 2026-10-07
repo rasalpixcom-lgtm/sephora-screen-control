@@ -305,7 +305,7 @@ html:not(.dark) .screen-card { box-shadow: 0 10px 30px rgba(31,31,40,.065); }
 .app-shell-monitor .monitor-theme-toggle,.app-shell-monitor .monitor-icon { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border: 1px solid #303034; border-radius: 10px; background: #1b1b1e; color: #bcbcc1; box-shadow: none; }
 .app-shell-monitor .monitor-theme-toggle span { display: none; }
 .app-shell-monitor .monitor-theme-toggle:hover,.app-shell-monitor .monitor-icon:hover { background: #29292d; color: #fff; }
-.wall-grid { --wall-card-width: clamp(370px,20vw,560px); flex: none; min-height: 0; grid-template-columns: repeat(auto-fit,var(--wall-card-width)); grid-template-rows: none; grid-auto-rows: auto; gap: 14px; align-content: start; justify-content: center; }
+.wall-grid { --wall-card-width: clamp(370px,20vw,560px); flex: none; min-height: 0; grid-template-columns: repeat(auto-fit,var(--wall-card-width)); grid-template-rows: none; grid-auto-rows: auto; gap: 14px; align-content: start; justify-content: start; }
 .screen-card { display: flex; flex-direction: column; min-height: 0; border: 1px solid #303034; border-radius: 12px; background: #18181a; box-shadow: none; }
 .screen-viewport { flex: none; min-height: 0; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #111113; }
 .screen-viewport iframe { display: block; pointer-events: none; }
