@@ -1,0 +1,190 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, CircleHelp, ExternalLink, Expand, LayoutGrid, MapPin, Monitor, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import type { Display, Entity, EntityType, Member, Selection } from "@/lib/store";
+
+type State = { entities: Entity[]; members: Member[]; display: Display };
+type View = "controller" | "admin" | "monitor";
+type WebModelContext = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => Promise<unknown> }, options: { signal: AbortSignal }) => void | Promise<void> };
+const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" } };
+const labels: Record<EntityType, string> = { country: "Country", region: "Region", store: "Store / mall", screen: "Screen", group: "Group" };
+const plurals: Record<EntityType, string> = { country: "Countries", region: "Regions", store: "Stores / malls", screen: "Screens", group: "Groups" };
+
+function placeName(entity: Entity | undefined, entities: Entity[]) {
+  if (!entity) return "";
+  const store = entities.find((item) => item.id === entity.parentId);
+  const region = entities.find((item) => item.id === store?.parentId);
+  return [store?.name, region?.name].filter(Boolean).join(" · ");
+}
+
+function matchingScreens(state: State, selection: Selection) {
+  const { entities, members } = state;
+  return entities.filter((item) => {
+    if (item.type !== "screen") return false;
+    const store = entities.find((parent) => parent.id === item.parentId);
+    const region = entities.find((parent) => parent.id === store?.parentId);
+    if (selection.countryId && region?.parentId !== selection.countryId) return false;
+    if (selection.regionId && region?.id !== selection.regionId) return false;
+    if (selection.storeId && store?.id !== selection.storeId) return false;
+    if (selection.groupId && !members.some((member) => member.groupId === selection.groupId && member.screenId === item.id)) return false;
+    if (selection.screenIds?.length && !selection.screenIds.includes(item.id)) return false;
+    return true;
+  });
+}
+
+function ScreenCard({ screen, entities, compact = false }: { screen: Entity; entities: Entity[]; compact?: boolean }) {
+  return <article className={`screen-card ${compact ? "screen-card-compact" : ""}`}>
+    <div className="screen-viewport">
+      {screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="lazy" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><span className="placeholder-ring"><Monitor size={30} strokeWidth={1.4} /></span><span>Live link not added</span></div>}
+      <span className={`screen-status ${screen.liveUrl ? "screen-status-source" : ""}`}>{screen.liveUrl ? "PREVIEW SOURCE" : "NO SOURCE"}</span>
+    </div>
+    <div className="screen-caption"><div><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div>{screen.liveUrl && <a href={screen.liveUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${screen.name} source in new tab`}><ExternalLink size={17} /></a>}</div>
+  </article>;
+}
+
+export default function Workspace({ view }: { view: View }) {
+  const router = useRouter();
+  const [state, setState] = useState<State>(empty);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [localPause, setLocalPause] = useState(false);
+  const [dialog, setDialog] = useState<{ type: EntityType; item?: Entity } | null>(null);
+  const [draft, setDraft] = useState({ name: "", parentId: "", liveUrl: "" });
+  const [assignGroup, setAssignGroup] = useState<string | null>(null);
+  const seedStarted = useRef(false);
+  const pending = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const mutateRef = useRef<(body: Record<string, unknown>) => Promise<boolean>>(async () => false);
+  const display = state.display;
+  const selection = display.selection;
+  const allScreens = useMemo(() => matchingScreens(state, selection), [state, selection]);
+  const availableScreens = useMemo(() => matchingScreens(state, { ...selection, screenIds: undefined }), [state, selection]);
+  const filteredScreens = availableScreens.filter((screen) => `${screen.name} ${placeName(screen, state.entities)}`.toLowerCase().includes(query.toLowerCase()));
+  const pageSize = 6;
+  const pages = Math.max(1, Math.ceil(allScreens.length / pageSize));
+
+  const load = useCallback(async (showLoading = false) => {
+    if (pending.current && !showLoading) return;
+    if (showLoading) setLoading(true);
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      const result = await response.json() as State & { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not load screen data.");
+      setState(result); setError("");
+      if (!result.entities.length && !seedStarted.current) {
+        seedStarted.current = true;
+        const seeded = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "seed" }) });
+        if (seeded.ok) setState(await seeded.json() as State);
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void load(true); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => { setPage((current) => Math.min(current, pages - 1)); }, [pages]);
+  useEffect(() => {
+    if (view !== "monitor" || !display.autoAdvance || localPause || pages < 2) return;
+    const timer = window.setInterval(() => setPage((current) => (current + 1) % pages), display.intervalSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [view, display.autoAdvance, display.intervalSeconds, localPause, pages]);
+
+  async function mutate(body: Record<string, unknown>) {
+    pending.current = true; setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const result = await response.json() as State & { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not save changes.");
+      setState(result);
+      return true;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save changes."); return false; }
+    finally { pending.current = false; setBusy(false); }
+  }
+  mutateRef.current = mutate;
+
+  useEffect(() => {
+    if (view !== "controller") return;
+    const context = (document as Document & { modelContext?: WebModelContext }).modelContext;
+    if (!context?.registerTool) return;
+    const lifecycle = new AbortController();
+    void Promise.resolve(context.registerTool({
+      name: "set_wall_selection",
+      title: "Set monitoring wall selection",
+      description: "Choose countries, regions, stores, groups, or screens for the shared monitoring wall.",
+      inputSchema: { type: "object", properties: { countryId: { type: "string" }, regionId: { type: "string" }, storeId: { type: "string" }, groupId: { type: "string" }, screenIds: { type: "array", items: { type: "string" } } }, additionalProperties: false },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      async execute(input) {
+        const selection = input as Selection;
+        if (!selection || typeof selection !== "object" || Array.isArray(selection)) throw new Error("Invalid selection.");
+        const current = stateRef.current;
+        const valid = [[selection.countryId, "country"], [selection.regionId, "region"], [selection.storeId, "store"], [selection.groupId, "group"]].every(([id, type]) => !id || current.entities.some((item) => item.id === id && item.type === type));
+        if (!valid || (selection.screenIds && (!Array.isArray(selection.screenIds) || selection.screenIds.some((id) => !current.entities.some((item) => item.id === id && item.type === "screen"))))) throw new Error("A selected item does not exist.");
+        if (!await mutateRef.current({ action: "display", selection, autoAdvance: current.display.autoAdvance, intervalSeconds: current.display.intervalSeconds })) throw new Error("Could not save wall selection.");
+        return { selection, screenCount: matchingScreens(stateRef.current, selection).length };
+      },
+    }, { signal: lifecycle.signal })).catch(() => {});
+    return () => lifecycle.abort();
+  }, [view]);
+
+  const setDisplay = (next: Selection, options?: { autoAdvance?: boolean; intervalSeconds?: number }) => {
+    if (pending.current) return;
+    void mutate({ action: "display", selection: next, autoAdvance: options?.autoAdvance ?? display.autoAdvance, intervalSeconds: options?.intervalSeconds ?? display.intervalSeconds });
+  };
+  const byType = (type: EntityType, parentId?: string) => state.entities.filter((item) => item.type === type && (parentId === undefined || item.parentId === parentId));
+  const visibleStores = byType("store").filter((item) => {
+    const parent = state.entities.find((candidate) => candidate.id === item.parentId);
+    return (!selection.regionId || item.parentId === selection.regionId) && (!selection.countryId || parent?.parentId === selection.countryId);
+  });
+  const country = state.entities.find((item) => item.id === selection.countryId);
+  const region = state.entities.find((item) => item.id === selection.regionId);
+  const store = state.entities.find((item) => item.id === selection.storeId);
+  const group = state.entities.find((item) => item.id === selection.groupId);
+  const viewTitle = view === "monitor" ? "Monitoring wall" : view === "admin" ? "Locations & screens" : "Wall controller";
+
+  function openDialog(type: EntityType, item?: Entity) {
+    setDraft({ name: item?.name || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "" });
+    setDialog({ type, item });
+  }
+  async function saveDialog(event: React.FormEvent) {
+    event.preventDefault();
+    if (!dialog) return;
+    const saved = await mutate({ action: dialog.item ? "update" : "create", id: dialog.item?.id, type: dialog.type, ...draft });
+    if (saved) setDialog(null);
+  }
+  async function remove(item: Entity) {
+    if (!window.confirm(`Delete ${item.name} and everything below it? This cannot be undone.`)) return;
+    await mutate({ action: "delete", id: item.id });
+  }
+
+  return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`}>
+    <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link><Link className={view === "monitor" ? "active" : ""} href="/monitor"><LayoutGrid size={16}/> Monitoring</Link><Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link></nav><div className="topbar-right"><span className="workspace-dot"/> CENTRAL WORKSPACE <span className="topbar-time">{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dubai" }).format(new Date())} GST</span></div></header>
+    {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
+    {view === "monitor" ? <main className="monitor-main">
+      <div className="monitor-heading"><div><div className="eyebrow light">SEPHORA / GLOBAL DISPLAY NETWORK</div><h1>{viewTitle}</h1><p>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</p></div><div className="monitor-actions"><span className="monitor-count"><strong>{allScreens.length}</strong> screens in view</span><button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button><button className="icon-button monitor-icon" onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Enter fullscreen"><Expand size={18}/></button></div></div>
+      {loading ? <div className="loading-panel">Loading monitoring wall…</div> : allScreens.length ? <><div className="wall-grid">{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div><div className="wall-footer"><div className="wall-progress"><span>VIEW {page + 1} OF {pages}</span><div className="progress-track"><div style={{ width: `${((page + 1) / pages) * 100}%` }}/></div><span>{display.autoAdvance && !localPause ? `ROTATING EVERY ${display.intervalSeconds}S` : "ROTATION PAUSED"}</span></div><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} disabled={pages < 2} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} disabled={pages < 2} aria-label="Next set"><ChevronRight size={20}/></button></div></div></> : <div className="wall-empty"><Monitor size={32}/><h2>No screens in this view</h2><p>Choose another location or group in the controller.</p><Link href="/controller">Open controller</Link></div>}
+      <div className="wall-disclaimer">Live previews depend on the source provider allowing embedding. A preview link does not confirm player health.</div>
+    </main> : <main className="main-content">
+      <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose what the monitoring wall shows, from anywhere." : "Organize locations, screen links, and cross-store groups."}</p></div><div className="page-heading-actions">{view === "controller" ? <Link className="primary-button" href="/monitor"><LayoutGrid size={17}/> Open monitoring wall</Link> : <button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button>}</div></div>
+      {state.entities.some((item) => item.isDemo) && <div className="sample-note"><span className="sample-badge">SAMPLE SETUP</span><span>Example locations and screens are ready to explore. Add your OnSign links in Admin to show previews.</span></div>}
+      {view === "controller" ? <div className="controller-layout"><section className="selection-panel"><div className="panel-heading"><div><span className="eyebrow">01 / SELECT SCOPE</span><h2>Browse the network</h2></div><button className="text-button" onClick={() => setDisplay({})}>Clear all</button></div>
+        <div className="selection-section"><div className="section-label"><span>Countries</span><small>{byType("country").length}</small></div><div className="tile-grid">{byType("country").map((item) => <button key={item.id} className={`scope-tile ${selection.countryId === item.id ? "selected" : ""}`} onClick={() => setDisplay({ countryId: item.id })}><span className="tile-icon"><MapPin size={18}/></span><span>{item.name}</span><strong>{state.entities.filter((screen) => screen.type === "screen" && state.entities.find((store) => store.id === screen.parentId && state.entities.find((region) => region.id === store.parentId)?.parentId === item.id)).length}</strong></button>)}</div></div>
+        <div className="selection-section"><div className="section-label"><span>Regions</span><small>{byType("region", selection.countryId).length}</small></div><div className="chip-row">{byType("region", selection.countryId).map((item) => <button key={item.id} className={`scope-chip ${selection.regionId === item.id ? "selected" : ""}`} onClick={() => setDisplay({ countryId: item.parentId || undefined, regionId: item.id })}>{item.name}</button>)}</div></div>
+        <div className="selection-section"><div className="section-label"><span>Stores & malls</span><small>{visibleStores.length}</small></div><div className="store-list">{visibleStores.map((item) => <button disabled={busy} key={item.id} className={`store-choice ${selection.storeId === item.id ? "selected" : ""}`} onClick={() => { const r = state.entities.find((e) => e.id === item.parentId); setDisplay({ countryId: r?.parentId || undefined, regionId: r?.id, storeId: item.id }); }}><span><MapPin size={16}/>{item.name}</span><ChevronRight size={16}/></button>)}</div></div>
+        <div className="selection-section"><div className="section-label"><span>Screen groups</span><small>{byType("group").length}</small></div><div className="chip-row">{byType("group").map((item) => <button key={item.id} className={`scope-chip group-chip ${selection.groupId === item.id ? "selected" : ""}`} onClick={() => setDisplay({ ...selection, groupId: selection.groupId === item.id ? undefined : item.id, screenIds: undefined })}>{item.name} <span>{state.members.filter((m) => m.groupId === item.id).length}</span></button>)}</div></div>
+      </section><section className="result-panel"><div className="panel-heading"><div><span className="eyebrow">02 / REFINE THE VIEW</span><h2>Available screens</h2></div><span className="result-total">{filteredScreens.length} screens</span></div><div className="search-box"><Search size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search screens or stores" aria-label="Search screens or stores"/></div><div className="screen-list">{filteredScreens.map((screen) => <button className={`screen-row ${selection.screenIds?.includes(screen.id) ? "selected" : ""}`} key={screen.id} onClick={() => { const ids = selection.screenIds?.includes(screen.id) ? selection.screenIds.filter((id) => id !== screen.id) : [...(selection.screenIds || []), screen.id]; setDisplay({ ...selection, screenIds: ids.length ? ids : undefined }); }}><span className="screen-mini"><Monitor size={17}/></span><span className="row-copy"><strong>{screen.name}</strong><small>{placeName(screen, state.entities)}</small></span><span className={`row-source ${screen.liveUrl ? "ready" : ""}`}>{screen.liveUrl ? "SOURCE ADDED" : "NO SOURCE"}</span><span className="row-check">{selection.screenIds?.includes(screen.id) ? "✓" : ""}</span></button>)}{!filteredScreens.length && <div className="list-empty">No screens match this selection.</div>}</div><div className="result-footer"><span><CircleHelp size={16}/> Tap screens to show only those on the wall.</span><button className="outline-button" onClick={() => router.push("/monitor")}>View wall <ChevronRight size={17}/></button></div></section></div> : <div className="admin-layout"><section className="admin-main"><div className="admin-intro"><div><span className="eyebrow">NETWORK INVENTORY</span><h2>Location hierarchy</h2></div><span>{state.entities.filter((item) => item.type === "screen").length} total screens</span></div><div className="admin-columns">{(["country", "region", "store", "screen"] as EntityType[]).map((type) => <div className="admin-column" key={type}><div className="admin-column-head"><h3>{labels[type]}s</h3><button onClick={() => openDialog(type)} aria-label={`Add ${labels[type]}`}><Plus size={17}/></button></div><div className="admin-items">{byType(type).map((item) => <div className="admin-item" key={item.id}><div className="admin-item-top"><span className="admin-item-icon">{type === "screen" ? <Monitor size={16}/> : <MapPin size={16}/>}</span><button className="admin-item-name" onClick={() => openDialog(type, item)}><strong>{item.name}</strong><small>{item.isDemo ? "Sample · " : ""}{type === "screen" ? item.liveUrl ? "Live link added" : "Add live link" : item.parentId ? state.entities.find((e) => e.id === item.parentId)?.name : "Top level"}</small></button><button className="delete-icon" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15}/></button></div></div>)}{!byType(type).length && <div className="admin-empty">Nothing added yet</div>}</div></div>)}</div></section><aside className="admin-side"><div className="side-card"><span className="eyebrow">CROSS-STORE COLLECTIONS</span><h2>Screen groups</h2><p>Bring matching placements together across any store.</p><div className="group-list">{byType("group").map((item) => <div className="group-row" key={item.id}><div><button className="group-name" onClick={() => openDialog("group", item)} title="Rename group">{item.name}</button><small>{state.members.filter((m) => m.groupId === item.id).length} screens</small></div><button onClick={() => setAssignGroup(item.id)}>Manage</button><button className="delete-icon" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15}/></button></div>)}</div><button className="outline-button full" onClick={() => openDialog("group")}><Plus size={16}/> New group</button></div><div className="side-hint"><CircleHelp size={18}/><span>Open a screen to add its OnSign live URL. The wall loads that URL as a preview when the provider permits embedding.</span></div></aside></div>}
+    </main>}
+    {view === "controller" && <div className="controller-bar"><div><span className="bar-kicker">NOW SHOWING ON WALL</span><strong>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</strong><span>{allScreens.length} screens</span></div><div className="bar-controls"><span>Auto-rotate</span><Switch checked={display.autoAdvance} onCheckedChange={(checked) => setDisplay(selection, { autoAdvance: checked })} aria-label="Auto-rotate wall"/><select aria-label="Rotation interval" value={display.intervalSeconds} onChange={(event) => setDisplay(selection, { intervalSeconds: Number(event.target.value) })}>{[5,10,15,20,30,60].map((n) => <option key={n} value={n}>{n}s</option>)}</select><Link className="bar-open" href="/monitor">Open wall <ChevronRight size={17}/></Link></div></div>}
+    <Dialog open={!!dialog} onOpenChange={(open) => !open && setDialog(null)}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>{dialog?.item ? `Edit ${labels[dialog.type]}` : `Add ${dialog ? labels[dialog.type] : "item"}`}</DialogTitle><DialogDescription>{dialog?.type === "screen" ? "Give this screen a name and its OnSign live link." : "Keep names clear so teams can find the right display."}</DialogDescription></DialogHeader><form onSubmit={saveDialog} className="edit-form"><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder={dialog?.type === "screen" ? "Cash table · 01" : "Name"}/></label>{dialog && ["region","store","screen"].includes(dialog.type) && <label>{dialog.type === "region" ? "Country" : dialog.type === "store" ? "Region" : "Store / mall"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select parent</option>{byType(dialog.type === "region" ? "country" : dialog.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{dialog?.type === "screen" && <label>OnSign live URL <span className="optional">optional</span><input type="url" value={draft.liveUrl} onChange={(event) => setDraft({ ...draft, liveUrl: event.target.value })} placeholder="https://…"/><small>The URL must support embedding to appear in the wall preview.</small></label>}<div className="dialog-actions"><button type="button" className="outline-button" onClick={() => setDialog(null)}>Cancel</button><button type="submit" className="primary-button" disabled={busy}>Save {dialog?.type && labels[dialog.type].toLowerCase()}</button></div></form></DialogContent></Dialog>
+    <Dialog open={!!assignGroup} onOpenChange={(open) => !open && setAssignGroup(null)}><DialogContent className="edit-dialog assign-dialog"><DialogHeader><DialogTitle>{state.entities.find((e) => e.id === assignGroup)?.name}</DialogTitle><DialogDescription>Select screens to include in this group.</DialogDescription></DialogHeader><div className="assignment-list">{byType("screen").map((screen) => { const checked = state.members.some((member) => member.groupId === assignGroup && member.screenId === screen.id); return <label key={screen.id} className="assignment-row"><input type="checkbox" checked={checked} disabled={busy} onChange={(event) => void mutate({ action: "member", groupId: assignGroup, screenId: screen.id, enabled: event.target.checked })}/><span><strong>{screen.name}</strong><small>{placeName(screen, state.entities)}</small></span></label>; })}</div><button className="primary-button full" onClick={() => setAssignGroup(null)}>Done</button></DialogContent></Dialog>
+  </div>;
+}
+
+
