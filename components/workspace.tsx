@@ -55,18 +55,19 @@ export default function Workspace({ view }: { view: View }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(6);
   const [localPause, setLocalPause] = useState(false);
   const [dialog, setDialog] = useState<{ type: EntityType; item?: Entity } | null>(null);
   const [draft, setDraft] = useState({ name: "", parentId: "", liveUrl: "" });
   const [assignGroup, setAssignGroup] = useState<string | null>(null);
   const pending = useRef(false);
+  const wallGridRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const mutateRef = useRef<(body: Record<string, unknown>) => Promise<boolean>>(async () => false);
   const display = state.display;
   const selection = display.selection;
   const allScreens = useMemo(() => matchingScreens(state, selection), [state, selection]);
-  const pageSize = 6;
   const pages = Math.max(1, Math.ceil(allScreens.length / pageSize));
 
   const load = useCallback(async (showLoading = false) => {
@@ -82,6 +83,28 @@ export default function Workspace({ view }: { view: View }) {
   }, []);
 
   useEffect(() => { void load(true); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => {
+    if (view !== "monitor" || loading || !allScreens.length) return;
+    const grid = wallGridRef.current;
+    if (!grid) return;
+    const updatePageSize = () => {
+      const gap = 14;
+      const targetWidth = Math.min(560, Math.max(370, window.innerWidth * .2));
+      const columns = window.innerWidth <= 600 ? 1 : Math.max(1, Math.floor((grid.clientWidth + gap) / (targetWidth + gap)));
+      const cardWidth = window.innerWidth <= 600 ? grid.clientWidth : targetWidth;
+      const captionHeight = window.innerWidth <= 600 ? 55 : 64;
+      const cardHeight = cardWidth * 9 / 16 + captionHeight + 2;
+      // Leave room for the pager, even on a page where it is currently hidden.
+      const availableHeight = window.innerHeight - grid.getBoundingClientRect().top - 55 - (window.innerWidth <= 600 ? 12 : Math.max(16, Math.min(window.innerWidth * .015, 30)));
+      const rows = Math.max(1, Math.floor((availableHeight + gap) / (cardHeight + gap)));
+      setPageSize((current) => current === columns * rows ? current : columns * rows);
+    };
+    updatePageSize();
+    const observer = new ResizeObserver(updatePageSize);
+    observer.observe(grid);
+    window.addEventListener("resize", updatePageSize);
+    return () => { observer.disconnect(); window.removeEventListener("resize", updatePageSize); };
+  }, [view, loading, allScreens.length]);
   useEffect(() => { setPage((current) => Math.min(current, pages - 1)); }, [pages]);
   useEffect(() => {
     if (view !== "monitor" || !display.autoAdvance || localPause || pages < 2) return;
@@ -157,7 +180,7 @@ export default function Workspace({ view }: { view: View }) {
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
       <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions"><ThemeToggle className="monitor-theme-toggle"/>{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
-      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid">{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>No screens selected</h2><Link href="/controller">Open controller</Link></div>}
+      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>No screens selected</h2><Link href="/controller">Open controller</Link></div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a screen group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>
       {view !== "controller" && state.entities.some((item) => item.isDemo) && <div className="sample-note"><span className="sample-badge">SAMPLE SETUP</span><span>Example locations and screens are ready to explore. Add your OnSign links in Admin to show previews.</span></div>}
