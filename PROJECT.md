@@ -7,7 +7,7 @@ Central screen inventory, remote wall controller, and view-only monitoring wall.
 | Route | Purpose | Intended account |
 | --- | --- | --- |
 | `/admin` | Dashboard and sidebar for screens, countries, regions, locations, groups, activity, access, and settings | Admin |
-| `/controller` | Choose the country, region, location, group, or screens shown on the wall; set rotation | Controller |
+| `/controller` | Choose a country, then one of its regions, then a location and its screens; or choose a cross-store group; set rotation | Controller |
 | `/monitor` | Display the selected live previews; rotate through up to six cards per page | Dedicated wall device |
 
 These are three routes in **one application**, connected to **one Cloudflare D1 database**. A controller change is saved to `display_state`; the wall reads that state every three seconds. Screens are loaded only for the visible wall page so a large inventory does not mount hundreds of iframes at once.
@@ -43,4 +43,4 @@ Install with `npm install`. Use `npm run dev -- --port 5174` for this project be
 1. Admin adds countries, regions, locations, and screens, then assigns each screen its OnSign preview URL.
 2. Admin creates groups such as Cash table and assigns screens across locations.
 3. The wall device opens `/monitor` in full screen.
-4. A controller opens `/controller` on a laptop or tablet and changes the shared selection. The wall reflects it within the polling interval.
+4. A controller opens `/controller` on a laptop or tablet. In **By location**, the next level appears only after its parent is selected: country → region → location → screens. **Screen groups** is a separate choice for screens across stores. The wall reflects each saved selection within the polling interval.

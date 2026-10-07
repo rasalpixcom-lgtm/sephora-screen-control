@@ -232,3 +232,29 @@ html.dark .adm-page-head p,html.dark .adm-metric small { color: #b0b0b5; }
   .adm-nav-button,.adm-primary-btn,.adm-secondary-btn,.adm-icon-btn,.adm-metric { transition: none; }
   .adm-primary-btn:hover,.adm-secondary-btn:hover,.adm-icon-btn:hover,.adm-metric:hover { transform: none; }
 }
+
+/* Denser, clearer navigation for shorter laptop screens. */
+.adm-sidebar-header { padding-top: 18px; padding-bottom: 13px; }
+.adm-sidebar-content { padding-top: 2px; }
+.adm-nav-button { min-height: 40px!important; height: 40px!important; margin-bottom: 1px; font-size: 13px!important; }
+.adm-sidebar-divider { margin-top: 5px; margin-bottom: 8px; }
+.adm-sidebar-label { margin-bottom: 4px; }
+.adm-sidebar-footer { padding-top: 8px; }
+.adm-account { padding: 10px; }
+.adm-signout { min-height: 34px; }
+.adm-metric:nth-child(4) { background: #19191b; border-color: #19191b; }
+.adm-metric:nth-child(4)>span { background: #323236; color: #fff; }
+.adm-metric:nth-child(4) strong { color: #fff; }
+.adm-metric:nth-child(4) small { color: #c1c1c5; }
+.adm-metric:nth-child(4):hover { border-color: #19191b; box-shadow: 0 18px 38px rgba(20,20,23,.16); }
+html.dark .adm-metric:nth-child(4) { background: #f2f2f1; border-color: #f2f2f1; }
+html.dark .adm-metric:nth-child(4)>span { background: #e1e1df; color: #1b1b1d; }
+html.dark .adm-metric:nth-child(4) strong { color: #1b1b1d; }
+html.dark .adm-metric:nth-child(4) small { color: #5b5b60; }
+@media(max-height:760px) and (min-width:768px) {
+  .adm-sidebar-header { padding-top: 13px; padding-bottom: 9px; }
+  .adm-brand-icon { width: 36px; height: 36px; }
+  .adm-nav-button { min-height: 36px!important; height: 36px!important; }
+  .adm-sidebar-footer { padding: 6px 10px; }
+  .adm-account { padding: 8px; }
+}
