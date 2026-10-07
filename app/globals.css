@@ -10,3 +10,147 @@
 .group-name{padding:0;border:0;background:none;text-align:left;font-size:13px;font-weight:750;color:#252529}.group-name:hover{text-decoration:underline}
 @media(max-width:600px){.screen-card:nth-child(n+4){display:block}}
 .app-shell-monitor .topnav,.app-shell-monitor .topbar-divider{display:none}
+
+/* Sephora-inspired operational theme. The UI uses system fonts; no proprietary
+   brand font or logo files are distributed with this application. */
+:root {
+  --background: #f5f5f3;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #ffffff;
+  --secondary: #eeeeec;
+  --secondary-foreground: #171717;
+  --muted: #f0f0ee;
+  --muted-foreground: #626262;
+  --accent: #ededeb;
+  --accent-foreground: #171717;
+  --destructive: #cf243d;
+  --border: #e1e1df;
+  --input: #d3d3d1;
+  --ring: #cf243d;
+  --font-sans: "Helvetica Neue", Helvetica, Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+html.dark {
+  --background: #111112;
+  --foreground: #f5f5f3;
+  --card: #1b1b1d;
+  --card-foreground: #f5f5f3;
+  --popover: #212123;
+  --popover-foreground: #f5f5f3;
+  --primary: #f5f5f3;
+  --primary-foreground: #111112;
+  --secondary: #29292c;
+  --secondary-foreground: #f5f5f3;
+  --muted: #262628;
+  --muted-foreground: #aaa9ad;
+  --accent: #303034;
+  --accent-foreground: #f5f5f3;
+  --destructive: #f06577;
+  --border: #39393d;
+  --input: #48484d;
+  --ring: #f06577;
+  color-scheme: dark;
+}
+body { background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { outline-color: var(--ring); }
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 88px; min-height: 38px; padding: 0 11px;
+  border: 1px solid #dededc; border-radius: 8px;
+  background: #fff; color: #282828; font-size: 12px; font-weight: 750;
+  letter-spacing: .01em; white-space: nowrap;
+}
+.theme-toggle:hover { border-color: #a3a3a3; background: #f6f6f5; }
+.theme-toggle:disabled { opacity: .7; }
+html.dark .theme-toggle { background: #262628; border-color: #49494d; color: #f2f2f2; }
+html.dark .theme-toggle:hover { background: #343438; }
+.topbar { border-top: 5px solid #171717; height: 80px; }
+.brand-mark { background: #171717; }
+.brand-name { font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 760; letter-spacing: .17em; }
+.brand-name span { font-family: var(--font-sans); letter-spacing: .07em; }
+.topnav a.active { border-color: #d9233e; }
+.workspace-theme-toggle { margin-left: auto; }
+.topbar-right { margin-left: 3px; }
+.workspace-dot { background: #d9233e; }
+.eyebrow { color: #c81f37; }
+.text-button,.group-row>button:not(.delete-icon) { color: #c52038; }
+.scope-tile.selected,.scope-chip.selected,.store-choice.selected,.screen-row.selected { border-color: #d9233e; }
+.screen-row.selected .row-check,.progress-track div { background: #d9233e; border-color: #d9233e; }
+.tile-icon,.row-source.ready { color: #c52038; }
+.app-shell-monitor .topbar { border-top-color: #d9233e; }
+.app-shell-monitor .theme-toggle { margin-left: auto; }
+.app-shell-monitor .topbar-right { margin-left: 3px; }
+
+/* The controller follows the selected mode. */
+html.dark .app-shell { background: #111112; color: #f5f5f3; }
+html.dark .topbar { background: #19191b; border-bottom-color: #37373a; border-top-color: #f3f3f1; }
+html.dark .brand-name,html.dark .topnav a.active,html.dark .page-heading h1 { color: #f5f5f3; }
+html.dark .brand-mark { background: #f5f5f3; color: #151515; }
+html.dark .brand-name span,html.dark .topnav a,html.dark .topbar-right,html.dark .page-heading p { color: #a5a5a9; }
+html.dark .topnav a:hover { color: #f5f5f3; }
+html.dark .eyebrow,html.dark .text-button,html.dark .group-row>button:not(.delete-icon) { color: #ff758a; }
+html.dark .topbar-divider,html.dark .topbar-time { border-color: #3a3a3d; }
+html.dark .topbar-divider { background: #3a3a3d; }
+html.dark .selection-panel,html.dark .result-panel,html.dark .admin-main,html.dark .side-card {
+  background: #1c1c1e; border-color: #39393c; box-shadow: none;
+}
+html.dark .panel-heading,html.dark .selection-section,html.dark .result-footer,html.dark .admin-intro,
+html.dark .admin-column,html.dark .admin-column-head,html.dark .group-row { border-color: #39393c; }
+html.dark .panel-heading h2,html.dark .side-card h2,html.dark .admin-intro h2,html.dark .row-copy strong { color: #f5f5f3; }
+html.dark .section-label,html.dark .result-total,html.dark .store-choice,html.dark .scope-chip,
+html.dark .scope-tile,html.dark .screen-row { color: #d5d5d6; }
+html.dark .scope-tile,html.dark .scope-chip,html.dark .store-choice,html.dark .screen-row,
+html.dark .outline-button,html.dark .edit-form input,html.dark .edit-form select,html.dark .assignment-row {
+  background: #242426; border-color: #47474a; color: #ededed;
+}
+html.dark .scope-tile:hover,html.dark .scope-chip:hover,html.dark .store-choice:hover,html.dark .screen-row:hover,
+html.dark .outline-button:hover { background: #303033; }
+html.dark .scope-tile.selected,html.dark .scope-chip.selected,html.dark .store-choice.selected,
+html.dark .screen-row.selected { background: #3a2329; border-color: #e45268; color: #fff; box-shadow: inset 0 0 0 1px #e45268; }
+html.dark .search-box,html.dark .screen-mini,html.dark .admin-column-head button,html.dark .group-chip span,
+html.dark .side-hint { background: #29292c; border-color: #48484b; color: #b3b3b6; }
+html.dark .search-box input { color: #f5f5f3; }
+html.dark .sample-note { background: #2b2520; border-color: #66503a; color: #e2d1b7; }
+html.dark .primary-button { background: #f5f5f3; border-color: #f5f5f3; color: #151515; }
+html.dark .primary-button:hover { background: #dededc; }
+html.dark .controller-bar { background: #09090a; border-top: 1px solid #414144; }
+html.dark .controller-bar select { background: #242426; }
+html.dark .app-shell-monitor .topbar { border-top-color: #d9233e; }
+html.dark .edit-dialog { background: #222224; color: #f4f4f4; border-color: #454548; }
+html.dark .edit-form input,html.dark .edit-form select { background: #29292c; }
+html.dark .group-name { color: #f5f5f3; }
+html.dark .admin-item { border-color: #454548; background: #262628; }
+
+/* The monitoring wall can be light as well as dark. */
+html:not(.dark) .app-shell-monitor { background: #f5f5f3; color: #171717; }
+html:not(.dark) .app-shell-monitor .topbar { background: #fff; border-color: #e4e4e2; border-top-color: #171717; }
+html:not(.dark) .app-shell-monitor .brand-name { color: #171717; }
+html:not(.dark) .monitor-heading p,html:not(.dark) .monitor-count,html:not(.dark) .wall-progress,
+html:not(.dark) .wall-disclaimer { color: #686868; }
+html:not(.dark) .monitor-count strong,html:not(.dark) .wall-empty h2 { color: #171717; }
+html:not(.dark) .screen-card { background: #fff; border-color: #dededc; }
+html:not(.dark) .screen-viewport { background: linear-gradient(125deg,#ededeb,#f8f8f7 55%,#e8e8e6); }
+html:not(.dark) .screen-placeholder,html:not(.dark) .placeholder-ring { color: #8a8a8a; border-color: #d1d1cf; }
+html:not(.dark) .screen-status { background: #fff; border-color: #d1d1cf; color: #565656; }
+html:not(.dark) .screen-status-source { background: #fff3f5; border-color: #d9233e; color: #a91930; }
+html:not(.dark) .screen-caption strong { color: #171717; }
+html:not(.dark) .screen-caption span,html:not(.dark) .screen-caption a { color: #686868; }
+html:not(.dark) .icon-button,html:not(.dark) .wall-pager button { background: #fff; border-color: #d8d8d6; color: #292929; }
+html:not(.dark) .icon-button:hover,html:not(.dark) .wall-pager button:hover { background: #f0f0ee; }
+html:not(.dark) .progress-track { background: #d8d8d6; }
+html:not(.dark) .wall-empty { color: #626262; }
+html:not(.dark) .wall-empty a { color: #c52038; }
+@media(max-width:850px) {
+  .topbar { height: auto; }
+  .workspace-theme-toggle { order: 2; margin-left: auto; }
+  .topbar-right { display: none; }
+}
+@media(max-width:600px) {
+  .theme-toggle { min-width: 38px; width: 38px; padding: 0; }
+  .theme-toggle span { display: none; }
+}

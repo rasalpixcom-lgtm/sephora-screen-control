@@ -33,7 +33,8 @@ After identity is active, test denied access for anonymous, wall, and controller
 
 - React 19, Vinext/Next-compatible routes, TypeScript, and Shadcn UI primitives.
 - Cloudflare Worker and D1 for server routes and storage.
-- Responsive CSS with system UI fonts (San Francisco on Apple devices where available).
+- Responsive CSS with a Helvetica Neue/Arial-style system font stack.
+- Sephora-inspired black, white, and red visual theme. Light and dark modes follow the device setting until a user switches modes; that choice is saved locally on that device. The application does not bundle a proprietary Sephora font or logo asset.
 
 Install with `npm install`. Use `npm run dev -- --port 5174` for this project because ports **5000 and 5173** belong to other projects. `npx tsc --noEmit` checks types and `npm run build` creates the deployable Worker. D1 schema migrations are in `drizzle/`.
 
