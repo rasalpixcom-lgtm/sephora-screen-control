@@ -25,7 +25,7 @@ After identity is active, test denied access for anonymous, wall, and controller
 - Admin saves country → region → location → screen, plus groups containing screens from any location.
 - Each screen may have an HTTPS OnSign preview URL. Empty links show a clear placeholder.
 - A saved preview URL means only that a source is configured. It does **not** establish that the OnSign player is online. Player health requires an OnSign API or heartbeat integration.
-- The preview appears in an iframe only if OnSign permits embedding on the deployment domain. Confirm the actual link format and iframe behavior with a real link before rollout.
+- The preview appears in an iframe only if OnSign permits embedding on the deployment domain. Standard `https://app.onsign.tv/embed/…` links are framed in the wall card to hide the embed page's title and update timer while retaining the signage canvas. Other preview URLs keep their full frame. This framing depends on OnSign's current embed layout, so verify it again if OnSign changes that page.
 - Inventory, group membership, shared wall selection, and recent activity persist in D1. Activity currently records changes but is not a compliance-grade immutable audit system.
 - Sample items in the current database are labeled `Sample data`; remove or replace them before operational use. New empty databases start empty.
 
@@ -33,7 +33,7 @@ After identity is active, test denied access for anonymous, wall, and controller
 
 - React 19, Vinext/Next-compatible routes, TypeScript, and Shadcn UI primitives.
 - Cloudflare Worker and D1 for server routes and storage.
-- Responsive CSS with the browser's system UI font. Apple devices use their native San Francisco family when available; no font files are bundled.
+- Responsive CSS with self-hosted Inter Variable across Admin, Controller, and Monitor. It has an Apple-like UI feel and stays consistent on Windows, iPad, and Mac. No proprietary Apple font files are bundled.
 - Sephora-inspired black, white, and red visual theme. Admin and Controller support light and dark modes. The wall has Dark, Dim, and Soft light appearances saved locally on each display device. The application does not bundle a proprietary Sephora font or logo asset.
 
 Install with `npm install`. Use `npm run dev -- --port 5174` for this project because ports **5000 and 5173** belong to other projects. `npx tsc --noEmit` checks types and `npm run build` creates the deployable Worker. D1 schema migrations are in `drizzle/`.

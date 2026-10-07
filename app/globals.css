@@ -363,7 +363,7 @@ html .app-shell-monitor[data-wall-theme] {
   --wall-shadow: 0 12px 30px rgba(0,0,0,.16);
   background: var(--wall-background);
   color: var(--wall-text);
-  font-family: -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable","Segoe UI",Arial,sans-serif;
+  font-family: var(--font-sans);
   font-synthesis: none;
 }
 html .app-shell-monitor[data-wall-theme="dim"] {
@@ -423,3 +423,20 @@ html .app-shell-monitor[data-wall-theme] .wall-empty h2 { color: var(--wall-text
   html .app-shell-monitor[data-wall-theme] .monitor-heading h1 { font-size: 12px; }
   html .app-shell-monitor[data-wall-theme] .wall-grid { margin-top: 10px; }
 }
+
+/* OnSign's /embed/ page includes its own title and update timer. Render that page
+   at twice the card width, then frame just its 16:9 canvas in the wall card. */
+.app-shell-monitor .screen-viewport-onsign iframe {
+  position: absolute;
+  top: -30px;
+  left: -1px;
+  width: 200%;
+  height: calc(200% + 104px);
+  max-width: none;
+  transform: scale(.504);
+  transform-origin: top left;
+}
+
+/* Inter is bundled with the app so every operating system uses the same UI typeface. */
+:root { --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
+.brand-name { font-family: var(--font-sans); }

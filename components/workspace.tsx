@@ -41,9 +41,18 @@ function matchingScreens(state: State, selection: Selection) {
   });
 }
 
+function isOnSignEmbed(url: string) {
+  try {
+    const source = new URL(url);
+    return source.protocol === "https:" && source.hostname === "app.onsign.tv" && source.pathname.startsWith("/embed/");
+  } catch {
+    return false;
+  }
+}
+
 function ScreenCard({ screen, entities }: { screen: Entity; entities: Entity[] }) {
   return <article className="screen-card">
-    <div className="screen-viewport">
+    <div className={`screen-viewport${screen.liveUrl && isOnSignEmbed(screen.liveUrl) ? " screen-viewport-onsign" : ""}`}>
       {screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="lazy" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
     </div>
     <div className="screen-caption"><div><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div></div>
