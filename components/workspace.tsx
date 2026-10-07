@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Pause, Play, Plus, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Palette, Pause, Play, Plus, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,6 +13,7 @@ import type { Display, Entity, EntityType, Member, Selection } from "@/lib/store
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type View = "controller" | "admin" | "monitor";
+type WallTheme = "dark" | "dim" | "soft";
 type WebModelContext = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => Promise<unknown> }, options: { signal: AbortSignal }) => void | Promise<void> };
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" } };
 const labels: Record<EntityType, string> = { country: "Country", region: "Region", store: "Store / mall", screen: "Screen", group: "Group" };
@@ -48,8 +50,32 @@ function ScreenCard({ screen, entities }: { screen: Entity; entities: Entity[] }
   </article>;
 }
 
+const wallThemes: { id: WallTheme; label: string }[] = [
+  { id: "dark", label: "Dark" },
+  { id: "dim", label: "Dim" },
+  { id: "soft", label: "Soft light" },
+];
+
+function WallAppearance({ theme, onChange }: { theme: WallTheme; onChange: (theme: WallTheme) => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setOpen(false); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeOnEscape); };
+  }, [open]);
+  return <div className="wall-appearance" ref={menuRef}>
+    <button type="button" className="icon-button monitor-icon" onClick={() => setOpen((current) => !current)} aria-label={`Wall appearance: ${wallThemes.find((option) => option.id === theme)?.label}`} aria-expanded={open} aria-controls="wall-theme-menu" title="Wall appearance"><Palette size={18}/></button>
+    {open && <div className="wall-theme-menu" id="wall-theme-menu" role="menu" aria-label="Wall appearance">{wallThemes.map((option) => <button key={option.id} type="button" role="menuitemradio" aria-checked={theme === option.id} onClick={() => { onChange(option.id); setOpen(false); }}><span className={`wall-theme-swatch wall-theme-swatch-${option.id}`}/><span>{option.label}</span><span className="wall-theme-check" aria-hidden="true">{theme === option.id ? "✓" : ""}</span></button>)}</div>}
+  </div>;
+}
+
 export default function Workspace({ view }: { view: View }) {
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
   const [state, setState] = useState<State>(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -57,6 +83,7 @@ export default function Workspace({ view }: { view: View }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(6);
   const [localPause, setLocalPause] = useState(false);
+  const [wallTheme, setWallTheme] = useState<WallTheme>("dark");
   const [dialog, setDialog] = useState<{ type: EntityType; item?: Entity } | null>(null);
   const [draft, setDraft] = useState({ name: "", parentId: "", liveUrl: "" });
   const [assignGroup, setAssignGroup] = useState<string | null>(null);
@@ -83,6 +110,11 @@ export default function Workspace({ view }: { view: View }) {
   }, []);
 
   useEffect(() => { void load(true); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => {
+    if (view !== "monitor") return;
+    const saved = window.localStorage.getItem("sephora-wall-theme");
+    setWallTheme(saved === "dark" || saved === "dim" || saved === "soft" ? saved : resolvedTheme === "light" ? "soft" : "dark");
+  }, [view, resolvedTheme]);
   useEffect(() => {
     if (view !== "monitor" || loading || !allScreens.length) return;
     const grid = wallGridRef.current;
@@ -153,6 +185,7 @@ export default function Workspace({ view }: { view: View }) {
     if (pending.current) return;
     void mutate({ action: "display", selection: next, autoAdvance: options?.autoAdvance ?? display.autoAdvance, intervalSeconds: options?.intervalSeconds ?? display.intervalSeconds });
   };
+  const changeWallTheme = (theme: WallTheme) => { window.localStorage.setItem("sephora-wall-theme", theme); setWallTheme(theme); };
   const byType = (type: EntityType, parentId?: string) => state.entities.filter((item) => item.type === type && (parentId === undefined || item.parentId === parentId));
   const country = state.entities.find((item) => item.id === selection.countryId);
   const region = state.entities.find((item) => item.id === selection.regionId);
@@ -175,11 +208,11 @@ export default function Workspace({ view }: { view: View }) {
     await mutate({ action: "delete", id: item.id });
   }
 
-  return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`}>
+  return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`} data-wall-theme={view === "monitor" ? wallTheme : undefined}>
     {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link><Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link></nav><ThemeToggle className="workspace-theme-toggle"/><div className="topbar-right"><span className="workspace-dot"/> CENTRAL WORKSPACE <span className="topbar-time">{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dubai" }).format(new Date())} GST</span></div></header>}
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
-      <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions"><ThemeToggle className="monitor-theme-toggle"/>{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
+      <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions"><WallAppearance theme={wallTheme} onChange={changeWallTheme}/>{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
       {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>No screens selected</h2><Link href="/controller">Open controller</Link></div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a screen group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>

@@ -8,7 +8,7 @@ Central screen inventory, remote wall controller, and view-only monitoring wall.
 | --- | --- | --- |
 | `/admin` | Dashboard and sidebar for screens, countries, regions, locations, groups, activity, access, and settings | Admin |
 | `/controller` | Choose a country, then one of its regions, then a location and its screens; or choose a cross-store group; set rotation | Controller |
-| `/monitor` | Display the selected live previews; rotate through up to six cards per page | Dedicated wall device |
+| `/monitor` | Display the selected live previews; fit a fixed-size grid to the wall display and rotate through additional pages | Dedicated wall device |
 
 These are three routes in **one application**, connected to **one Cloudflare D1 database**. A controller change is saved to `display_state`; the wall reads that state every three seconds. Screens are loaded only for the visible wall page so a large inventory does not mount hundreds of iframes at once.
 
@@ -34,7 +34,7 @@ After identity is active, test denied access for anonymous, wall, and controller
 - React 19, Vinext/Next-compatible routes, TypeScript, and Shadcn UI primitives.
 - Cloudflare Worker and D1 for server routes and storage.
 - Responsive CSS with the browser's system UI font. Apple devices use their native San Francisco family when available; no font files are bundled.
-- Sephora-inspired black, white, and red visual theme. Light and dark modes follow the device setting until a user switches modes; that choice is saved locally on that device. The application does not bundle a proprietary Sephora font or logo asset.
+- Sephora-inspired black, white, and red visual theme. Admin and Controller support light and dark modes. The wall has Dark, Dim, and Soft light appearances saved locally on each display device. The application does not bundle a proprietary Sephora font or logo asset.
 
 Install with `npm install`. Use `npm run dev -- --port 5174` for this project because ports **5000 and 5173** belong to other projects. `npx tsc --noEmit` checks types and `npm run build` creates the deployable Worker. D1 schema migrations are in `drizzle/`.
 
