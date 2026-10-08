@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowUpRight, CircleHelp, ClipboardList, ExternalLink, Globe2, LayoutDashboard, Layers3, LogOut, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Users, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowUpRight, CircleHelp, ClipboardList, ExternalLink, Globe2, LayoutDashboard, Layers3, LogOut, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -24,11 +24,11 @@ import "./admin-dashboard.css";
 
 type State = { entities: Entity[]; members: Member[]; display: Display; activity: Activity[] };
 
-export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "access" | "settings";
+export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "settings";
 
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", access: "Access", settings: "Settings" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", settings: "Settings" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
@@ -44,7 +44,7 @@ const navigation = [
 
   { id: "locations", icon: MapPin }, { id: "groups", icon: Layers3 },
 
-  { id: "activity", icon: ClipboardList }, { id: "access", icon: Users },
+  { id: "activity", icon: ClipboardList },
 
   { id: "settings", icon: Settings2 },
 
@@ -196,7 +196,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
     locations: "Stores and malls where screens are installed.", groups: "Combine similar screens across locations.",
 
-    activity: "Recent changes to screens, groups, and the monitoring wall.", access: "Who can use this workspace.",
+    activity: "Recent changes to screens, groups, and the monitoring wall.",
 
     settings: "Preview links and monitoring wall behavior.",
 
@@ -234,9 +234,8 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
         {section === "activity" && <section className="adm-panel"><div className="adm-activity-list">{state.activity.map((entry) => <div key={entry.id}><span className="adm-activity-icon"><ActivityIcon size={17}/></span><div><strong>{entry.action.charAt(0).toUpperCase() + entry.action.slice(1)} {entry.entityName || ""}</strong><small>{entry.actor}</small></div><time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Dubai" })}</time></div>)}{!state.activity.length && <div className="adm-empty">Changes will appear here after the first edit.</div>}</div></section>}
 
-        {section === "access" && <div className="adm-info-grid"><section className="adm-panel adm-info-card"><ShieldCheck size={28}/><h2>Current access</h2><p>Only the workspace owner can access this preview. Staff email/password sign-in is not configured yet.</p><div className="adm-info-line"><span>Current session</span><strong>{accountEmail || "Private owner"}</strong></div><div className="adm-info-line"><span>Staff sign-in</span><strong>Not configured</strong></div></section><section className="adm-panel adm-info-card"><Users size={28}/><h2>Roles for team rollout</h2><ul><li><strong>Admin</strong> — manage locations, screens, and groups</li><li><strong>Controller</strong> — wall selection and rotation</li><li><strong>Wall device</strong> — monitoring view only</li></ul></section></div>}
 
-        {section === "settings" && <div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller's selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div>}
+        {section === "settings" && <><div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller's selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div><section className="adm-panel adm-signin-status" aria-label="Sign-in status"><ShieldCheck size={20}/><div><h2>Staff sign-in is not configured</h2><p>This preview is owner-only. Email/password sign-in and staff roles are required before team rollout.</p></div></section></>}
 
       </>}
 

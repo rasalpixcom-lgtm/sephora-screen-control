@@ -427,6 +427,10 @@ html.dark .adm-error { background:#2b191d; color:#efbbc3; border-color:#78414b; 
 .adm-list-toolbar>span,.adm-assignment-count { color:var(--work-muted); font-size:13px; white-space:nowrap; }
 .adm-table th { position:relative; }
 .adm-group-card-heading { margin-top:0; }
+.adm-signin-status { margin-top:20px; padding:20px 24px; display:flex; align-items:flex-start; gap:12px; }
+.adm-signin-status>svg { flex:none; color:var(--work-muted); margin-top:2px; }
+.adm-signin-status h2 { font-size:15px; font-weight:500; margin:0 0 5px; }
+.adm-signin-status p { font-size:13px; line-height:1.5; margin:0; }
 .adm-dialog .adm-search { min-width:0; width:100%; }
 .adm-dialog { max-height:calc(100dvh - 32px); overflow:auto; padding:24px; }
 .adm-dialog [data-slot="dialog-header"] { text-align:left; padding-right:16px; }
