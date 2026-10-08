@@ -440,3 +440,33 @@ html .app-shell-monitor[data-wall-theme] .wall-empty h2 { color: var(--wall-text
 /* Inter is bundled with the app so every operating system uses the same UI typeface. */
 :root { --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
 .brand-name { font-family: var(--font-sans); }
+
+/* Shared workspace palette; the monitoring wall has its own display themes. */
+:root {
+  --work-bg: #e2e6ea;
+  --work-surface: #edf0f2;
+  --work-soft: #eceff2;
+  --work-line: #d3d9df;
+  --work-text: #252c34;
+  --work-muted: #5c6773;
+  --work-quiet: #687480;
+  --work-selected: #e0e6ec;
+  --work-selection-line: #8998a8;
+  --work-action: #384653;
+  --work-action-text: #f5f7f9;
+  --work-shadow: 0 2px 8px rgba(27,38,49,.035);
+}
+html.dark {
+  --work-bg: #191d23;
+  --work-surface: #242a32;
+  --work-soft: #2b323b;
+  --work-line: #3b4551;
+  --work-text: #e4e8ed;
+  --work-muted: #b0bbc7;
+  --work-quiet: #9daab8;
+  --work-selected: #333f4b;
+  --work-selection-line: #718496;
+  --work-action: #acb9c7;
+  --work-action-text: #202832;
+  --work-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
