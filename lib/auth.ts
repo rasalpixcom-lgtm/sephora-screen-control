@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/d1";
 import { headers } from "next/headers";
@@ -22,7 +23,7 @@ export function auth() {
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60, customRules: { "/sign-in/email": { window: 60, max: 5 }, "/change-password": { window: 60, max: 5 } } },
     databaseHooks: { session: { create: { before: async (session) => {
       const user = await database().prepare("SELECT role, disabled FROM auth_user WHERE id = ?").bind(session.userId).first<{role:string;disabled:number}>();
-      if (!user || user.disabled || !roles.includes(user.role as AuthUser["role"])) return false;
+      if (!user || user.disabled || !roles.includes(user.role as AuthUser["role"])) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password" });
       return { data: { ...session, expiresAt: new Date(Date.now() + (user.role === "wall" ? 30 * 86400 : 8 * 3600) * 1000) } };
     } } } },
   });
@@ -43,5 +44,4 @@ export async function requirePage(page: "admin" | "controller" | "monitor") {
 }
 export function sameOrigin(request: Request) { return !!env.AUTH_URL && request.headers.get("origin") === new URL(env.AUTH_URL).origin; }
 export async function tokenHash(token: string) { return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)))).map((n) => n.toString(16).padStart(2, "0")).join(""); }
-export function newToken() { return Array.from(crypto.getRandomValues(new Uint8Array(32))).map((n) => n.toString(16).padStart(2, "0")).join(""); }
 export async function auditUser(action: string, target: string, actor: string) { await database().prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, 'user', NULL, ?, ?, ?)").bind(crypto.randomUUID(), action, target, actor, new Date().toISOString()).run(); }

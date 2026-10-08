@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { hashPassword } from "@/lib/password";
-import { auditUser, sameOrigin, tokenHash } from "@/lib/auth";
+import { sameOrigin, tokenHash } from "@/lib/auth";
 import { validPassword } from "@/lib/auth-policy";
 import { database } from "@/lib/store";
 export const runtime = "edge";
@@ -20,8 +20,8 @@ export async function POST(request: Request) {
       db.prepare("INSERT INTO auth_bootstrap (id) VALUES ('main')"),
       db.prepare("INSERT INTO auth_user (id, name, email, email_verified, created_at, updated_at, role, disabled) SELECT ?, 'Administrator', ?, 0, ?, ?, 'admin', 0 WHERE NOT EXISTS (SELECT 1 FROM auth_user)").bind(id, env.AUTH_ADMIN_EMAIL.toLowerCase(), now, now),
       db.prepare("INSERT INTO auth_account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES (?, ?, 'credential', ?, ?, ?, ?)").bind(crypto.randomUUID(), id, id, password, now, now),
+      db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, 'created first Admin', 'user', NULL, ?, ?, ?)").bind(crypto.randomUUID(), env.AUTH_ADMIN_EMAIL, env.AUTH_ADMIN_EMAIL, new Date(now).toISOString()),
     ]);
   } catch { return Response.json({ error: "An Admin account is already configured." }, { status: 409 }); }
-  await auditUser("created first Admin", env.AUTH_ADMIN_EMAIL, env.AUTH_ADMIN_EMAIL);
   return Response.json({ success: true }, { headers: { "Cache-Control": "no-store" } });
 }

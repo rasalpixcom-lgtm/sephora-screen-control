@@ -11,7 +11,7 @@ const token = crypto.randomBytes(32).toString("hex"); const password = crypto.ra
 const mf = new Miniflare({ modules: [{type: "ESModule", path: path.join(root,"dist/server/index.js")}, ...fs.readdirSync("dist/server",{recursive:true}).filter(p=>p.endsWith(".js") && p!=="index.js").map(p=>({type:"ESModule",path:path.join(root,"dist/server",p)}))], compatibilityDate:"2026-05-15", compatibilityFlags:["nodejs_compat"], d1Databases:{DB:run}, bindings:{AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_URL:origin, AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),AUTH_ADMIN_EMAIL:"admin@example.test"} });
 const db=await mf.getD1Database("DB");
 for(const migration of fs.readdirSync("drizzle").filter(p=>p.endsWith(".sql")).sort()) { const sql=fs.readFileSync(path.join("drizzle",migration),"utf8").replaceAll("--> statement-breakpoint",""); await db.exec(sql.replaceAll("\n"," ").replaceAll("\r"," ")); }
-let logs="";
+
 let checks = 0;
 function check(condition, name) { assert.ok(condition, name); checks++; console.log(`PASS ${name}`); }
 async function request(route, body, cookie = "", extra = {}) { return mf.dispatchFetch(origin + route, { method: body === undefined ? "GET" : "POST", headers: { Origin: origin, "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "manual" }); }
@@ -20,10 +20,15 @@ try {
   check((await request("/api/state")).status === 401, "anonymous inventory is blocked");
   check((await request("/admin")).status === 307, "anonymous Admin redirects to login");
   check((await request("/api/auth/sign-up/email", { email: "intruder@example.test", password, name: "Intruder", role: "admin" })).status === 404, "public registration is unavailable");
+  check((await request("/api/auth/get-session")).status === 404, "unused raw session endpoint is unavailable");
+  check((await request("/activate")).status === 200 && (await (await request("/activate")).text()).includes("admin@example.test"), "first Admin form shows the configured login ID");
   check((await request("/api/activate", { token, password }, "", { Origin: "https://attacker.test" })).status === 403, "cross-origin setup is rejected");
-  const setup = await request("/api/activate", { token, password });
-  if (setup.status !== 200) { await new Promise((r) => setTimeout(r, 1000)); console.log("Setup diagnostic:", setup.status, await setup.text(), logs.split("\n").filter((l) => !l.includes("│") && !l.includes("─") && !l.includes("└") && !l.includes("┌") && !l.includes("┼")).slice(-40).join("\n")); }
-  check(setup.status === 200, "first Admin setup succeeds");
+  check((await request("/api/activate", { token: "0".repeat(64), password })).status === 400, "incorrect setup tokens are rejected");
+  check((await request("/api/activate", { token, password: "short" })).status === 400, "first Admin setup rejects weak passwords");
+  const competingSetups = await Promise.all([request("/api/activate", { token, password }), request("/api/activate", { token, password })]);
+  const setup = competingSetups.find((response) => response.status === 200);
+  check(competingSetups.filter((response) => response.status === 200).length === 1 && (await db.prepare("SELECT COUNT(*) AS count FROM auth_user").first()).count === 1, "concurrent setup creates exactly one first Admin");
+  check(setup?.status === 200, "first Admin setup succeeds");
   check((await request("/api/activate", { token, password })).status === 400, "setup token cannot be reused");
   const admin = await login("admin@example.test"); check(admin.response.status === 200 && admin.cookie.includes("session_token"), "Admin receives a session cookie");
   check(admin.response.headers.getSetCookie().some((c) => /HttpOnly/i.test(c) && /SameSite=Lax/i.test(c)), "session cookies are HttpOnly and SameSite");
@@ -55,7 +60,7 @@ try {
   check((await request("/api/users", { action: "update", id: self.id, role: "wall", disabled: false }, admin.cookie)).status === 400, "Admin cannot remove own Admin access");
   check((await request("/api/users", { action: "update", id: c.id, role: "controller", disabled: true }, admin.cookie)).status === 200, "Admin can disable staff");
   check((await request("/api/state", undefined, controller.cookie)).status === 401, "disabling revokes existing sessions immediately");
-  check((await login(c.email, password, "192.0.2.13")).response.status !== 200, "disabled credentials cannot sign in");
+  check((await login(c.email, password, "192.0.2.13")).response.status === 401, "disabled credentials receive a normal login rejection");
   const replacement = crypto.randomBytes(24).toString("base64url");
   check((await request("/api/users", { action: "reset", id: w.id, password: replacement }, admin.cookie)).status === 200, "Admin can set a new password without email");
   check((await request("/api/state", undefined, wall.cookie)).status === 401, "password reset revokes existing sessions");
@@ -63,8 +68,10 @@ try {
   const newWall = await login(w.email, replacement, "192.0.2.15"); check(newWall.response.status === 200, "new password works");
   check((await request("/api/auth/sign-out", {}, newWall.cookie)).status === 200 && (await request("/api/state", undefined, newWall.cookie)).status === 401, "sign-out invalidates the server session");
   const passwordChange = await login(w.email, replacement, "192.0.2.16"); const nextPassword = crypto.randomBytes(24).toString("base64url");
+  const otherWallSession = await login(w.email, replacement, "192.0.2.22");
   check((await request("/api/auth/change-password", { currentPassword: "wrong-password", newPassword: nextPassword, revokeOtherSessions: true }, passwordChange.cookie)).status === 400, "self password changes require the current password");
-  check((await request("/api/auth/change-password", { currentPassword: replacement, newPassword: nextPassword, revokeOtherSessions: true }, passwordChange.cookie)).status === 200, "Wall device can change its own password");
+  check((await request("/api/auth/change-password", { currentPassword: replacement, newPassword: nextPassword, revokeOtherSessions: false }, passwordChange.cookie)).status === 200, "Wall device can change its own password");
+  check((await request("/api/state", undefined, otherWallSession.cookie)).status === 401, "password changes revoke other sessions even if a client requests otherwise");
   check((await login(w.email, replacement, "192.0.2.17")).response.status === 401 && (await login(w.email, nextPassword, "192.0.2.18")).response.status === 200, "self password change replaces credentials");
   await db.prepare("UPDATE auth_session SET expires_at = 0 WHERE user_id = ?").bind(w.id).run();
   check((await request("/api/state", undefined, passwordChange.cookie)).status === 401, "expired sessions cannot access inventory");
