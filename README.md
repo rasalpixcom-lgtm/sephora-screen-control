@@ -21,7 +21,7 @@ npm run dev
 
 The development URL is http://127.0.0.1:5174. Other projects' ports 5000 and 5173 remain available. The migrated local PostgreSQL database uses port 55432 in the separate sephora-server-postgres Docker container. Its credentials are stored in ignored local files.
 
-The current production-mode LAN test server uses http://192.168.2.131:5174. See LAN-TESTING.md for access from PCs/iPads and the scoped firewall configuration.
+The current production-mode LAN test server supports http://localhost:5174 on this PC and http://192.168.2.131:5174 from other devices. See LAN-TESTING.md for the explicit login origins and scoped firewall configuration.
 
 For a production build:
 ```powershell

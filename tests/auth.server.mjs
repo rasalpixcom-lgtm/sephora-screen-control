@@ -25,9 +25,10 @@ await new Promise(resolve => probe.listen(0, testHost, resolve));
 const port = probe.address().port;
 await new Promise(resolve => probe.close(resolve));
 const origin = "http://" + testHost + ":" + port;
+const aliasOrigin = "http://localhost:" + port;
 const token = crypto.randomBytes(32).toString("hex");
 const password = crypto.randomBytes(24).toString("base64url");
-const server = spawn(process.execPath, [path.join(root, ".next/standalone/server.js")], { cwd:root, env:{...process.env, PORT:String(port), HOSTNAME:testHost, ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"}, stdio:["ignore","pipe","pipe"] });
+const server = spawn(process.execPath, [path.join(root, ".next/standalone/server.js")], { cwd:root, env:{...process.env, PORT:String(port), HOSTNAME:"0.0.0.0", ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:aliasOrigin, AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"}, stdio:["ignore","pipe","pipe"] });
 let logs = "";
 server.stdout.on("data", data => { logs += data; }); server.stderr.on("data", data => { logs += data; });
 let ready = false;
@@ -59,6 +60,14 @@ try {
   const admin = await login("admin@example.test"); check(admin.response.status === 200 && admin.cookie.includes("session_token"), "Admin receives a session cookie");
   check(admin.response.headers.getSetCookie().some((c) => /HttpOnly/i.test(c) && /SameSite=Lax/i.test(c)), "session cookies are HttpOnly and SameSite");
   check((await request("/api/users", undefined, admin.cookie)).status === 200, "Admin can list accounts");
+  const aliasLogin = await fetch(aliasOrigin + "/api/auth/sign-in/email", { method: "POST", headers: { Origin: aliasOrigin, "Content-Type": "application/json", "x-forwarded-for": "192.0.2.91" }, body: JSON.stringify({ email: "admin@example.test", password }) });
+  check(aliasLogin.status === 200, "localhost alias can sign in with the same account");
+  const aliasCookie = aliasLogin.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+  check(!aliasLogin.headers.getSetCookie().some(value => /;\s*Domain=/i.test(value)), "alias login keeps cookies scoped to its browser host");
+  for (const page of ["/admin", "/controller", "/monitor"]) check((await fetch(aliasOrigin + page, { headers: { Cookie: aliasCookie }, redirect: "manual" })).status === 200, "localhost renders " + page);
+  const aliasWrite = await fetch(aliasOrigin + "/api/state", { method: "POST", headers: { Origin: aliasOrigin, Cookie: aliasCookie, "Content-Type": "application/json" }, body: JSON.stringify({ action: "display", selection: {}, intervalSeconds: 15 }) });
+  check(aliasWrite.status === 200 && (await (await request("/api/state", undefined, admin.cookie)).json()).display.intervalSeconds === 15, "localhost changes reach the same wall state through the primary address");
+  check((await request("/api/state", { action: "display", selection: {} }, admin.cookie, { Origin: aliasOrigin })).status === 403, "writes cannot cross between otherwise allowed hosts");
   for (const page of ["/admin", "/admin/screens", "/admin/countries", "/admin/regions", "/admin/locations", "/admin/groups", "/admin/activity", "/admin/settings", "/admin/users", "/controller", "/monitor", "/account"]) {
     check((await request(page, undefined, admin.cookie)).status === 200, `Admin route renders: ${page}`);
   }
