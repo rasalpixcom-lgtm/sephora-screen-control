@@ -293,3 +293,24 @@ html.dark .ctrl-source { color: #e5b881; }
 .ctrl-search:focus-within { border-color:var(--work-focus); box-shadow:0 0 0 2px var(--work-selected); }
 .ctrl-search input::placeholder { color:var(--work-quiet); opacity:1; }
 .ctrl-rotation [data-slot="switch"][data-state="unchecked"] { border:1px solid var(--work-focus); }
+
+/* Controller-only emerald palette. Admin continues to use its existing tokens. */
+.app-shell:has(.ctrl) {
+  --work-selected:#d8e8df; --work-selection-line:#227857; --work-focus:#227857;
+  --work-action:#17664f; --work-action-text:#f4faf7;
+  --card-selected:#d8e8df; --card-ring:#227857; --card-hover:#227857;
+}
+html.dark .app-shell:has(.ctrl) {
+  --work-bg:#0c1012; --work-surface:#111719; --work-soft:#1b2425;
+  --work-line:#2d3a36; --work-text:#edf3ef; --work-muted:#b5c2bc; --work-quiet:#a8b7af;
+  --work-selected:#173127; --work-selection-line:#39b88d; --work-focus:#63cba5;
+  --work-action:#39b88d; --work-action-text:#091c15;
+  --card-fill:#111719; --card-line:#2d3a36; --card-hover:#508c72;
+  --card-selected:#173127; --card-ring:#39b88d;
+  --card-heading:#edf3ef; --card-muted:#b5c2bc;
+  --card-shadow:0 6px 20px rgba(0,0,0,.12);
+}
+.app-shell:has(.ctrl) .topnav a.active { border-color:var(--work-selection-line); color:var(--work-text); }
+.ctrl-option.selected>svg:last-child,.ctrl-mode button.active>svg { color:var(--work-selection-line); }
+.ctrl-source,.ctrl-source.ready,html.dark .ctrl-source,html.dark .ctrl-source.ready { border-color:var(--work-muted); }
+.app-shell:has(.ctrl) .workspace-dot { background:var(--work-muted); }

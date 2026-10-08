@@ -50,3 +50,7 @@ Install with `npm install`. Use `npm run dev -- --port 5174` for this project be
 - Preserved the Outfit typography and charcoal/gray palette. Secondary labels and form hints use shared readable colors; preview badges have consistent 12px text and solid/dashed outlines. Selected cards have an outlined state, and keyboard focus uses a visible 2px ring.
 - Checked text colors against the relevant solid surfaces and gradient endpoints: light secondary card text has a minimum ratio of 4.59:1, dark secondary card text 6.26:1, and revised light quiet text 4.60:1 on the tested page/control surfaces. Focus colors have a minimum ratio of 3.25:1 on the tested surfaces. These are targeted color checks, not a full accessibility certification.
 - Visually checked light Controller selections, light Admin form hints and keyboard focus, and dark Admin preview badges.
+
+### Controller and Monitor emerald preview
+
+Controller dark mode and Monitor Dark appearance use near-black backgrounds (#0c1012), flat black cards (#111719), and restrained emerald accents (#39b88d). Controller light mode retains muted gray surfaces with a deeper green accent. Admin colors remain unchanged. Fonts, card shapes, hierarchy, live previews, and wall paging are preserved. Green denotes controls and selection; preview-link badges remain neutral and do not claim player health. Tested dark action text contrast is 7.08:1, secondary text on selected cards 7.58:1, and light action text 6.51:1.
