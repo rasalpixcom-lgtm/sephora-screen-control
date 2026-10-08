@@ -424,6 +424,24 @@ html.dark .adm-error { background:#2b191d; color:#efbbc3; border-color:#78414b; 
 .adm-wall-status strong { display:block; font-size:16px; font-weight:500; color:var(--work-text); line-height:1.4; }
 .adm-wall-rotation { font-size:13px; color:var(--work-muted); }
 .adm-metric .adm-metric-detail,html.dark .adm-metric .adm-metric-detail { display:block; margin-top:7px; font-style:normal; font-size:12px; line-height:1.4; color:var(--card-muted); }
+.adm-list-toolbar>span,.adm-assignment-count { color:var(--work-muted); font-size:13px; white-space:nowrap; }
+.adm-table th { position:relative; }
+.adm-group-card-heading { margin-top:0; }
+.adm-dialog .adm-search { min-width:0; width:100%; }
+.adm-dialog { max-height:calc(100dvh - 32px); overflow:auto; padding:24px; }
+.adm-dialog [data-slot="dialog-header"] { text-align:left; padding-right:16px; }
+.adm-assignment-list { min-height:80px; max-height: min(390px,40dvh); }
+.adm-group-screen-list span { flex-wrap:wrap; }
+.adm-activity-list>div>div { min-width:0; }
+.adm-activity-list strong,.adm-info-line strong { overflow-wrap:anywhere; }
+.adm-shell button:disabled,.adm-dialog button:disabled { opacity:.55; cursor:wait; }
+@media(max-width:600px) {
+  .adm-list-toolbar { padding:16px; flex-wrap:wrap; }
+  .adm-list-toolbar .adm-search { min-width:0; width:100%; }
+  .adm-activity-list>div { flex-wrap:wrap; }
+  .adm-activity-list time { width:100%; padding-left:47px; }
+  .adm-topbar .adm-breadcrumb { font-size:12px; }
+}
 @media(max-width:750px) { .adm-wall-status { flex-wrap:wrap; gap:10px; } .adm-wall-rotation { flex-basis:100%; padding-left:30px; } }
 @media(max-width:1000px) { .adm-overview { grid-template-columns:1fr; } }
 @media(max-width:600px) { .adm-content { padding:24px 16px 40px; } .adm-page-head h1 { font-size:28px; } .adm-command-card,.adm-readiness { padding:20px; } .adm-setup-action { font-size:12px; } .adm-breadcrumb { font-size:11px; } .adm-metric,.adm-metric:nth-child(4),html.dark .adm-metric,html.dark .adm-metric:nth-child(4) { min-height:100px; padding:16px; } }
