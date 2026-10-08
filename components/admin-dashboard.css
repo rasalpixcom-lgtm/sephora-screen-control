@@ -405,6 +405,14 @@ html.dark .adm-delete { color: #bf959e; }
 .adm-table th { font-size:12px; letter-spacing:.025em; }
 .adm-table td { font-size:14px; }
 .adm-row-actions button { min-height:40px; }
+.adm-wall-status { display:flex; align-items:center; gap:14px; padding:16px 0; margin:0 0 24px; border-top:1px solid var(--work-line); border-bottom:1px solid var(--work-line); }
+.adm-wall-status>svg { flex:none; color:var(--work-muted); }
+.adm-wall-status>div { flex:1; min-width:0; }
+.adm-wall-status>div>span { display:block; font-size:13px; color:var(--work-muted); margin-bottom:4px; }
+.adm-wall-status strong { display:block; font-size:16px; font-weight:500; color:var(--work-text); line-height:1.4; }
+.adm-wall-rotation { font-size:13px; color:var(--work-muted); }
+.adm-metric .adm-metric-detail,html.dark .adm-metric .adm-metric-detail { display:block; margin-top:7px; font-style:normal; font-size:12px; line-height:1.4; color:var(--card-muted); }
+@media(max-width:750px) { .adm-wall-status { flex-wrap:wrap; gap:10px; } .adm-wall-rotation { flex-basis:100%; padding-left:30px; } }
 @media(max-width:1000px) { .adm-overview { grid-template-columns:1fr; } }
 @media(max-width:600px) { .adm-content { padding:24px 16px 40px; } .adm-page-head h1 { font-size:28px; } .adm-command-card,.adm-readiness { padding:20px; } .adm-setup-action { font-size:12px; } .adm-breadcrumb { font-size:11px; } .adm-metric,.adm-metric:nth-child(4),html.dark .adm-metric,html.dark .adm-metric:nth-child(4) { min-height:100px; padding:16px; } }
 @media(max-width:600px) { .adm-content { padding: 25px 16px 48px; } .adm-page-head { align-items: flex-start; flex-wrap: wrap; gap: 14px; } .adm-page-head h1 { font-size: 30px; } .adm-private-pill { display: none; } .adm-breadcrumb { font-size: 9px; } .adm-topbar { padding: 0 16px; gap: 10px; } .adm-metric { min-height: 118px; } }
