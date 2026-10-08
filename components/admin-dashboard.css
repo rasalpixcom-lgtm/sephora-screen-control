@@ -405,6 +405,14 @@ html.dark .adm-delete { color: #bf959e; }
 .adm-table th { font-size:12px; letter-spacing:.025em; }
 .adm-table td { font-size:14px; }
 .adm-row-actions button { min-height:40px; }
+/* Consistent readable secondary text, statuses, and keyboard focus. */
+.adm-form label small,.adm-assignment-list small,.adm-empty,.adm-loading,html.dark .adm-form label small,html.dark .adm-assignment-list small,html.dark .adm-empty,html.dark .adm-loading { color:var(--work-muted); font-size:12px; line-height:1.5; }
+.adm-form input::placeholder { color:var(--work-quiet); opacity:1; }
+.adm-source-ready,.adm-source-missing,html.dark .adm-source-ready,html.dark .adm-source-missing { font-size:12px; font-weight:500; border:1px solid var(--work-selection-line); border-radius:999px; padding:5px 9px; color:var(--work-text); }
+.adm-source-missing,html.dark .adm-source-missing { color:var(--work-muted); border-style:dashed; }
+.adm-shell button:focus-visible,.adm-shell a:focus-visible,.adm-shell input:focus-visible,.adm-dialog button:focus-visible,.adm-dialog input:focus-visible,.adm-dialog select:focus-visible { outline:2px solid var(--work-focus); outline-offset:3px; }
+.adm-form input:focus,.adm-form select:focus { border-color:var(--work-focus); }
+.adm-nav-button[data-active="true"],html.dark .adm-nav-button[data-active="true"] { box-shadow:inset 3px 0 var(--work-focus); }
 .adm-wall-status { display:flex; align-items:center; gap:14px; padding:16px 0; margin:0 0 24px; border-top:1px solid var(--work-line); border-bottom:1px solid var(--work-line); }
 .adm-wall-status>svg { flex:none; color:var(--work-muted); }
 .adm-wall-status>div { flex:1; min-width:0; }

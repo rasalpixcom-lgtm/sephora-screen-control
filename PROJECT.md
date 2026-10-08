@@ -44,3 +44,9 @@ Install with `npm install`. Use `npm run dev -- --port 5174` for this project be
 2. Admin creates groups such as Cash table and assigns screens across locations.
 3. The wall device opens `/monitor` in full screen.
 4. A controller opens `/controller` on a laptop or tablet. In **By location**, the next level appears only after its parent is selected: country → region → location → screens. **Screen groups** is a separate choice for screens across stores. The wall reflects each saved selection within the polling interval.
+
+### Theme contrast refinement
+
+- Preserved the Outfit typography and charcoal/gray palette. Secondary labels and form hints use shared readable colors; preview badges have consistent 12px text and solid/dashed outlines. Selected cards have an outlined state, and keyboard focus uses a visible 2px ring.
+- Checked text colors against the relevant solid surfaces and gradient endpoints: light secondary card text has a minimum ratio of 4.59:1, dark secondary card text 6.26:1, and revised light quiet text 4.60:1 on the tested page/control surfaces. Focus colors have a minimum ratio of 3.25:1 on the tested surfaces. These are targeted color checks, not a full accessibility certification.
+- Visually checked light Controller selections, light Admin form hints and keyboard focus, and dark Admin preview badges.

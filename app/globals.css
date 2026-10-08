@@ -449,9 +449,10 @@ html .app-shell-monitor[data-wall-theme] .wall-empty h2 { color: var(--wall-text
   --work-line: #d3d9df;
   --work-text: #252c34;
   --work-muted: #5c6773;
-  --work-quiet: #687480;
+  --work-quiet: #5c6773;
   --work-selected: #e0e6ec;
-  --work-selection-line: #8998a8;
+  --work-selection-line: #64758a;
+  --work-focus: #64758a;
   --work-action: #384653;
   --work-action-text: #f5f7f9;
   --work-shadow: 0 2px 8px rgba(27,38,49,.035);
@@ -466,6 +467,7 @@ html.dark {
   --work-quiet: #9daab8;
   --work-selected: #333f4b;
   --work-selection-line: #718496;
+  --work-focus: #a4b2c6;
   --work-action: #acb9c7;
   --work-action-text: #202832;
   --work-shadow: 0 2px 8px rgba(0,0,0,.08);
@@ -475,9 +477,9 @@ html.dark {
 :root {
   --card-fill: linear-gradient(155deg,#f0f1f2 0%,#e4e6e8 100%);
   --card-line: #c9cdd2;
-  --card-hover: #d3d7dd;
+  --card-hover: #7d8b9d;
   --card-selected: linear-gradient(145deg,#dce1e8,#d0d7e0);
-  --card-ring: #7d8b9d;
+  --card-ring: #64758a;
   --card-heading: #25282d;
   --card-muted: #565d67;
   --card-shadow: inset 0 1px 0 rgba(255,255,255,.65),0 5px 15px rgba(25,30,40,.04);

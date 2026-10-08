@@ -282,3 +282,14 @@ html.dark .ctrl-source { color: #e5b881; }
 @media(max-width:600px) { .ctrl-live,.ctrl-panel,html.dark .ctrl-live,html.dark .ctrl-panel { border-radius:20px; } }
 @media(max-width:1100px) { .ctrl-live { flex-direction:column; align-items:stretch; } .ctrl-live-actions { justify-content:flex-start; } .ctrl-options { grid-template-columns:1fr; } }
 @media(max-width:750px) { .main-content:has(.ctrl) { padding:24px 16px 40px; } .ctrl-grid { grid-template-columns:1fr; } .ctrl-live { padding:20px; } .ctrl-live-actions { gap:12px; } .ctrl-mode button { flex:1; padding:12px; gap:8px; } .ctrl-panel-head,.ctrl-step { padding:20px; } .ctrl-source { display:none; } .ctrl-screen-list { max-height:none; } }
+
+/* Palette-preserving contrast and consistent control states. */
+.ctrl-source,.ctrl-source.ready,html.dark .ctrl-source,html.dark .ctrl-source.ready { font-size:12px; font-weight:500; color:var(--work-muted); border:1px dashed var(--work-selection-line); padding:4px 8px; }
+.ctrl-source.ready,html.dark .ctrl-source.ready { color:var(--work-text); border-style:solid; }
+.ctrl-demo { font-size:11px; letter-spacing:.04em; }
+.ctrl-option.selected,.ctrl-screen.selected,.ctrl-mode button.active,html.dark .ctrl-option.selected,html.dark .ctrl-screen.selected,html.dark .ctrl-mode button.active { border-color:var(--card-ring); box-shadow:inset 0 0 0 1px var(--card-ring); }
+.ctrl-check { border-color:var(--work-focus); }
+.ctrl button:focus-visible,.ctrl a:focus-visible,.ctrl select:focus-visible,.ctrl input:focus-visible,.app-shell:has(.ctrl) .topbar a:focus-visible,.app-shell:has(.ctrl) .topbar button:focus-visible { outline:2px solid var(--work-focus); outline-offset:3px; }
+.ctrl-search:focus-within { border-color:var(--work-focus); box-shadow:0 0 0 2px var(--work-selected); }
+.ctrl-search input::placeholder { color:var(--work-quiet); opacity:1; }
+.ctrl-rotation [data-slot="switch"][data-state="unchecked"] { border:1px solid var(--work-focus); }
