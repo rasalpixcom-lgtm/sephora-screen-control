@@ -28,7 +28,7 @@ export type Section = "dashboard" | "screens" | "countries" | "regions" | "locat
 
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Screen groups", activity: "Activity", access: "Access", settings: "Settings" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", access: "Access", settings: "Settings" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
