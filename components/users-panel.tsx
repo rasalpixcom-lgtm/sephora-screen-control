@@ -1,11 +1,12 @@
 "use client";
+import { clientFetch } from "@/lib/client-fetch";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { roleNames, type Role } from "@/lib/auth-policy";
 import "./auth.css";
-type User = { id: string; name: string; email: string; role: Role; disabled: number; sessions: number };
+type User = { id: string; name: string; email: string; role: Role; disabled: boolean; sessions: number };
 type Editor = { mode: "create" } | { mode: "edit" | "reset"; user: User };
 
 export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEmail: string | null; refreshKey?: number }) {
@@ -18,7 +19,7 @@ export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEm
   const opener = useRef<HTMLButtonElement | null>(null);
   const load = useCallback(async () => {
     try {
-      const response = await fetch("/api/users", { cache: "no-store" });
+      const response = await clientFetch("/api/users", { cache: "no-store" });
       if (response.status === 401) { window.location.replace("/login?next=/admin/users"); return; }
       const data = await response.json() as { error?: string; users: User[] };
       if (!response.ok) throw new Error(data.error || "Could not load users.");
@@ -37,7 +38,7 @@ export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEm
     if (saving.current) return;
     saving.current = true; setBusy(true); setError(""); setFormError(""); setMessage("");
     try {
-      const response = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await clientFetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (response.status === 401) { window.location.replace("/login"); return; }
       const data = await response.json() as { error?: string; users: User[] };
       if (!response.ok) throw new Error(data.error || "Could not save.");

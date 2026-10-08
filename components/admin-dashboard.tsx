@@ -2,7 +2,8 @@
 
 
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { clientFetch } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
@@ -80,6 +81,9 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
   const [error, setError] = useState("");
 
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
+  const reading = useRef(false);
+  const revision = useRef(0);
 
   const [search, setSearch] = useState("");
 
@@ -104,21 +108,24 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
 
   const load = useCallback(async () => {
+    if (reading.current || saving.current) return;
+    reading.current = true;
+    const startedAt = revision.current;
 
     try {
 
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const response = await clientFetch("/api/state", { cache: "no-store" });
 
       if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
 
       if (!response.ok) throw new Error(next.error || "Could not load inventory.");
 
-      setState(next); setError(""); setUsersRefreshKey((value) => value + 1);
+      if (startedAt === revision.current) { setState(next); setError(""); setUsersRefreshKey((value) => value + 1); }
 
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load inventory."); }
+    } catch (cause) { if (startedAt === revision.current) setError(cause instanceof Error ? cause.message : "Could not load inventory."); }
 
-    finally { setLoading(false); }
+    finally { reading.current = false; setLoading(false); }
 
   }, []);
 
@@ -127,12 +134,15 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
 
   async function mutate(body: Record<string, unknown>) {
+    if (saving.current) return false;
+    saving.current = true;
+    revision.current++;
 
     setBusy(true); setError("");
 
     try {
 
-      const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await clientFetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
       if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
@@ -143,7 +153,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save."); return false; }
 
-    finally { setBusy(false); }
+    finally { saving.current = false; setBusy(false); }
 
   }
 

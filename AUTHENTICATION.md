@@ -1,45 +1,40 @@
 # Login and roles
 
-Accounts are managed by this application. Login IDs use an email format but do not require a real mailbox. No email verification, invitation mail, or external identity service is used.
+Accounts are managed by this application. Login IDs use email format but do not require a real mailbox. No email verification, invitation mail, or ChatGPT login is used by the Node server.
 
 ## First Admin
 
-The first Admin chooses a password through a private, single-use setup URL. Setup expires after 24 hours and cannot create a second first Admin. Local and hosted databases are independent, so each needs its own setup. Do not put setup URLs in source control or share them with staff.
+For a new, empty database, generate the private setup configuration using scripts/create-bootstrap.mjs, copy its AUTH settings into .env.local, and restart the app. Open the private setup URL and choose a password. The link expires after 24 hours and can create only one first Admin, including during concurrent requests.
+
+The migrated local database already has an Admin; use the existing login ID and password. Do not repeat setup for an imported database.
 
 ## Everyday use
 
-1. Sign in at `/login`.
+1. Sign in at /login.
 2. Admin → Users → Add user. Enter name, login ID, password (12–128 characters), and role.
-3. Share the credentials privately with that person. Staff can change their own password at `/account`.
-4. Admins can change roles, disable/enable accounts, set replacement passwords, and sign out sessions. The current Admin cannot remove their own Admin access; the server preserves at least one enabled Admin.
+3. Share credentials privately. Users can change their own password at /account.
+4. Admin can edit account details, change roles/status, reset passwords, or revoke sessions. Saving account edits signs out the affected user. The server protects the last enabled Admin even across concurrent requests.
 
-| Role | Admin / inventory / users | Controller | Monitor |
+| Role | Admin | Controller | Monitor |
 | --- | --- | --- | --- |
 | Admin | Manage | Control | View |
 | Controller | No access | Control | View |
 | Wall device | No access | No access | View |
 
-Staff sessions expire after 8 hours; wall device sessions after 30 days. Sign-out, account disable, password reset, and role changes revoke affected sessions. Keep wall credentials dedicated to the wall PC, never an Admin account. All monitors follow the same shared selection.
+Staff sessions expire after 8 hours; wall sessions after 30 days. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes require the current password and revoke other sessions. The UI then signs out the current session. Use a dedicated wall account on the monitoring PC.
 
-Passwords are salted scrypt hashes, never plaintext. Session cookies are HttpOnly, SameSite=Lax, and Secure on HTTPS. Public sign-up is disabled. Pages and APIs check the current server session and role; a client-provided role or platform identity header cannot grant access. Writes require the configured origin. Login attempts are rate limited using D1. Account operations are recorded in Activity without passwords.
+## Security and configuration
 
-## Runtime configuration
+Passwords use salted asynchronous scrypt hashing with the same format as the previous version. Existing hashes migrate without knowing plaintext passwords. Cookies are HttpOnly, SameSite=Lax, and Secure when AUTH_URL uses HTTPS. Public registration and email recovery endpoints are disabled. APIs check the current database role and account status; client-provided role headers cannot grant access. Mutations require the configured Origin. PostgreSQL stores login rate limits and audit records without passwords.
 
-- `AUTH_SECRET`: unique random secret, at least 32 characters; treat as a secret. Changing it signs out existing sessions.
-- `AUTH_URL`: exact canonical origin (local: `http://127.0.0.1:5174`; production: HTTPS).
-- `AUTH_ADMIN_EMAIL`: first Admin login ID; mailbox need not exist.
-- `AUTH_BOOTSTRAP_HASH`: SHA-256 of a random 32-byte setup token. Treat as a secret.
-- `AUTH_BOOTSTRAP_EXPIRES`: setup expiry as Unix milliseconds.
-- `DB`: D1 binding with all Drizzle migrations applied.
+Set DATABASE_URL, AUTH_SECRET, AUTH_URL, and (for new setup) AUTH_ADMIN_EMAIL, AUTH_BOOTSTRAP_HASH, AUTH_BOOTSTRAP_EXPIRES. See deploy/server.env.example. Changing AUTH_SECRET signs out sessions. Keep actual values in private environment configuration, outside source control and IIS web roots.
 
-Local settings are in ignored `.dev.vars`. Hosted settings use Site runtime variables/secrets. Never commit secret values. After setup, remove bootstrap settings from production; the database also prevents reuse. If every Admin loses a password, an authorized server operator must issue recovery through a controlled maintenance procedure; there is deliberately no public Admin recovery endpoint.
+TRUST_PROXY defaults to false. Enable it only when the HTTPS proxy replaces incoming X-Forwarded-For with the real client address and direct access to Node is blocked. Otherwise rate limits use a shared bucket. For company-server deployment, verify HTTPS and proxy behavior before rollout.
 
-## Verification
+After first setup, remove bootstrap secrets and private setup files. If all Admins lose their passwords, an authorized server operator must use a controlled maintenance/recovery procedure. There is no public Admin recovery endpoint.
 
-Run `npm run build`, then `node tests/auth.integration.mjs`. The suite uses a fresh in-memory D1 database in Miniflare and does not alter real accounts or screen inventory.
+## Verification and deployment
 
-## Company server deployment
+npm run build followed by npm run test:auth runs the production Node server against an isolated PostgreSQL database. Tests cover login, roles, setup, account changes, revocation, and concurrent Admin protection. Tests do not change real users or inventory.
 
-This implementation still runs on Cloudflare Worker + D1. It is not a static-only website and cannot simply be uploaded to a conventional public web folder. A standard Node server deployment needs an appropriate runtime/database migration. Better Auth supports other database adapters, so account logic can be retained while changing the backend.
-
-Before exposing the company deployment, configure HTTPS, canonical origin, trusted proxy IP handling for rate limits, database backups and restore testing, monitoring, and controlled Admin recovery. The current Site remains owner-private behind its existing platform gate; application login does not change that hosting audience. These implementation tests are not a substitute for an independent production security review.
+See SERVER-DEPLOYMENT.md for Windows Server, IIS, startup, migration, backups, and restore testing. The previous owner-private Sites publication is separate from this server deployment. Production service/proxy testing and an independent security review remain release steps on the actual company server.

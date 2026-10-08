@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, ChevronRight, Globe2, Layers3, LayoutGrid, MapPin, Monitor, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Display, Entity, Member, Selection } from "@/lib/store";
 import "./controller-panel.css";
+import { screensFor } from "@/lib/screens";
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type Props = {
@@ -13,23 +14,6 @@ type Props = {
   busy: boolean;
   onDisplayChange: (selection: Selection, options?: { autoAdvance?: boolean; intervalSeconds?: number }) => void;
 };
-
-function screensFor(state: State, selection: Selection) {
-  const byId = new Map(state.entities.map((item) => [item.id, item]));
-  const groupScreens = selection.groupId ? new Set(state.members.filter((member) => member.groupId === selection.groupId).map((member) => member.screenId)) : null;
-  const selectedScreens = selection.screenIds?.length ? new Set(selection.screenIds) : null;
-  return state.entities.filter((item) => {
-    if (item.type !== "screen") return false;
-    const location = byId.get(item.parentId || "");
-    const region = byId.get(location?.parentId || "");
-    if (selection.countryId && region?.parentId !== selection.countryId) return false;
-    if (selection.regionId && region?.id !== selection.regionId) return false;
-    if (selection.storeId && location?.id !== selection.storeId) return false;
-    if (groupScreens && !groupScreens.has(item.id)) return false;
-    if (selectedScreens && !selectedScreens.has(item.id)) return false;
-    return true;
-  });
-}
 
 function screenPlace(screen: Entity, entities: Entity[]) {
   const location = entities.find((item) => item.id === screen.parentId);
@@ -40,13 +24,12 @@ function screenPlace(screen: Entity, entities: Entity[]) {
 export default function ControllerPanel({ state, busy, onDisplayChange }: Props) {
   const { entities, members, display } = state;
   const selection = display.selection;
-  const [mode, setMode] = useState<"locations" | "groups">("locations");
+  const selectionMode = selection.groupId ? "groups" : "locations";
+  const [browse, setBrowse] = useState<{ scope: string; mode: "locations" | "groups" } | null>(null);
+  const scope = [selection.groupId, selection.countryId, selection.regionId, selection.storeId].join("|");
+  const mode = browse?.scope === scope ? browse.mode : selectionMode;
+  const setMode = (next: "locations" | "groups") => setBrowse({ scope, mode: next });
   const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    if (selection.groupId) setMode("groups");
-    else if (selection.countryId || selection.regionId || selection.storeId) setMode("locations");
-  }, [selection.groupId, selection.countryId, selection.regionId, selection.storeId]);
 
   const countries = entities.filter((item) => item.type === "country");
   const regions = selection.countryId ? entities.filter((item) => item.type === "region" && item.parentId === selection.countryId) : [];

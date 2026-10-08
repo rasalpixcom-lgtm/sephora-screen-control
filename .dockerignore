@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env*
+.dev.vars*
+.server-runtime
+.sites-runtime
+.wrangler
+dist
+build
+examples

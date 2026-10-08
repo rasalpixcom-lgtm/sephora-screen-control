@@ -10,6 +10,8 @@ import SignOut from "@/components/sign-out";
 import type { AuthUser } from "@/lib/auth-policy";
 import ControllerPanel from "@/components/controller-panel";
 import type { Display, Entity, EntityType, Member, Selection } from "@/lib/store";
+import { clientFetch } from "@/lib/client-fetch";
+import { screensFor as matchingScreens } from "@/lib/screens";
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type View = "controller" | "admin" | "monitor";
@@ -23,21 +25,6 @@ function placeName(entity: Entity | undefined, entities: Entity[]) {
   const store = entities.find((item) => item.id === entity.parentId);
   const region = entities.find((item) => item.id === store?.parentId);
   return [store?.name, region?.name].filter(Boolean).join(" · ");
-}
-
-function matchingScreens(state: State, selection: Selection) {
-  const { entities, members } = state;
-  return entities.filter((item) => {
-    if (item.type !== "screen") return false;
-    const store = entities.find((parent) => parent.id === item.parentId);
-    const region = entities.find((parent) => parent.id === store?.parentId);
-    if (selection.countryId && region?.parentId !== selection.countryId) return false;
-    if (selection.regionId && region?.id !== selection.regionId) return false;
-    if (selection.storeId && store?.id !== selection.storeId) return false;
-    if (selection.groupId && !members.some((member) => member.groupId === selection.groupId && member.screenId === item.id)) return false;
-    if (selection.screenIds?.length && !selection.screenIds.includes(item.id)) return false;
-    return true;
-  });
 }
 
 function isOnSignEmbed(url: string) {
@@ -95,6 +82,8 @@ export default function Workspace({ view, account }: { view: View; account: Auth
   const [draft, setDraft] = useState({ name: "", parentId: "", liveUrl: "" });
   const [assignGroup, setAssignGroup] = useState<string | null>(null);
   const pending = useRef(false);
+  const reading = useRef(false);
+  const revision = useRef(0);
   const wallGridRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -105,16 +94,18 @@ export default function Workspace({ view, account }: { view: View; account: Auth
   const pages = Math.max(1, Math.ceil(allScreens.length / pageSize));
 
   const load = useCallback(async (showLoading = false) => {
-    if (pending.current && !showLoading) return;
+    if (reading.current || pending.current) return;
+    reading.current = true;
+    const startedAt = revision.current;
     if (showLoading) setLoading(true);
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const response = await clientFetch("/api/state", { cache: "no-store" });
       if (response.status === 401) { window.location.replace(`/login?next=/${view === "monitor" ? "monitor" : "controller"}`); return; }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not load screen data.");
-      setState(result); setError("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
-    finally { setLoading(false); }
+      if (startedAt === revision.current) { setState(result); setError(""); }
+    } catch (cause) { if (startedAt === revision.current) setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
+    finally { reading.current = false; setLoading(false); }
   }, [view]);
 
   useEffect(() => { void Promise.resolve().then(() => load(true)); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
@@ -153,9 +144,11 @@ export default function Workspace({ view, account }: { view: View; account: Auth
   }, [view, display.autoAdvance, display.intervalSeconds, localPause, pages]);
 
   const mutate = useCallback(async (body: Record<string, unknown>) => {
+    if (pending.current) return false;
+    revision.current++;
     pending.current = true; setBusy(true); setError("");
     try {
-      const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await clientFetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (response.status === 401) { window.location.replace("/login?next=/controller"); return false; }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save changes.");

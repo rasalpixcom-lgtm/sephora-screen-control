@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch } from "@/lib/client-fetch";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Monitor } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -13,11 +14,11 @@ export default function AuthForm({ mode, setupLoginId }: { mode: "login" | "acti
     if (mode === "activate" && password !== confirm) { setError("Passwords do not match."); return; }
     setBusy(true);
     try {
-      const response = await fetch(mode === "login" ? "/api/auth/sign-in/email" : "/api/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mode === "login" ? { email: email.trim().toLowerCase(), password } : { token, password }) });
+      const response = await clientFetch(mode === "login" ? "/api/auth/sign-in/email" : "/api/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mode === "login" ? { email: email.trim().toLowerCase(), password } : { token, password }) });
       if (!response.ok) { const result = await response.json() as { error?: string }; throw new Error(response.status === 429 ? "Too many attempts. Please try again in a minute." : mode === "login" ? "Unable to sign in. Check your login ID and password, or contact your Admin." : result.error || "Could not create the Admin."); }
       setPassword(""); setConfirm("");
       if (mode === "activate") { setToken(""); setDone(true); return; }
-      const session = await fetch("/api/session", { cache: "no-store" }); if (!session.ok) throw new Error("Your account is unavailable. Contact your Admin.");
+      const session = await clientFetch("/api/session", { cache: "no-store" }); if (!session.ok) throw new Error("Your account is unavailable. Contact your Admin.");
       const { user } = await session.json() as { user: AuthUser }; window.location.replace(safeReturnTo(new URLSearchParams(window.location.search).get("next"), user.role));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not connect. Try again."); } finally { setBusy(false); }
   }

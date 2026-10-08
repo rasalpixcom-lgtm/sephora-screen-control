@@ -1,0 +1,14 @@
+import fs from "node:fs";
+import crypto from "node:crypto";
+const email = process.argv[2];
+const origin = process.argv[3];
+if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !origin || !/^https?:\/\//.test(origin)) throw new Error("Usage: node scripts/create-bootstrap.mjs admin@company.com https://screens.company.com");
+if (new URL(origin).origin !== origin) throw new Error("Use the origin only, without a trailing slash or path.");
+fs.mkdirSync(".server-runtime", { recursive: true });
+const token = crypto.randomBytes(32).toString("hex");
+const stamp = Date.now();
+const config = `AUTH_SECRET=${crypto.randomBytes(48).toString("hex")}\nAUTH_URL=${origin}\nAUTH_ADMIN_EMAIL=${email.toLowerCase()}\nAUTH_BOOTSTRAP_HASH=${crypto.createHash("sha256").update(token).digest("hex")}\nAUTH_BOOTSTRAP_EXPIRES=${stamp + 86400000}\n`;
+const filename = `.server-runtime/bootstrap-${stamp}`;
+fs.writeFileSync(filename + ".env", config, { mode: 0o600 });
+fs.writeFileSync(filename + ".txt", `${origin}/activate#${token}\n`, { mode: 0o600 });
+console.log(`Private configuration and one-time setup URL written to ${filename}.env / .txt. Copy the settings into .env.local. Keep the files private.`);
