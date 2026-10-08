@@ -377,6 +377,26 @@ html.dark .adm-delete { color: #bf959e; }
 .adm-metric>span,.adm-metric-arrow { display:none!important; }
 .adm-metric strong,.adm-metric:nth-child(4) strong,html.dark .adm-metric strong,html.dark .adm-metric:nth-child(4) strong { margin-top:0; }
 .adm-inventory-heading>span { display:none; }
+
+/* Reference-inspired rounded gradient cards and lighter geometric type. */
+.adm-panel,.adm-command-card,.adm-group-card,.adm-metric,.adm-metric:nth-child(4),html.dark .adm-panel,html.dark .adm-command-card,html.dark .adm-group-card,html.dark .adm-metric,html.dark .adm-metric:nth-child(4) { background:var(--card-fill); border:1px solid var(--card-line); border-radius:24px; box-shadow:var(--card-shadow); }
+.adm-metric:hover,.adm-metric:nth-child(4):hover,html.dark .adm-metric:hover,html.dark .adm-metric:nth-child(4):hover { background:var(--card-fill); border-color:var(--card-hover); box-shadow:var(--card-shadow); }
+.adm-page-head h1 { font-weight:500; letter-spacing:-.035em; }
+.adm-command-body h2,.adm-panel-head h2,.adm-group-card h2,.adm-inventory-heading h2,html.dark .adm-panel h2,html.dark .adm-group-card h2 { font-weight:500; letter-spacing:-.025em; }
+.adm-command-top .adm-kicker,.adm-readiness>.adm-kicker,html.dark .adm-command-top .adm-kicker,html.dark .adm-readiness>.adm-kicker { font-weight:500; font-size:17px; letter-spacing:0; color:var(--card-heading); }
+.adm-metric strong,.adm-metric:nth-child(4) strong,html.dark .adm-metric strong,html.dark .adm-metric:nth-child(4) strong { font-weight:500; font-size:34px; color:var(--card-heading); letter-spacing:-.035em; }
+.adm-metric small,.adm-metric:nth-child(4) small,html.dark .adm-metric small,html.dark .adm-metric:nth-child(4) small { color:var(--card-muted); font-weight:400; }
+.adm-readiness-number strong { font-weight:500; }
+.adm-readiness h2 { font-weight:500; }
+.adm-panel-head h2,.adm-command-body h2,.adm-readiness h2 { color:var(--card-heading); }
+.adm-panel p,.adm-command-body p,.adm-command-body>div>span,.adm-command-tag,html.dark .adm-panel-head p { color:var(--card-muted); }
+.adm-compact-list strong,.adm-name-cell strong,html.dark .adm-compact-list strong,html.dark .adm-name-cell strong { color:var(--card-heading); font-weight:500; }
+.adm-compact-list small,html.dark .adm-compact-list small { color:var(--card-muted); }
+.adm-primary-btn,.adm-secondary-btn,.adm-search { border-radius:999px; font-weight:500; }
+.adm-dialog,html.dark .adm-dialog { border-radius:24px; background:var(--work-surface); }
+.adm-assignment-list label,html.dark .adm-assignment-list label { border-radius:16px; }
+.adm-group-card p,html.dark .adm-group-card p { color:var(--card-muted); }
+@media(max-width:600px) { .adm-panel,.adm-command-card,.adm-group-card,.adm-metric,.adm-metric:nth-child(4),html.dark .adm-panel,html.dark .adm-command-card,html.dark .adm-group-card,html.dark .adm-metric,html.dark .adm-metric:nth-child(4) { border-radius:20px; } }
 .adm-metric small,.adm-metric:nth-child(4) small,html.dark .adm-metric small,html.dark .adm-metric:nth-child(4) small { font-size:14px; }
 .adm-attention .adm-compact-list { padding:0 22px 12px; }
 .adm-compact-list button { min-height:76px; }

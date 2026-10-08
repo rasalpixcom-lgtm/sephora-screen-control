@@ -264,5 +264,21 @@ html.dark .ctrl-source { color: #e5b881; }
 .ctrl-screen-wait strong { font-size:18px; font-weight:600; }
 .ctrl-screen-wait p { font-size:14px; }
 .ctrl-wait-steps { display:none; }
+
+/* Rounded reference cards without changing the location and screen flow. */
+.ctrl-live,.ctrl-panel,html.dark .ctrl-live,html.dark .ctrl-panel { background:var(--card-fill); border:1px solid var(--card-line); border-radius:24px; box-shadow:var(--card-shadow); }
+.ctrl-option,.ctrl-screen,.ctrl-mode button,html.dark .ctrl-option,html.dark .ctrl-screen,html.dark .ctrl-mode button { border-radius:18px; background:var(--card-fill); border-color:var(--card-line); color:var(--card-heading); box-shadow:inset 0 1px 0 rgba(255,255,255,.025); }
+.ctrl-option:hover,.ctrl-screen:hover,.ctrl-mode button:hover { background:var(--card-fill); border-color:var(--card-hover); }
+.ctrl-option.selected,.ctrl-screen.selected,.ctrl-mode button.active,html.dark .ctrl-option.selected,html.dark .ctrl-screen.selected,html.dark .ctrl-mode button.active { background:var(--card-selected); border-color:var(--card-ring); box-shadow:inset 0 1px 0 rgba(255,255,255,.06); }
+.ctrl-check { border-radius:50%; width:22px; height:22px; }
+.ctrl-screen.selected .ctrl-check { background:var(--work-action); }
+.main-content:has(.ctrl) .page-heading h1 { font-weight:500; letter-spacing:-.035em; }
+.ctrl-live-copy strong,.ctrl-panel-head h2,.ctrl-screen-wait strong { font-weight:500; color:var(--card-heading); }
+.ctrl-step-head h3,.ctrl-mode strong,.ctrl-option-name,.ctrl-screen-label strong { font-weight:500; }
+.ctrl-live-kicker,.ctrl-live-copy>span:last-child,.ctrl-panel-head p,.ctrl-step-head p,.ctrl-option-name small,.ctrl-screen-label small { color:var(--card-muted); }
+.ctrl-search,.ctrl-all,.ctrl-open-wall,.ctrl-interval select { border-radius:999px; font-weight:500; }
+.ctrl-panel-head,.ctrl-step,.ctrl-screen-foot { border-color:var(--card-line); }
+.ctrl-source,.ctrl-source.ready,html.dark .ctrl-source,html.dark .ctrl-source.ready { border-radius:999px; }
+@media(max-width:600px) { .ctrl-live,.ctrl-panel,html.dark .ctrl-live,html.dark .ctrl-panel { border-radius:20px; } }
 @media(max-width:1100px) { .ctrl-live { flex-direction:column; align-items:stretch; } .ctrl-live-actions { justify-content:flex-start; } .ctrl-options { grid-template-columns:1fr; } }
 @media(max-width:750px) { .main-content:has(.ctrl) { padding:24px 16px 40px; } .ctrl-grid { grid-template-columns:1fr; } .ctrl-live { padding:20px; } .ctrl-live-actions { gap:12px; } .ctrl-mode button { flex:1; padding:12px; gap:8px; } .ctrl-panel-head,.ctrl-step { padding:20px; } .ctrl-source { display:none; } .ctrl-screen-list { max-height:none; } }
