@@ -80,6 +80,11 @@ try {
   check((await request("/api/users", { action: "update", id: c.id, role: "wall", disabled: false }, admin.cookie)).status === 200 && (await request("/api/state", undefined, enabled.cookie)).status === 401, "changing roles revokes the old session");
   const changed = await login(c.email, password, "192.0.2.20");
   check((await request("/controller", undefined, changed.cookie)).status === 307, "new sessions enforce the changed role");
+  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: "updated@example.test", role: "wall", disabled: false }, admin.cookie)).status === 200, "Admin can edit a user's name and login ID");
+  check((await request("/api/state", undefined, changed.cookie)).status === 401, "editing an account revokes its existing sessions");
+  check((await login(c.email, password, "192.0.2.23")).response.status === 401 && (await login("updated@example.test", password, "192.0.2.24")).response.status === 200, "edited login ID replaces the old credentials without changing the password");
+  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: self.email, role: "wall", disabled: false }, admin.cookie)).status === 400, "editing cannot duplicate another account's login ID");
+  check((await request("/api/users", { action: "update", id: c.id, name: " ", email: "updated@example.test", role: "wall", disabled: false }, admin.cookie)).status === 400, "editing rejects an empty name");
   const hashes=JSON.stringify((await db.prepare("SELECT password FROM auth_account").all()).results);
   check(!hashes.includes(password) && !hashes.includes(replacement) && hashes.includes(":"), "database stores hashes, not plaintext passwords");
   for (let i = 0; i < 6; i++) { const attempt = await login("unknown@example.test", password, "192.0.2.50"); if (i === 5) check(attempt.response.status === 429, "repeated login attempts are rate limited"); }

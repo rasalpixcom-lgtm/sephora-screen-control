@@ -48,7 +48,11 @@ export async function POST(request: Request) {
       } else if (body.action === "update") {
         if (!roles.includes(body.role as Role) || typeof body.disabled !== "boolean") return bad("Choose a valid role and status.");
         if (target.id === actor.id && (body.role !== "admin" || body.disabled)) return bad("You cannot remove your own Admin access.");
-        const result = await db.prepare("UPDATE auth_user SET role = ?, disabled = ?, updated_at = ? WHERE id = ? AND (role <> 'admin' OR disabled = 1 OR (? = 'admin' AND ? = 0) OR (SELECT COUNT(*) FROM auth_user WHERE role = 'admin' AND disabled = 0) > 1)").bind(body.role, body.disabled ? 1 : 0, now, target.id, body.role, body.disabled ? 1 : 0).run();
+        const email = body.email === undefined ? target.email : typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+        const name = body.name === undefined ? null : typeof body.name === "string" ? body.name.trim() : "";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || name !== null && (!name || name.length > 80)) return bad("Enter a name and email-style login ID.");
+        if (await db.prepare("SELECT id FROM auth_user WHERE email = ? AND id <> ?").bind(email, target.id).first()) return bad("This login ID already has an account.");
+        const result = await db.prepare("UPDATE auth_user SET name = COALESCE(?, name), email = ?, role = ?, disabled = ?, updated_at = ? WHERE id = ? AND (role <> 'admin' OR disabled = 1 OR (? = 'admin' AND ? = 0) OR (SELECT COUNT(*) FROM auth_user WHERE role = 'admin' AND disabled = 0) > 1)").bind(name, email, body.role, body.disabled ? 1 : 0, now, target.id, body.role, body.disabled ? 1 : 0).run();
         if (!result.meta.changes) return bad("Keep at least one enabled Admin.");
         await db.prepare("DELETE FROM auth_session WHERE user_id = ?").bind(target.id).run();
       } else return bad("Unknown action.");
