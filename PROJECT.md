@@ -34,7 +34,7 @@ After identity is active, test denied access for anonymous, wall, and controller
 - React 19, Vinext/Next-compatible routes, TypeScript, and Shadcn UI primitives.
 - Cloudflare Worker and D1 for server routes and storage.
 - Responsive CSS with self-hosted Inter Variable across Admin, Controller, and Monitor. It has an Apple-like UI feel and stays consistent on Windows, iPad, and Mac. No proprietary Apple font files are bundled.
-- Admin and Controller share a restrained gray/slate palette: soft gray surfaces in light mode, charcoal surfaces in dark mode, and muted selection outlines. Cards, tables, dialogs, and navigation use consistent spacing and contrast. The wall has Dark, Dim, and Soft light appearances saved locally on each display device. The application does not bundle a proprietary Sephora font or logo asset.
+- Admin and Controller share a premium graphite/champagne design. Admin opens with a wall overview, preview-source configuration summary, compact inventory strip, and setup list. Controller uses three desktop zones for the location explorer, screen selection, and sticky display controls; these stack on smaller screens. Light mode uses warm stone surfaces, and dark mode uses layered graphite with restrained metallic accents. The wall has Dark, Dim, and Soft light appearances saved locally on each display device. The application does not bundle a proprietary Sephora font or logo asset.
 
 Install with `npm install`. Use `npm run dev -- --port 5174` for this project because ports **5000 and 5173** belong to other projects. `npx tsc --noEmit` checks types and `npm run build` creates the deployable Worker. D1 schema migrations are in `drizzle/`.
 

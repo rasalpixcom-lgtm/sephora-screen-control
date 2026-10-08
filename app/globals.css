@@ -470,3 +470,7 @@ html.dark {
   --work-action-text: #202832;
   --work-shadow: 0 2px 8px rgba(0,0,0,.08);
 }
+
+/* Premium workspace materials: champagne, graphite, and brushed metal. */
+:root { --work-bg:#e4e0d8; --work-surface:#efede7; --work-soft:#e5e2db; --work-line:#cbc7be; --work-text:#303432; --work-muted:#60655f; --work-quiet:#686b63; --work-selected:#ded8cb; --work-selection-line:#94805b; --work-action:#343b3a; --work-action-text:#f5f0e6; --work-shadow:0 8px 24px rgba(48,47,39,.05); --premium-metal:#8b7249; --premium-halo:rgba(152,130,86,.08); }
+html.dark { --work-bg:#111518; --work-surface:#1b2226; --work-soft:#232b30; --work-line:#374044; --work-text:#e9e8e1; --work-muted:#b4b8b5; --work-quiet:#a0aaa6; --work-selected:#33352f; --work-selection-line:#aa9570; --work-action:#cbb58e; --work-action-text:#202623; --work-shadow:0 12px 32px rgba(0,0,0,.16); --premium-metal:#cbb58e; --premium-halo:rgba(203,181,142,.065); }

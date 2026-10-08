@@ -89,11 +89,13 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
   return <div className="ctrl">
     <section className="ctrl-live" aria-label="Current wall display">
       <div className="ctrl-live-copy">
+        <span className="ctrl-console-icon"><Monitor size={28} strokeWidth={1.3}/></span>
         <span className="ctrl-live-kicker"><span className="ctrl-live-dot"/> NOW SHOWING ON THE WALL {entities.some((item) => item.isDemo) && <span className="ctrl-demo">SAMPLE DATA</span>}</span>
         <strong>{wallLabel}</strong>
         <span>{wallScreens.length} {wallScreens.length === 1 ? "screen" : "screens"} in this view{selection.screenIds?.length ? ` · ${selection.screenIds.length} individually selected` : ""}</span>
       </div>
       <div className="ctrl-live-actions">
+        <span className="ctrl-control-label">DISPLAY CONTROLS</span>
         <div className="ctrl-rotation"><span>Auto-rotate</span><Switch checked={display.autoAdvance} disabled={busy} onCheckedChange={(checked) => onDisplayChange(selection, { autoAdvance: checked })} aria-label="Auto-rotate wall"/></div>
         <label className="ctrl-interval">Every <select aria-label="Rotation interval" disabled={busy || !display.autoAdvance} value={display.intervalSeconds} onChange={(event) => onDisplayChange(selection, { intervalSeconds: Number(event.target.value) })}>{[5, 10, 15, 20, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
         <Link href="/monitor" className="ctrl-open-wall"><LayoutGrid size={17}/> Open wall <ArrowRight size={16}/></Link>
