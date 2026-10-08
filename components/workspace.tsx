@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Palette, Pause, Play, Plus, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Palette, Pause, Play, Plus, UserRound, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { ThemeToggle } from "@/components/theme-toggle";
+import SignOut from "@/components/sign-out";
+import type { AuthUser } from "@/lib/auth-policy";
 import ControllerPanel from "@/components/controller-panel";
 import type { Display, Entity, EntityType, Member, Selection } from "@/lib/store";
 
@@ -17,7 +17,6 @@ type WallTheme = "dark" | "dim" | "soft";
 type WebModelContext = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => Promise<unknown> }, options: { signal: AbortSignal }) => void | Promise<void> };
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" } };
 const labels: Record<EntityType, string> = { country: "Country", region: "Region", store: "Store / mall", screen: "Screen", group: "Group" };
-const plurals: Record<EntityType, string> = { country: "Countries", region: "Regions", store: "Stores / malls", screen: "Screens", group: "Groups" };
 
 function placeName(entity: Entity | undefined, entities: Entity[]) {
   if (!entity) return "";
@@ -82,8 +81,7 @@ function WallAppearance({ theme, onChange }: { theme: WallTheme; onChange: (them
   </div>;
 }
 
-export default function Workspace({ view }: { view: View }) {
-  const router = useRouter();
+export default function Workspace({ view, account }: { view: View; account: AuthUser }) {
   const { resolvedTheme } = useTheme();
   const [state, setState] = useState<State>(empty);
   const [loading, setLoading] = useState(true);
@@ -99,7 +97,7 @@ export default function Workspace({ view }: { view: View }) {
   const pending = useRef(false);
   const wallGridRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => { stateRef.current = state; }, [state]);
   const mutateRef = useRef<(body: Record<string, unknown>) => Promise<boolean>>(async () => false);
   const display = state.display;
   const selection = display.selection;
@@ -111,18 +109,19 @@ export default function Workspace({ view }: { view: View }) {
     if (showLoading) setLoading(true);
     try {
       const response = await fetch("/api/state", { cache: "no-store" });
+      if (response.status === 401) { window.location.replace(`/login?next=/${view === "monitor" ? "monitor" : "controller"}`); return; }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not load screen data.");
       setState(result); setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
     finally { setLoading(false); }
-  }, []);
+  }, [view]);
 
-  useEffect(() => { void load(true); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => { void Promise.resolve().then(() => load(true)); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
   useEffect(() => {
     if (view !== "monitor") return;
     const saved = window.localStorage.getItem("sephora-wall-theme");
-    setWallTheme(saved === "dark" || saved === "dim" || saved === "soft" ? saved : resolvedTheme === "light" ? "soft" : "dark");
+    queueMicrotask(() => setWallTheme(saved === "dark" || saved === "dim" || saved === "soft" ? saved : resolvedTheme === "light" ? "soft" : "dark"));
   }, [view, resolvedTheme]);
   useEffect(() => {
     if (view !== "monitor" || loading || !allScreens.length) return;
@@ -146,25 +145,26 @@ export default function Workspace({ view }: { view: View }) {
     window.addEventListener("resize", updatePageSize);
     return () => { observer.disconnect(); window.removeEventListener("resize", updatePageSize); };
   }, [view, loading, allScreens.length]);
-  useEffect(() => { setPage((current) => Math.min(current, pages - 1)); }, [pages]);
+  useEffect(() => { queueMicrotask(() => setPage((current) => Math.min(current, pages - 1))); }, [pages]);
   useEffect(() => {
     if (view !== "monitor" || !display.autoAdvance || localPause || pages < 2) return;
     const timer = window.setInterval(() => setPage((current) => (current + 1) % pages), display.intervalSeconds * 1000);
     return () => window.clearInterval(timer);
   }, [view, display.autoAdvance, display.intervalSeconds, localPause, pages]);
 
-  async function mutate(body: Record<string, unknown>) {
+  const mutate = useCallback(async (body: Record<string, unknown>) => {
     pending.current = true; setBusy(true); setError("");
     try {
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (response.status === 401) { window.location.replace("/login?next=/controller"); return false; }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save changes.");
       setState(result);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save changes."); return false; }
     finally { pending.current = false; setBusy(false); }
-  }
-  mutateRef.current = mutate;
+  }, []);
+  useEffect(() => { mutateRef.current = mutate; }, [mutate]);
 
   useEffect(() => {
     if (view !== "controller") return;
@@ -218,11 +218,11 @@ export default function Workspace({ view }: { view: View }) {
   }
 
   return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`} data-wall-theme={view === "monitor" ? wallTheme : undefined}>
-    {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link><Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link></nav><ThemeToggle className="workspace-theme-toggle"/><div className="topbar-right"><span className="workspace-dot"/> CENTRAL WORKSPACE <span className="topbar-time">{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dubai" }).format(new Date())} GST</span></div></header>}
+    {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link>{account.role === "admin" && <Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link>}</nav><Link href="/account" className="icon-button" aria-label="Your account" title="Your account"><UserRound size={17}/></Link><SignOut compact className="icon-button"/><ThemeToggle className="workspace-theme-toggle"/><div className="topbar-right"><span className="workspace-dot"/> CENTRAL WORKSPACE <span className="topbar-time">{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Dubai" }).format(new Date())} GST</span></div></header>}
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
-      <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions"><WallAppearance theme={wallTheme} onChange={changeWallTheme}/>{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
-      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>No screens selected</h2><Link href="/controller">Open controller</Link></div>}
+      <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || "All locations"}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions"><Link href="/account" className="icon-button monitor-icon" aria-label="Your account" title="Your account"><UserRound size={17}/></Link><SignOut compact className="icon-button monitor-icon"/><WallAppearance theme={wallTheme} onChange={changeWallTheme}/>{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
+      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>No screens selected</h2>{account.role !== "wall" && <Link href="/controller">Open controller</Link>}</div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a screen group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>
       {view !== "controller" && state.entities.some((item) => item.isDemo) && <div className="sample-note"><span className="sample-badge">SAMPLE SETUP</span><span>Example locations and screens are ready to explore. Add your OnSign links in Admin to show previews.</span></div>}

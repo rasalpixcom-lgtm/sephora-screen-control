@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowUpRight, CircleHelp, ClipboardList, ExternalLink, Globe2, LayoutDashboard, Layers3, LogOut, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowUpRight, CircleHelp, ClipboardList, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, ShieldCheck, Users, Trash2, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -19,16 +19,19 @@ import type { Activity, Display, Entity, EntityType, Member } from "@/lib/store"
 import { ThemeToggle } from "@/components/theme-toggle";
 
 import "./admin-dashboard.css";
+import SignOut from "@/components/sign-out";
+import UsersPanel from "@/components/users-panel";
+import ChangePassword from "@/components/change-password";
 
 
 
 type State = { entities: Entity[]; members: Member[]; display: Display; activity: Activity[] };
 
-export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "settings";
+export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "settings" | "users";
 
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", settings: "Settings" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", settings: "Settings", users: "Users" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
@@ -46,6 +49,7 @@ const navigation = [
 
   { id: "activity", icon: ClipboardList },
 
+  { id: "users", icon: Users },
   { id: "settings", icon: Settings2 },
 
 ] as const;
@@ -104,6 +108,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
       const response = await fetch("/api/state", { cache: "no-store" });
 
+      if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
 
       if (!response.ok) throw new Error(next.error || "Could not load inventory.");
@@ -116,7 +121,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
 
 
@@ -128,6 +133,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
+      if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
 
       if (!response.ok) throw new Error(next.error || "Could not save.");
@@ -199,6 +205,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
     activity: "Recent changes to screens, groups, and the monitoring wall.",
 
     settings: "Preview links and monitoring wall behavior.",
+    users: "Accounts and permissions for your team.",
 
   };
 
@@ -206,7 +213,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   return <SidebarProvider className="adm-shell" style={{ "--sidebar-width": "15rem" } as React.CSSProperties}>
 
-    <Sidebar collapsible="offcanvas" className="adm-sidebar"><SidebarHeader className="adm-sidebar-header"><Link href="/admin" className="adm-brand"><span className="adm-brand-icon"><Monitor size={23}/></span><span><strong>SEPHORA</strong><small>SCREEN CONTROL</small></span></Link></SidebarHeader><SidebarContent className="adm-sidebar-content"><SidebarGroup><SidebarGroupContent><SidebarMenu>{navigation.map(({ id, icon: Icon }) => <SidebarMenuItem key={id}><SidebarMenuButton asChild isActive={section === id} size="lg" className="adm-nav-button"><Link href={id === "dashboard" ? "/admin" : `/admin/${id}`}><Icon size={19}/><span>{sectionNames[id]}</span></Link></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup><div className="adm-sidebar-divider"/><div className="adm-sidebar-label">WORKSPACES</div><SidebarGroup><SidebarGroupContent><SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/controller"><ActivityIcon size={19}/><span>Wall controller</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/monitor"><Monitor size={19}/><span>Monitoring wall</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent><SidebarFooter className="adm-sidebar-footer"><div className="adm-account"><span className="adm-account-avatar">S</span><div><strong>Workspace owner</strong><small>{accountEmail || "Private site account"}</small></div><a href="/signout-with-chatgpt?return_to=%2Fadmin" className="adm-signout"><LogOut size={17}/> Sign out</a></div></SidebarFooter></Sidebar>
+    <Sidebar collapsible="offcanvas" className="adm-sidebar"><SidebarHeader className="adm-sidebar-header"><Link href="/admin" className="adm-brand"><span className="adm-brand-icon"><Monitor size={23}/></span><span><strong>SEPHORA</strong><small>SCREEN CONTROL</small></span></Link></SidebarHeader><SidebarContent className="adm-sidebar-content"><SidebarGroup><SidebarGroupContent><SidebarMenu>{navigation.map(({ id, icon: Icon }) => <SidebarMenuItem key={id}><SidebarMenuButton asChild isActive={section === id} size="lg" className="adm-nav-button"><Link href={id === "dashboard" ? "/admin" : `/admin/${id}`}><Icon size={19}/><span>{sectionNames[id]}</span></Link></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup><div className="adm-sidebar-divider"/><div className="adm-sidebar-label">WORKSPACES</div><SidebarGroup><SidebarGroupContent><SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/controller"><ActivityIcon size={19}/><span>Wall controller</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/monitor"><Monitor size={19}/><span>Monitoring wall</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent><SidebarFooter className="adm-sidebar-footer"><div className="adm-account"><span className="adm-account-avatar">S</span><div><strong>Administrator</strong><small>{accountEmail || "Admin account"}</small></div><SignOut className="adm-signout"/></div></SidebarFooter></Sidebar>
 
     <SidebarInset className="adm-inset">
 
@@ -235,7 +242,8 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
         {section === "activity" && <section className="adm-panel"><div className="adm-activity-list">{state.activity.map((entry) => <div key={entry.id}><span className="adm-activity-icon"><ActivityIcon size={17}/></span><div><strong>{entry.action.charAt(0).toUpperCase() + entry.action.slice(1)} {entry.entityName || ""}</strong><small>{entry.actor}</small></div><time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Dubai" })}</time></div>)}{!state.activity.length && <div className="adm-empty">Changes will appear here after the first edit.</div>}</div></section>}
 
 
-        {section === "settings" && <><div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller's selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div><section className="adm-panel adm-signin-status" aria-label="Sign-in status"><ShieldCheck size={20}/><div><h2>Staff sign-in is not configured</h2><p>This preview is owner-only. Email/password sign-in and staff roles are required before team rollout.</p></div></section></>}
+        {section === "users" && <UsersPanel accountEmail={accountEmail}/>}
+        {section === "settings" && <><div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div><section className="adm-panel adm-signin-status" aria-label="Sign-in status"><ShieldCheck size={20}/><div><h2>Login ID and password sign-in</h2><p>Manage Admin, Controller, and Wall device accounts in <Link href="/admin/users">Users</Link>. Staff sessions last 8 hours; wall device sessions last 30 days.</p></div></section><ChangePassword/></>}
 
       </>}
 

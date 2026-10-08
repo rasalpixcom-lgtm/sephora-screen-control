@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { database, readState, type EntityType, type Selection } from "@/lib/store";
+import { currentUser, sameOrigin } from "@/lib/auth";
+import { canMutate } from "@/lib/auth-policy";
 
 export const runtime = "edge";
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
@@ -7,16 +9,20 @@ const parentType: Partial<Record<EntityType, EntityType>> = { region: "country",
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const validName = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 80;
 
-export async function GET() {
-  try { return NextResponse.json(await readState(), { headers: { "Cache-Control": "no-store" } }); }
+export async function GET(request: NextRequest) {
+  const user = await currentUser(request.headers);
+  if (!user) return bad("Sign in again.", 401);
+  try { const state = await readState(); return NextResponse.json({ ...state, activity: user.role === "admin" ? state.activity : [] }, { headers: { "Cache-Control": "no-store" } }); }
   catch (error) { console.error("Read state failed", error); return bad("Screen data is temporarily unavailable.", 503); }
 }
 
 export async function POST(request: NextRequest) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== request.nextUrl.origin) return bad("Invalid request origin.", 403);
+  if (!sameOrigin(request)) return bad("Invalid request origin.", 403);
+  const user = await currentUser(request.headers);
+  if (!user) return bad("Sign in again.", 401);
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return bad("Invalid request body."); }
+  if (!canMutate(user.role, body.action)) return bad("You do not have permission for this action.", 403);
   try {
     const db = database();
     const state = await readState();
@@ -90,9 +96,10 @@ export async function POST(request: NextRequest) {
     if (audit) {
       try {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-          .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, request.headers.get("oai-authenticated-user-email") || "Workspace owner", now).run();
+          .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, user.email, now).run();
       } catch (error) { console.error("Activity logging failed", error); }
     }
-    return NextResponse.json(await readState(), { headers: { "Cache-Control": "no-store" } });
+    const updated = await readState();
+    return NextResponse.json({ ...updated, activity: user.role === "admin" ? updated.activity : [] }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { console.error("Update state failed", error); return bad("Could not save. Please try again.", 503); }
 }
