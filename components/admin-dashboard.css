@@ -410,6 +410,10 @@ html.dark .adm-delete { color: #bf959e; }
 .adm-form input::placeholder { color:var(--work-quiet); opacity:1; }
 .adm-source-ready,.adm-source-missing,html.dark .adm-source-ready,html.dark .adm-source-missing { font-size:12px; font-weight:500; border:1px solid var(--work-selection-line); border-radius:999px; padding:5px 9px; color:var(--work-text); }
 .adm-source-missing,html.dark .adm-source-missing { color:var(--work-muted); border-style:dashed; }
+.adm-source-ready,.adm-source-missing,html.dark .adm-source-ready,html.dark .adm-source-missing { border-color:var(--work-muted); }
+.adm-dialog [data-slot="alert-dialog-action"] { background:#a33d49; color:#fff; }
+.adm-dialog [data-slot="alert-dialog-action"]:hover { background:#8b303b; }
+html.dark .adm-error { background:#2b191d; color:#efbbc3; border-color:#78414b; }
 .adm-shell button:focus-visible,.adm-shell a:focus-visible,.adm-shell input:focus-visible,.adm-dialog button:focus-visible,.adm-dialog input:focus-visible,.adm-dialog select:focus-visible { outline:2px solid var(--work-focus); outline-offset:3px; }
 .adm-form input:focus,.adm-form select:focus { border-color:var(--work-focus); }
 .adm-nav-button[data-active="true"],html.dark .adm-nav-button[data-active="true"] { box-shadow:inset 3px 0 var(--work-focus); }

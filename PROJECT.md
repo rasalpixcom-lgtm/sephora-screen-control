@@ -54,3 +54,7 @@ Install with `npm install`. Use `npm run dev -- --port 5174` for this project be
 ### Controller and Monitor emerald preview
 
 Controller dark mode and Monitor Dark appearance use near-black backgrounds (#0c1012), flat black cards (#111719), and restrained emerald accents (#39b88d). Controller light mode retains muted gray surfaces with a deeper green accent. Admin colors remain unchanged. Fonts, card shapes, hierarchy, live previews, and wall paging are preserved. Green denotes controls and selection; preview-link badges remain neutral and do not claim player health. Tested dark action text contrast is 7.08:1, secondary text on selected cards 7.58:1, and light action text 6.51:1.
+
+### Unified workspace palette
+
+Admin now shares the Controller near-black/emerald palette through central theme tokens, including mobile sidebar and portaled dialogs. Light mode keeps soft gray surfaces with a deep green accent. Card shapes, Outfit typography, dashboard structure, and monitoring behavior remain unchanged. Preview badges stay neutral; delete confirmation uses a distinct muted red action.

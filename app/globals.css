@@ -455,26 +455,26 @@ html .app-shell-monitor[data-wall-theme] .wall-empty h2 { color: var(--wall-text
   --work-text: #252c34;
   --work-muted: #5c6773;
   --work-quiet: #5c6773;
-  --work-selected: #e0e6ec;
-  --work-selection-line: #64758a;
-  --work-focus: #64758a;
-  --work-action: #384653;
-  --work-action-text: #f5f7f9;
+  --work-selected: #d8e8df;
+  --work-selection-line: #227857;
+  --work-focus: #227857;
+  --work-action: #17664f;
+  --work-action-text: #f4faf7;
   --work-shadow: 0 2px 8px rgba(27,38,49,.035);
 }
 html.dark {
-  --work-bg: #191d23;
-  --work-surface: #242a32;
-  --work-soft: #2b323b;
-  --work-line: #3b4551;
-  --work-text: #e4e8ed;
-  --work-muted: #b0bbc7;
-  --work-quiet: #9daab8;
-  --work-selected: #333f4b;
-  --work-selection-line: #718496;
-  --work-focus: #a4b2c6;
-  --work-action: #acb9c7;
-  --work-action-text: #202832;
+  --work-bg: #0c1012;
+  --work-surface: #111719;
+  --work-soft: #1b2425;
+  --work-line: #2d3a36;
+  --work-text: #edf3ef;
+  --work-muted: #b5c2bc;
+  --work-quiet: #a8b7af;
+  --work-selected: #173127;
+  --work-selection-line: #39b88d;
+  --work-focus: #63cba5;
+  --work-action: #39b88d;
+  --work-action-text: #091c15;
   --work-shadow: 0 2px 8px rgba(0,0,0,.08);
 }
 
@@ -482,20 +482,20 @@ html.dark {
 :root {
   --card-fill: linear-gradient(155deg,#f0f1f2 0%,#e4e6e8 100%);
   --card-line: #c9cdd2;
-  --card-hover: #7d8b9d;
-  --card-selected: linear-gradient(145deg,#dce1e8,#d0d7e0);
-  --card-ring: #64758a;
+  --card-hover: #227857;
+  --card-selected: #d8e8df;
+  --card-ring: #227857;
   --card-heading: #25282d;
   --card-muted: #565d67;
   --card-shadow: inset 0 1px 0 rgba(255,255,255,.65),0 5px 15px rgba(25,30,40,.04);
 }
 html.dark {
-  --card-fill: linear-gradient(160deg,#262628 0%,#171719 48%,#0e0e10 100%);
-  --card-line: #3c3c41;
-  --card-hover: #62626b;
-  --card-selected: linear-gradient(145deg,#30333d,#1c1f28);
-  --card-ring: #929eb6;
-  --card-heading: #f2f2f4;
-  --card-muted: #b6b6bf;
-  --card-shadow: inset 0 1px 0 rgba(255,255,255,.055),0 7px 18px rgba(0,0,0,.12);
+  --card-fill: #111719;
+  --card-line: #2d3a36;
+  --card-hover: #508c72;
+  --card-selected: #173127;
+  --card-ring: #39b88d;
+  --card-heading: #edf3ef;
+  --card-muted: #b5c2bc;
+  --card-shadow: 0 6px 20px rgba(0,0,0,.12);
 }
