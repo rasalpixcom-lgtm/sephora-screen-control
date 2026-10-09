@@ -109,30 +109,32 @@ try {
   check((await request("/api/state", { action: "member", groupId: group.id, screenId: screen.id, enabled: "false" }, admin.cookie)).status === 400, "group assignment requires a boolean");
   check((await request("/api/state", { action: "update", type: "screen", id: screen.id, name: "Renamed screen", parentId: location.id, liveUrl: "https://example.test/updated" }, admin.cookie)).status === 200, "screen name and preview URL can be edited");
   check((await request("/api/state", { action: "update", type: "screen", id: screen.id, name: "Renamed screen", parentId: location.id, liveUrl: "javascript:alert(1)" }, admin.cookie)).status === 400, "unsafe preview protocol is rejected");
-  for (const role of ["controller", "wall", "admin"]) {
+  for (const role of ["controller", "admin"]) {
     const response = await request("/api/users", { action: "create", name: `Test ${role}`, email: `${role}2@example.test`, role, password }, admin.cookie);
     check(response.status === 200, `Admin can create ${role} with direct credentials`);
   }
-  check((await request("/api/users", { action: "create", name: "Duplicate", email: "controller2@example.test", role: "wall", password }, admin.cookie)).status === 400, "duplicate login IDs are rejected");
-  check((await request("/api/users", { action: "create", name: "Weak", email: "weak@example.test", role: "wall", password: "short" }, admin.cookie)).status === 400, "short passwords are rejected");
-  const controller = await login("controller2@example.test", password, "192.0.2.11"); const wall = await login("wall2@example.test", password, "192.0.2.12");
-  check(controller.response.status === 200 && wall.response.status === 200, "staff and wall credentials work without email verification");
+  check((await request("/api/users", { action: "create", name: "Viewer", email: "viewer2@example.test", role: "controller", password }, admin.cookie)).status === 200, "Admin creates another Controller");
+  check((await request("/api/users", { action: "create", name: "Retired", email: "retired@example.test", role: "wall", password }, admin.cookie)).status === 400, "retired monitor role cannot be created");
+  check((await request("/api/users", { action: "create", name: "Duplicate", email: "controller2@example.test", role: "controller", password }, admin.cookie)).status === 400, "duplicate login IDs are rejected");
+  check((await request("/api/users", { action: "create", name: "Weak", email: "weak@example.test", role: "controller", password: "short" }, admin.cookie)).status === 400, "short passwords are rejected");
+  const controller = await login("controller2@example.test", password, "192.0.2.11"); const viewer = await login("viewer2@example.test", password, "192.0.2.12");
+  check(controller.response.status === 200 && viewer.response.status === 200, "staff credentials work without email verification");
   const durations = (await db.prepare("SELECT u.role, EXTRACT(EPOCH FROM (s.expires_at - s.created_at)) * 1000 AS duration FROM auth_session s JOIN auth_user u ON s.user_id = u.id").all()).results;
-  check(durations.every((s) => Math.abs(s.duration - (s.role === "wall" ? 30 * 86400 : 8 * 3600) * 1000) < 5000), "staff and wall sessions have the intended lifetimes");
+  check(durations.every((s) => Math.abs(s.duration - (8 * 3600) * 1000) < 5000), "staff sessions have the intended lifetimes");
   check((await request("/account", undefined, controller.cookie)).status === 200, "Controller can manage own password");
   check((await request("/admin/screens", undefined, controller.cookie)).status === 307, "Controller cannot open Admin pages");
-  check((await request("/controller", undefined, wall.cookie)).status === 307, "Wall device cannot open Controller");
-  check((await request("/monitor", undefined, wall.cookie)).status === 200, "Wall device can open Monitor");
+  check((await request("/controller", undefined, viewer.cookie)).status === 200, "Controller can open Controller");
+  check((await request("/monitor", undefined, viewer.cookie)).status === 200, "Controller can open Monitor");
   check((await request("/api/users", undefined, controller.cookie)).status === 403, "Controller cannot read user accounts");
-  check((await request("/api/users", { action: "create", name: "Forbidden", email: "forbidden@example.test", role: "admin", password }, wall.cookie)).status === 403, "Wall device cannot create accounts");
+  check((await request("/api/users", { action: "create", name: "Forbidden", email: "forbidden@example.test", role: "admin", password }, viewer.cookie)).status === 403, "Controller cannot create accounts");
   check((await request("/api/state", { action: "create", type: "country", name: "Forbidden" }, controller.cookie)).status === 403, "Controller cannot modify inventory");
-  check((await request("/api/state", { action: "display", selection: {}, autoAdvance: true, intervalSeconds: 10 }, wall.cookie)).status === 403, "Wall device cannot control selection");
+  check((await request("/api/state", { action: "display", selection: {}, autoAdvance: true, intervalSeconds: 10 }, viewer.cookie)).status === 200, "another Controller can control selection");
   check((await request("/api/state", { action: "display", selection: {}, autoAdvance: true, intervalSeconds: 10 }, controller.cookie)).status === 200, "Controller can change wall selection");
-  const state = await (await request("/api/state", undefined, wall.cookie)).json(); check(state.activity.length === 0, "non-admin state excludes audit history");
+  const state = await (await request("/api/state", undefined, viewer.cookie)).json(); check(state.activity.length === 0, "non-admin state excludes audit history");
   check((await request("/api/state", { action: "display", selection: { countryId: country.id, regionId: region.id, storeId: location.id }, autoAdvance: true, intervalSeconds: 15 }, controller.cookie)).status === 200, "Controller can select a saved country, region, and location");
-  const monitorState = await (await request("/api/state", undefined, wall.cookie)).json();
+  const monitorState = await (await request("/api/state", undefined, viewer.cookie)).json();
   check(monitorState.display.selection.storeId === location.id && monitorState.display.intervalSeconds === 15 && monitorState.members.some(member => member.groupId === group.id && member.screenId === screen.id), "Monitor sees the shared Controller selection and group membership");
-  for (const account of [controller, wall]) {
+  for (const account of [controller, viewer]) {
     check((await request("/api/monitor-link", undefined, account.cookie)).status === 403, "non-Admin cannot read link management");
     check((await request("/api/monitor-link", { action: "create" }, account.cookie)).status === 403, "non-Admin cannot create monitor links");
   }
@@ -141,6 +143,29 @@ try {
   const competingLinks = await Promise.all([request("/api/monitor-link", { action: "create" }, admin.cookie), request("/api/monitor-link", { action: "create" }, admin.cookie)]);
   check(competingLinks.filter(response => response.status === 200).length === 1 && competingLinks.filter(response => response.status === 409).length === 1, "concurrent creation produces only one active monitor link");
   const firstLink = await competingLinks.find(response => response.status === 200).json();
+  // Simulate an upgrade from the old role model in this disposable database only.
+  await request("/api/users", {action:"create",name:"Legacy monitor",email:"legacy@example.test",role:"controller",password},admin.cookie);
+  const legacy = await login("legacy@example.test",password,"192.0.2.31");
+  const legacyUser = await db.prepare("SELECT id FROM auth_user WHERE email = ?").bind("legacy@example.test").first();
+  const monitorBefore = await pool.query("SELECT * FROM monitor_access");
+  await pool.query("ALTER TABLE auth_user DROP CONSTRAINT auth_user_supported_roles");
+  await db.prepare("UPDATE auth_user SET role = 'wall', disabled = false WHERE id = ?").bind(legacyUser.id).run();
+  check((await request("/api/state",undefined,legacy.cookie)).status === 401,"legacy monitor sessions are rejected by the current role policy");
+  check((await login("legacy@example.test",password,"192.0.2.32")).response.status===401,"retired monitor credentials cannot sign in");
+  const retirement = await pool.connect();
+  try {
+    await retirement.query("BEGIN");
+    await retirement.query(fs.readFileSync("db/postgres-migrations/0003_retire_monitor_accounts.sql","utf8"));
+    await retirement.query("COMMIT");
+  } catch (error) { await retirement.query("ROLLBACK"); throw error; } finally { retirement.release(); }
+  check((await db.prepare("SELECT disabled FROM auth_user WHERE id = ?").bind(legacyUser.id).first()).disabled===true,"migration preserves and disables the legacy monitor account");
+  check((await db.prepare("SELECT COUNT(*)::integer AS count FROM auth_session WHERE user_id = ?").bind(legacyUser.id).first()).count===0,"migration revokes every legacy monitor session");
+  check(JSON.stringify((await pool.query("SELECT * FROM monitor_access")).rows)===JSON.stringify(monitorBefore.rows),"migration preserves the active private monitor link exactly");
+  check(!(await (await request("/api/users",undefined,admin.cookie)).json()).users.some(user=>user.id===legacyUser.id),"retired monitor accounts are excluded from staff management");
+  check((await request("/api/users",{action:"update",id:legacyUser.id,role:"controller",disabled:false},admin.cookie)).status===404,"retired accounts cannot be silently re-enabled");
+  let blocked = false;
+  try { await pool.query("UPDATE auth_user SET disabled=false WHERE id=$1",[legacyUser.id]); } catch (error) { blocked = error.code === "23514"; }
+  check(blocked,"database prevents an enabled retired monitor role");
   const key = new URLSearchParams(new URL(firstLink.link).hash.slice(1)).get("key");
   check(new URL(firstLink.link).origin === origin && !new URL(firstLink.link).search && /^[a-f0-9]{64}$/.test(key), "generated OnSign link uses a random key in the fragment only");
   const storedLink = await db.prepare("SELECT * FROM monitor_access").all();
@@ -202,13 +227,13 @@ try {
   }
   await pool.query("INSERT INTO entities (id, type, name, parent_id, is_demo, created_at) SELECT 'load-' || i, 'screen', 'Load screen ' || i, $1, 0, $2 FROM generate_series(1, 1000) i", [location.id, new Date().toISOString()]);
   const loadStarted = performance.now();
-  const loadReads = await Promise.all(Array.from({ length: 30 }, () => request("/api/state", undefined, wall.cookie)));
+  const loadReads = await Promise.all(Array.from({ length: 30 }, () => request("/api/state", undefined, viewer.cookie)));
   check(loadReads.every(response => response.status === 200) && (await loadReads[0].json()).entities.filter(item => item.type === "screen").length === 1001, "30 concurrent monitor reads handle an inventory of 1001 screens");
   console.log(`Local load smoke check: 30 reads completed in ${Math.round(performance.now() - loadStarted)} ms (not a production capacity benchmark).`);
   const interrupted = await pool.query("SELECT pg_terminate_backend(pid) AS terminated FROM pg_stat_activity WHERE datname = $1 AND application_name = 'sephora-screen-control' AND state = 'idle'", [databaseName]);
   check(interrupted.rows.some(row => row.terminated), "recovery test interrupts real application database connections");
   await new Promise(resolve => setTimeout(resolve, 250));
-  check((await request("/api/health")).status === 200 && (await request("/api/state", undefined, wall.cookie)).status === 200, "server recovers after its idle database connections are interrupted");
+  check((await request("/api/health")).status === 200 && (await request("/api/state", undefined, viewer.cookie)).status === 200, "server recovers after its idle database connections are interrupted");
   const racingDelete = await Promise.all([
     request("/api/state", { action: "create", type: "region", name: "Racing region", parentId: country.id }, admin.cookie),
     request("/api/state", { action: "delete", id: country.id }, admin.cookie),
@@ -220,40 +245,40 @@ try {
   check((await request("/api/state", { action: "create", type: "country", name: "Spoof" }, controller.cookie, { "oai-authenticated-user-email": "admin@example.test", "x-role": "admin" })).status === 403, "client headers cannot elevate roles");
   check((await request("/api/users", { action: "create", name: "CSRF", email: "csrf@example.test", role: "admin", password }, admin.cookie, { Origin: "https://attacker.test" })).status === 403, "cross-origin Admin mutations are rejected");
   const users = (await (await request("/api/users", undefined, admin.cookie)).json()).users;
-  const c = users.find((u) => u.role === "controller"); const w = users.find((u) => u.role === "wall"); const self = users.find((u) => u.email === "admin@example.test");
-  check((await request("/api/users", { action: "update", id: self.id, role: "wall", disabled: false }, admin.cookie)).status === 400, "Admin cannot remove own Admin access");
+  const c = users.find((u) => u.role === "controller"); const w = users.find((u) => u.email === "viewer2@example.test"); const self = users.find((u) => u.email === "admin@example.test");
+  check((await request("/api/users", { action: "update", id: self.id, role: "controller", disabled: false }, admin.cookie)).status === 400, "Admin cannot remove own Admin access");
   check((await request("/api/users", { action: "update", id: c.id, role: "controller", disabled: true }, admin.cookie)).status === 200, "Admin can disable staff");
   check((await request("/api/state", undefined, controller.cookie)).status === 401, "disabling revokes existing sessions immediately");
   check((await login(c.email, password, "192.0.2.13")).response.status === 401, "disabled credentials receive a normal login rejection");
   const replacement = crypto.randomBytes(24).toString("base64url");
   check((await request("/api/users", { action: "reset", id: w.id, password: replacement }, admin.cookie)).status === 200, "Admin can set a new password without email");
-  check((await request("/api/state", undefined, wall.cookie)).status === 401, "password reset revokes existing sessions");
+  check((await request("/api/state", undefined, viewer.cookie)).status === 401, "password reset revokes existing sessions");
   check((await login(w.email, password, "192.0.2.14")).response.status === 401, "old password stops working");
   const newWall = await login(w.email, replacement, "192.0.2.15"); check(newWall.response.status === 200, "new password works");
   check((await request("/api/auth/sign-out", {}, newWall.cookie)).status === 200 && (await request("/api/state", undefined, newWall.cookie)).status === 401, "sign-out invalidates the server session");
   const passwordChange = await login(w.email, replacement, "192.0.2.16"); const nextPassword = crypto.randomBytes(24).toString("base64url");
   const otherWallSession = await login(w.email, replacement, "192.0.2.22");
   check((await request("/api/auth/change-password", { currentPassword: "wrong-password", newPassword: nextPassword, revokeOtherSessions: true }, passwordChange.cookie)).status === 400, "self password changes require the current password");
-  check((await request("/api/auth/change-password", { currentPassword: replacement, newPassword: nextPassword, revokeOtherSessions: false }, passwordChange.cookie)).status === 200, "Wall device can change its own password");
+  check((await request("/api/auth/change-password", { currentPassword: replacement, newPassword: nextPassword, revokeOtherSessions: false }, passwordChange.cookie)).status === 200, "Controller can change its own password");
   check((await request("/api/state", undefined, otherWallSession.cookie)).status === 401, "password changes revoke other sessions even if a client requests otherwise");
   check((await login(w.email, replacement, "192.0.2.17")).response.status === 401 && (await login(w.email, nextPassword, "192.0.2.18")).response.status === 200, "self password change replaces credentials");
   await db.prepare("UPDATE auth_session SET expires_at = to_timestamp(0) WHERE user_id = ?").bind(w.id).run();
   check((await request("/api/state", undefined, passwordChange.cookie)).status === 401, "expired sessions cannot access inventory");
   check((await request("/api/users", { action: "update", id: c.id, role: "controller", disabled: false }, admin.cookie)).status === 200, "Admin can re-enable staff");
   const enabled = await login(c.email, password, "192.0.2.19");
-  check((await request("/api/users", { action: "update", id: c.id, role: "wall", disabled: false }, admin.cookie)).status === 200 && (await request("/api/state", undefined, enabled.cookie)).status === 401, "changing roles revokes the old session");
+  check((await request("/api/users", { action: "update", id: c.id, role: "admin", disabled: false }, admin.cookie)).status === 200 && (await request("/api/state", undefined, enabled.cookie)).status === 401, "changing roles revokes the old session");
   const changed = await login(c.email, password, "192.0.2.20");
-  check((await request("/controller", undefined, changed.cookie)).status === 307, "new sessions enforce the changed role");
-  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: "updated@example.test", role: "wall", disabled: false }, admin.cookie)).status === 200, "Admin can edit a user's name and login ID");
+  check((await request("/admin", undefined, changed.cookie)).status === 200, "new sessions enforce the changed role");
+  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: "updated@example.test", role: "controller", disabled: false }, admin.cookie)).status === 200, "Admin can edit a user's name and login ID");
   check((await request("/api/state", undefined, changed.cookie)).status === 401, "editing an account revokes its existing sessions");
   check((await login(c.email, password, "192.0.2.23")).response.status === 401 && (await login("updated@example.test", password, "192.0.2.24")).response.status === 200, "edited login ID replaces the old credentials without changing the password");
-  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: self.email, role: "wall", disabled: false }, admin.cookie)).status === 400, "editing cannot duplicate another account's login ID");
-  check((await request("/api/users", { action: "update", id: c.id, name: " ", email: "updated@example.test", role: "wall", disabled: false }, admin.cookie)).status === 400, "editing rejects an empty name");
+  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: self.email, role: "controller", disabled: false }, admin.cookie)).status === 400, "editing cannot duplicate another account's login ID");
+  check((await request("/api/users", { action: "update", id: c.id, name: " ", email: "updated@example.test", role: "controller", disabled: false }, admin.cookie)).status === 400, "editing rejects an empty name");
   const hashes=JSON.stringify((await db.prepare("SELECT password FROM auth_account").all()).results);
   check(!hashes.includes(password) && !hashes.includes(replacement) && hashes.includes(":"), "database stores hashes, not plaintext passwords");
   for (let i = 0; i < 6; i++) { const attempt = await login("unknown@example.test", password, "192.0.2.50"); if (i === 5) check(attempt.response.status === 429, "repeated login attempts are rate limited"); }
   const second = users.find((u) => u.email === "admin2@example.test"); const secondLogin = await login(second.email, password, "192.0.2.21");
-  await Promise.all([request("/api/users", { action: "update", id: second.id, role: "wall", disabled: false }, admin.cookie), request("/api/users", { action: "update", id: self.id, role: "wall", disabled: false }, secondLogin.cookie)]);
+  await Promise.all([request("/api/users", { action: "update", id: second.id, role: "controller", disabled: false }, admin.cookie), request("/api/users", { action: "update", id: self.id, role: "controller", disabled: false }, secondLogin.cookie)]);
   check((await db.prepare("SELECT COUNT(*) AS count FROM auth_user WHERE role = 'admin' AND disabled = false").first()).count >= 1, "concurrent changes cannot remove the last Admin");
   console.log(`\n${checks} integration checks passed on isolated PostgreSQL.`);
 } catch (error) { console.error(logs.slice(-4000)); throw error; } finally {

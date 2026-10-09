@@ -25,14 +25,14 @@ export function auth() {
     database: drizzleAdapter(drizzle(getPool(), { schema }), { provider: "pg", schema, transaction: true }),
     trustedOrigins: origins,
     emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 12, maxPasswordLength: 128, password: { hash: hashPassword, verify: verifyPassword } },
-    user: { additionalFields: { role: { type: "string", defaultValue: "wall", input: false }, disabled: { type: "boolean", defaultValue: true, input: false } } },
-    session: { expiresIn: 30 * 86400, disableSessionRefresh: true, cookieCache: { enabled: false } },
+    user: { additionalFields: { role: { type: "string", defaultValue: "controller", input: false }, disabled: { type: "boolean", defaultValue: true, input: false } } },
+    session: { expiresIn: 8 * 3600, disableSessionRefresh: true, cookieCache: { enabled: false } },
     advanced: { trustedProxyHeaders: env.TRUST_PROXY === "true", useSecureCookies: env.AUTH_URL!.startsWith("https:"), ipAddress: { ipAddressHeaders: env.TRUST_PROXY === "true" ? ["x-forwarded-for"] : [] } },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 60, customRules: { "/sign-in/email": { window: 60, max: 5 }, "/change-password": { window: 60, max: 5 } } },
     databaseHooks: { session: { create: { before: async (session) => {
       const user = await database().prepare("SELECT role, disabled FROM auth_user WHERE id = ?").bind(session.userId).first<{role:string;disabled:boolean}>();
       if (!user || user.disabled || !roles.includes(user.role as AuthUser["role"])) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password" });
-      return { data: { ...session, expiresAt: new Date(Date.now() + (user.role === "wall" ? 30 * 86400 : 8 * 3600) * 1000) } };
+      return { data: { ...session, expiresAt: new Date(Date.now() + 8 * 3600 * 1000) } };
     } } } },
   });
 }

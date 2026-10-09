@@ -1,6 +1,18 @@
 # Code review and local verification
 
-Reviewed on 8 October 2026.
+Latest review: 9 October 2026.
+
+## Pre-push review — 9 October 2026
+
+Reviewed application routes, authentication and role enforcement, private monitor access, inventory and activity queries, Admin/Controller/Monitor request handling, migrations, import and backup recovery, standalone packaging, and Windows/container deployment configuration.
+
+Fixed two defects: a stale Users refresh could overwrite a newer account mutation; SQLite import could reject an enabled legacy monitor account under the current retirement constraint. Refresh responses now respect request revisions. Import disables legacy monitor records, preserves credential hashes, and audits retirement within the import transaction.
+
+Verification: 296 checks passed across authentication (157), origin handling (24), screen selection (12), OnSign streaming (31), activity queries/API (62), and SQLite import (10). The import regression covers retained credentials, monitor retirement, omitted sessions, non-empty destination rejection, and transaction rollback. A PostgreSQL backup restored successfully into a disposable database, with all 12 tables matching. Production dependencies have zero reported audit vulnerabilities; development lint dependencies retain five high findings in the documented braces dependency chain. Do not force the suggested framework downgrade.
+
+The user reports successful playback in OnSign, Controller changes appearing on the wall, a fitting 4K layout, and recovery after network interruption. Prolonged unattended operation and company-server HTTPS/IIS/service configuration remain deployment checks. This review does not establish that third-party dependencies or every runtime scenario are defect-free. Private environment files, database fixtures and backups remain excluded from Git.
+
+Final verification after these fixes: repository ESLint and the production build/TypeScript passed. The rebuilt standalone preview restarted on port 5174 and returned HTTP 200 from its health endpoint. Git whitespace checks passed. A focused credential scan of 200 publishable files found only the documented database URL placeholder and a script that generates a private local password; environment files and the review backup are ignored. No commit or push was performed.
 
 ## Final monitor density — 9 October 2026
 
@@ -87,3 +99,61 @@ This is a development review and local verification, not an independent security
 - Inventory hierarchy/type rules are enforced through the serialized application API; direct database edits must preserve them. Activity is operational history, not an immutable compliance audit log.
 
 The next step is hands-on testing of the local system, followed by deployment verification on the company server.
+
+## Activity page refinement — 9 October 2026
+
+- Admin-only history endpoint queries PostgreSQL with 20 records per page, stable newest-first ordering, matching total counts, and an index on timestamp and ID. History is no longer limited to the latest 60 records in the Admin UI.
+- Search matches item, action, or actor; action filters and inclusive GST calendar-day filters apply before pagination. Search wildcard characters are treated literally, and invalid dates/pages are rejected.
+- The Activity panel includes Apply/Clear, loading/error/empty states, Previous/Next, record ranges, and a GST timezone label. Changing pages returns to the start of the panel; filter changes reset to page one.
+- New wall events describe selection and rotation. Existing history is preserved; older unnamed events remain visible in Other actions.
+- Verified: production build and TypeScript; lint without warnings; 16 query/description checks; 48 Activity integration checks; 148 existing authentication/server checks. Database tests used disposable local PostgreSQL databases.
+- Browser verification: search, Next page, action filters resetting pages, empty results, Clear, GST dates, invalid range disabling Apply, dark/light rendering, and a 390×844 mobile viewport. Final Next navigation was checked visually after rebuilding. Screenshot evidence is kept in ignored `.server-runtime/activity-paged-verified.png` and contains disposable test records.
+- Applied the additive Activity index migration to the local database and restarted the local preview on port 5174. Company deployment must also run `npm run db:migrate` before starting the updated server.
+
+## Retire Monitor login role — 9 October 2026
+
+- Only Admin and Controller are available in Add/Edit user forms and accepted by the account API and session policy. Updated Users and Settings explanations; staff sessions remain eight hours.
+- Migration `0003_retire_monitor_accounts.sql` preserves legacy wall account records, disables them, deletes their sessions, logs retirement, and adds a constraint preventing enabled wall roles. Retired accounts are excluded from staff management and cannot be re-enabled through that API.
+- Applied the migration locally: zero active legacy wall accounts and zero remaining wall sessions. Private monitor access records are unchanged.
+- Verification: production build/TypeScript and lint passed; 157 authentication/server checks, 46 Activity server checks, and 16 query/description checks passed. Upgrade tests confirmed old cookies/credentials are blocked, account records remain, and the same private link works without login after retirement. Add/Edit dropdowns were also checked in the browser using disposable accounts.
+- Company rollout must apply the migration before starting the updated server. Use the existing private monitor link in OnSign; no replacement is needed for this change.
+
+## Settings refinement — 9 October 2026
+
+- Kept Private monitor link first; combined preview counts and page rotation into a compact Monitor overview with links to Screens and Controller. Removed the repeated login explanation and technical polling interval.
+- Account security now opens a password dialog with three stacked fields, Cancel, focus restoration, and disabled controls while saving. The existing account page keeps its inline password form.
+- Disable link uses a warning color and retains the explicit confirmation describing when existing monitors stop.
+- Verified production build/TypeScript, lint, 16 query checks and 46 Activity integration checks. Browser checks covered dark rendering, stacked password fields, initial focus, Escape/Cancel, the monitor warning and cancel path, and Settings at 390×844. No password change or monitor disable was submitted in the browser.
+- Disposable test fixtures were cleaned up; the local server was restored on port 5174 and health returned HTTP 200. Screenshot evidence: ignored `.server-runtime/settings-refined-verified.png`.
+
+## Screens hierarchy selection — 9 October 2026
+
+- Added searchable Country, Region, and Location pickers to Add/Edit screen. Parent changes clear descendants; Edit initializes all three from the saved location. Save remains disabled until a location is chosen, and submission validates its region.
+- Added the same cascading filters to the Screens list, combined with the existing search, matching counts, Clear filters, and a filtered empty state. Searchable lists support keyboard selection and scoped alphabetical options.
+- Verified production build/TypeScript and lint without warnings. The disposable Activity workflow passed 16 query checks and 46 server checks and seeded a two-country hierarchy for browser verification.
+- Browser checks confirmed country and region filtering, scoped location choices, empty results, parent resets, Clear filters, Edit initialization, changing and saving a location, and adding a screen. Add and list layouts were checked at 390×844. All writes were to the disposable test database, which was cleaned up afterward.
+- Restored local preview on port 5174; health returned HTTP 200. Evidence: ignored `.server-runtime/screens-filters-verified.png`.
+
+## Plain location dropdowns — 9 October 2026
+
+- Replaced the searchable Country/Region/Location picker with the shared Select control, removing dropdown search fields in both Add/Edit and list filters. Retained cascading resets, alphabetical options, keyboard navigation, and All options for filtering.
+- Production build/TypeScript and lint passed. Browser checks confirmed the plain country/region lists, country filtering, Edit initialization, dependent Location reset, Save disabling, and Escape dismissal. The disposable browser workflow completed and cleaned up its database; local preview health returned HTTP 200.
+- Screenshot: ignored `.server-runtime/screens-plain-dropdown-verified.png`.
+
+## Admin filter layout stability — 9 October 2026
+
+- Reserved scrollbar space on the Admin document so filtering from a long table to a short table does not change the centered content width. This applies to Admin pages only.
+- Production build/TypeScript passed. Verified with a disposable 18-screen fixture: the table remained at left 272px and width 961px before and after filtering to one screen (0px horizontal movement), including opening the Location menu. Test fixtures were cleaned up.
+- Restored preview on port 5174; health returned HTTP 200. Screenshot: ignored `.server-runtime/screens-stable-layout-verified.png`.
+### Admin dropdown scroll-lock follow-up — 9 October 2026
+
+- Reproduced opening Country on an overflowing Screens list: Radix scroll locking added a 15px body margin despite the root already reserving the scrollbar gutter, shrinking the panel from 961px to 946px.
+- Scoped the body scroll-lock compensation override to Admin pages; scrolling remains locked while menus and dialogs are open.
+- Browser verified Country, Region, Location, empty filtered results, Add/Edit dialogs, and a dropdown nested inside Add. Panel left stayed 272px and width stayed 961px throughout at a 1280px viewport. Closing dialogs also restored scrolling without shifting the panel.
+- Production build and TypeScript passed. The disposable PostgreSQL test run passed 16 query checks and 46 integration checks; fixtures were cleaned up.
+### Controller simplification — 9 October 2026
+
+- Removed the decorative workspace label and clock; kept account, sign-out, theme and navigation controls. Phone header keeps controls on one row and navigation beneath.
+- Simplified location step headings and screen empty states. Breadcrumb navigation appears after choosing a country. Sample badge now checks the current wall screens only.
+- Verified country → region → location navigation, assigned group screens, individual screen selection, restoring all screens, rotation toggle and interval in a disposable PostgreSQL fixture. Live wall selection was not changed.
+- Browser checked desktop layout and 390px phone layout: panels stack without horizontal overflow; phone header is 104px tall after cleanup. Production build, TypeScript and targeted ESLint passed. Disposable fixture cleanup completed.

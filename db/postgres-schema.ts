@@ -7,8 +7,8 @@ export const displayState = pgTable("display_state", { id: text("id").primaryKey
 export const activityLog = pgTable("activity_log", { id: text("id").primaryKey(), action: text("action").notNull(), entityType: text("entity_type"), entityId: text("entity_id"), entityName: text("entity_name"), actor: text("actor").notNull(), createdAt: text("created_at").notNull() });
 export const user = pgTable("auth_user", {
   id: text("id").primaryKey(), name: text("name").notNull(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), role: text("role").notNull().default("wall"), disabled: boolean("disabled").notNull().default(true),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), role: text("role").notNull().default("controller"), disabled: boolean("disabled").notNull().default(true),
+}, table => [check("auth_user_supported_roles", sql`${table.role} IN ('admin', 'controller') OR (${table.role} = 'wall' AND ${table.disabled} = true)`)]);
 export const session = pgTable("auth_session", {
   id: text("id").primaryKey(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), token: text("token").notNull().unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), ipAddress: text("ip_address"), userAgent: text("user_agent"),

@@ -13,6 +13,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test:auth": "node --env-file=.env.local tests/auth.server.mjs",
+    "test:activity": "node --experimental-strip-types tests/activity-query.mjs && node --env-file=.env.local tests/activity.server.mjs",
+    "test:import": "node --env-file=.env.local tests/import-sqlite.server.mjs",
     "db:migrate": "node --env-file=.env.local scripts/migrate-postgres.mjs",
     "db:import": "node --env-file=.env.local scripts/import-sqlite.mjs"
   },

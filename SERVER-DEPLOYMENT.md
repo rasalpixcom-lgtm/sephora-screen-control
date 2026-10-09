@@ -54,7 +54,7 @@ For another SQLite/D1 export, first obtain a consistent SQLite database file, mi
 npm run db:import -- 'C:\PrivateBackups\sephora.sqlite'
 ```
 
-Import refuses a non-empty destination and commits all copied tables together. Never run first Admin setup for an imported database that already has users. For moving this local PostgreSQL data to the company server, use PostgreSQL pg_dump/pg_restore instead.
+Import refuses a non-empty destination and commits all copied tables together. Legacy monitor accounts are retained as disabled records and their retirement is logged; Admin and Controller credentials remain usable. Never run first Admin setup for an imported database that already has users. For moving this local PostgreSQL data to the company server, use PostgreSQL pg_dump/pg_restore instead.
 
 ## First Admin for a new, empty database
 
@@ -64,7 +64,7 @@ node scripts/create-bootstrap.mjs admin@company.com https://screens.company.com
 
 This writes private configuration and a setup URL under `.server-runtime`. Copy its AUTH settings into `.env.local`, restart the app, open the private URL, and choose your password. The link expires after 24 hours and works once. No real mailbox or email verification is needed. After setup, remove AUTH_BOOTSTRAP_HASH and AUTH_BOOTSTRAP_EXPIRES and delete the private setup files. Do not regenerate AUTH_SECRET casually; it signs out sessions.
 
-Admin creates staff accounts in Users. Admin/Controller sessions last 8 hours; wall device sessions last 30 days. Use dedicated wall credentials for the monitoring PC.
+Admin creates Admin and Controller accounts in Users. Staff sessions last 8 hours. OnSign uses the private monitor link from Settings without a login. The role retirement migration disables legacy wall accounts and revokes their sessions, preserving account records and history.
 
 ## Backups and verification
 

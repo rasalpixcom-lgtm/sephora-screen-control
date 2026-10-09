@@ -1,6 +1,7 @@
 // Read-only import. Requires an empty, migrated PostgreSQL database. Sessions are not copied.
 import { DatabaseSync } from "node:sqlite";
 import pg from "pg";
+import crypto from "node:crypto";
 const source = process.argv[2];
 if (!source || !process.env.DATABASE_URL) throw new Error("Usage: npm run db:import -- <SQLite file>. Configure DATABASE_URL first.");
 const sqlite = new DatabaseSync(source, { readOnly: true });
@@ -21,11 +22,16 @@ try {
     for (const row of rows) {
       const columns = Object.keys(row);
       const values = columns.map((column) => {
+        // The current schema permits legacy wall records only when disabled.
+        if (table === "auth_user" && column === "disabled" && row.role === "wall") return true;
         if (table.startsWith("auth_") && ["email_verified", "disabled"].includes(column)) return !!row[column];
         if (table.startsWith("auth_") && column.endsWith("_at") && row[column] !== null) return new Date(Number(row[column]));
         return row[column];
       });
       await client.query(`INSERT INTO "${table}" (${columns.map((column) => `"${column}"`).join(",")}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(",")})`, values);
+      if (table === "auth_user" && row.role === "wall" && !row.disabled) {
+        await client.query("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES ($1, 'retired monitor account', 'user', $2, $3, 'SQLite import', $4)", [crypto.randomUUID(), row.id, row.email, new Date().toISOString()]);
+      }
     }
     console.log(`${table}: ${rows.length} rows imported`);
   }

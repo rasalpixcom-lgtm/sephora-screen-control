@@ -3,6 +3,7 @@ import { database, readState, type EntityType, type Selection } from "@/lib/stor
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { canMutate } from "@/lib/auth-policy";
 import { readObject, requestFailure } from "@/lib/request";
+import { wallActivityDescription } from "@/lib/activity-description";
 
 export const runtime = "nodejs";
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
-  const state = await readState(database(), user.role === "admin");
+  const state = await readState(database(), user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none");
   return NextResponse.json(state, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
       if (typeof interval !== "number" || !Number.isInteger(interval) || interval < 5 || interval > 60) return bad("Rotation must be a whole number from 5 to 60 seconds.");
       await db.prepare("INSERT INTO display_state (id, selection, auto_advance, interval_seconds, updated_at) VALUES ('main', ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET selection = excluded.selection, auto_advance = excluded.auto_advance, interval_seconds = excluded.interval_seconds, updated_at = excluded.updated_at")
         .bind(JSON.stringify(selection), autoAdvance, interval, now).run();
-      audit = { action: "changed wall selection", type: null, id: null, name: null };
+      audit = { action: JSON.stringify(selection) === JSON.stringify(state.display.selection) ? "changed wall settings" : "changed wall selection", type: null, id: null, name: wallActivityDescription(selection, state.entities, !!autoAdvance, interval) };
     } else return bad("Unknown action.");
     if (audit) {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")

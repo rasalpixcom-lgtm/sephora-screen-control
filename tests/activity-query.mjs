@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import {parseActivityQuery} from "../lib/activity-query.ts";
+import {wallActivityDescription} from "../lib/activity-description.ts";
+const parse = q=>parseActivityQuery(new URLSearchParams(q));
+assert.equal(parse("").page,1);
+for (const query of ["page=0","page=-1","page=1.5","page=abc","action=bad","from=2026-02-30","from=2025-02-29","from=2026-10-10&to=2026-10-09","q="+"x".repeat(121)]) assert.throws(()=>parse(query));
+assert.deepEqual(parse("from=2026-10-09&to=2026-10-09").values,["2026-10-08T20:00:00.000Z","2026-10-09T20:00:00.000Z"]);
+assert.equal(parse("q=100%25_%21").values[0],"%100!%!_!!%");
+assert.ok(parse("from=2024-02-29").where);
+assert.ok(parse("action=other").where.includes("NOT"));
+const entities=[{id:"c",name:"UAE"},{id:"r",name:"Dubai"},{id:"s",name:"Dubai Mall"},{id:"g",name:"Cash table"}];
+assert.equal(wallActivityDescription({},entities,true,10),"All locations · Rotation every 10s");
+assert.equal(wallActivityDescription({countryId:"c",regionId:"r",storeId:"s",groupId:"g"},entities,false,10),"UAE / Dubai / Dubai Mall / Group: Cash table · Rotation paused");
+console.log("16 activity query and description checks passed.");

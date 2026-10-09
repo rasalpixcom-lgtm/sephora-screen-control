@@ -17,15 +17,20 @@ export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEm
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [role, setRole] = useState<Role>("controller");
   const [disabled, setDisabled] = useState(false); const [password, setPassword] = useState(""); const [confirm, setConfirm] = useState("");
   const opener = useRef<HTMLButtonElement | null>(null);
+  const revision = useRef(0);
   const load = useCallback(async () => {
+    if (saving.current) return;
+    const startedAt = ++revision.current;
     try {
       const response = await clientFetch("/api/users", { cache: "no-store" });
+      if (startedAt !== revision.current) return;
       if (response.status === 401) { window.location.replace("/login?next=/admin/users"); return; }
       const data = await response.json() as { error?: string; users: User[] };
+      if (startedAt !== revision.current) return;
       if (!response.ok) throw new Error(data.error || "Could not load users.");
       setUsers(data.users); setError("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load users."); }
-    finally { setLoading(false); }
+    } catch (cause) { if (startedAt === revision.current) setError(cause instanceof Error ? cause.message : "Could not load users."); }
+    finally { if (startedAt === revision.current) setLoading(false); }
   }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load, refreshKey]);
   function close() { setEditor(null); setPassword(""); setConfirm(""); setFormError(""); }
@@ -36,6 +41,7 @@ export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEm
   }
   async function mutate(body: Record<string, unknown>, inDialog = false) {
     if (saving.current) return;
+    revision.current++;
     saving.current = true; setBusy(true); setError(""); setFormError(""); setMessage("");
     try {
       const response = await clientFetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -49,12 +55,12 @@ export default function UsersPanel({ accountEmail, refreshKey = 0 }: { accountEm
     } catch (cause) {
       const text = cause instanceof Error ? cause.message : "Could not save.";
       if (inDialog) setFormError(text); else setError(text);
-    } finally { saving.current = false; setBusy(false); }
+    } finally { saving.current = false; setBusy(false); setLoading(false); }
   }
   const ownAccount = editor?.mode === "edit" && editor.user.email === accountEmail;
   const needsPassword = editor?.mode === "create" || editor?.mode === "reset";
   return <>
-    <div className="users-intro"><p>Admin manages the system. Controller chooses what is shown. Wall device views only.</p><button className="adm-primary-btn" disabled={busy} onClick={(event) => open({ mode: "create" }, event.currentTarget)}><Plus size={17}/>Add user</button></div>
+    <div className="users-intro"><p>Admin manages the system. Controller chooses what is shown. Monitoring uses the private link in Settings.</p><button className="adm-primary-btn" disabled={busy} onClick={(event) => open({ mode: "create" }, event.currentTarget)}><Plus size={17}/>Add user</button></div>
     {error && <p className="auth-error" role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     <section className="adm-panel users-list">{loading ? <p>Loading users…</p> : !users.length ? <p>No users to display.</p> : users.map((user) => <div className="user-row" key={user.id}>
       <div className="user-identity"><strong>{user.name}{user.email === accountEmail ? " (you)" : ""}</strong><span>{user.email}</span><small>{user.disabled ? "Disabled" : `Active · ${user.sessions} session${user.sessions === 1 ? "" : "s"}`}</small></div>

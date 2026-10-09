@@ -299,3 +299,17 @@ html.dark .ctrl-source { color: #e5b881; }
 .ctrl-option.selected>svg:last-child,.ctrl-mode button.active>svg { color:var(--work-selection-line); }
 .ctrl-source,.ctrl-source.ready,html.dark .ctrl-source,html.dark .ctrl-source.ready { border-color:var(--work-muted); }
 .app-shell:has(.ctrl) .workspace-dot { background:var(--work-muted); }
+
+/* Keep phone header controls together, with navigation on the next row. */
+@media(max-width:600px) {
+  .app-shell:has(.ctrl) .topbar,html.dark .app-shell:has(.ctrl) .topbar {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) repeat(3,40px);
+    gap:8px;
+    padding:12px 16px 0;
+  }
+  .app-shell:has(.ctrl) .brand-name { font-size:14px; }
+  .app-shell:has(.ctrl) .brand-name span,.app-shell:has(.ctrl) .topbar-divider { display:none; }
+  .app-shell:has(.ctrl) .topnav { grid-row:2; grid-column:1/-1; }
+  .app-shell:has(.ctrl) .workspace-theme-toggle { order:0; margin-left:0; }
+}

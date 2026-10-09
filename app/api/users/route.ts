@@ -5,7 +5,7 @@ import { database } from "@/lib/store";
 import { readObject, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
-async function list() { return (await database().prepare("SELECT u.id, u.name, u.email, u.role, u.disabled, (SELECT COUNT(*)::int FROM auth_session s WHERE s.user_id = u.id AND s.expires_at > ?) AS sessions FROM auth_user u ORDER BY u.created_at").bind(new Date()).all()).results; }
+async function list() { return (await database().prepare("SELECT u.id, u.name, u.email, u.role, u.disabled, (SELECT COUNT(*)::int FROM auth_session s WHERE s.user_id = u.id AND s.expires_at > ?) AS sessions FROM auth_user u WHERE u.role IN ('admin', 'controller') ORDER BY u.created_at").bind(new Date()).all()).results; }
 export async function GET(request: Request) {
   try {
   const user = await currentUser(request.headers);
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     } else {
       if (typeof body.id !== "string") return bad("Choose an account.");
       const target = await db.prepare("SELECT id, email, role, disabled FROM auth_user WHERE id = ?").bind(body.id).first<{id:string;email:string;role:Role;disabled:boolean}>();
-      if (!target) return bad("Account not found.", 404);
+      if (!target || !roles.includes(target.role)) return bad("Account not found.", 404);
       if (body.action === "revoke") { await db.transaction(async (transaction) => {
         await transaction.prepare("DELETE FROM auth_session WHERE user_id = ?").bind(target.id).run();
         await auditUser("revoke account", target.email, actor.email, transaction);
