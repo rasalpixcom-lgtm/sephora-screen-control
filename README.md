@@ -37,7 +37,11 @@ See AUTHENTICATION.md for roles and first Admin setup. The local accounts and in
 
 For an OnSign player, create the single private monitor link in Admin → Settings. Paste the full link into OnSign once. It requires no interactive login. Replacing the link revokes its predecessor; only the random key's hash is stored. Apply the new monitor-access database migration before starting this release.
 
-OnSign cards reconnect after the browser comes back online or returns from a hidden tab after 15 seconds. A staggered five-minute connection renewal limits persistent preview stalls; the small reconnect button on each configured card lets staff retry immediately. Only the current page's previews are loaded. OnSign owns the image updates: these controls cannot detect frame freshness or repair an offline player, and a reconnect may briefly clear the preview.
+The monitoring wall always uses its dark black-and-green palette, including startup and error screens. It has no appearance menu and ignores previously saved wall appearance preferences. Admin and Controller retain their own light/dark options.
+
+For supported `https://app.onsign.tv/embed/...` links, cards render OnSign's incoming images directly rather than embedding/cropping its viewer. A 30-second image watchdog automatically reconnects if no successfully decoded images arrive, even if the socket remains open. Heartbeats and capped retry delays handle interruptions; returning to the tab or regaining connectivity also reconnects. The previous minute-based iframe refresh has been removed. No clicking is required. The last image remains visible during reconnection with a small status label, which disappears when fresh images arrive. Only the current page's previews connect.
+
+This adapter uses the image protocol served by OnSign's public embed viewer, not a guaranteed versioned API. Test it on the actual OnSign player and final hosting domain; provider protocol changes may require an adapter update. The display device needs outbound HTTPS/WSS access to `app.onsign.tv`. Other providers' URLs still use iframes. Receiving images confirms preview freshness, not physical player health; an offline source cannot be repaired by reconnecting.
 
 npm run db:import imports a SQLite file into an empty PostgreSQL database. It does not copy sessions. Never point tests or imports at a production database without reading their requirements.
 

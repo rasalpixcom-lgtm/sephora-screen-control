@@ -2,6 +2,32 @@
 
 Reviewed on 8 October 2026.
 
+## Final monitor density — 9 October 2026
+
+Supersedes the capacity estimates in the balanced-column section below. Tightened the desktop header, caption and footer spacing while preserving 16:9 previews, equal 14px gaps and viewport-based equal columns. Pagination now measures the rendered caption and bottom padding instead of assuming their heights. With a disposable 31-screen fixture, the browser displayed 12 cards in four columns/three rows at 1920x1080 (three pages), and 30 cards in six columns/five rows at 3840x2160 (two pages). Both had visible page controls and document height equal to viewport height, without vertical scrolling. Resizing updated pagination correctly; partial rows remained left aligned. Build/TypeScript and lint passed. Disposable test database/server cleanup completed. Counts assume fullscreen browser space at 100% zoom and can change with display scaling or window size.
+
+## Balanced monitor columns — 9 October 2026
+
+Monitor columns now share available width with a fixed 14px gap. The viewport determines column count independently of the selected screen count, so partial rows stay left aligned and retain the same card size. Pagination uses the actual distributed card width when calculating row height. Build/TypeScript and lint passed. Browser measurements in an isolated five-screen fixture confirmed four equal 455px columns at 1920px width, equal outer margins, a left-aligned fifth card, and six equal approximately 618px columns at 3840px width. With fullscreen height 1080/2160, the revised sizing fits two/five rows respectively (8/30 cards per page). The larger Full HD cards reduce its previous three-row capacity to two rows.
+
+## Image-aware OnSign preview recovery — 9 October 2026
+
+This implementation supersedes both iframe renewal approaches below. In a visible browser diagnostic, the cropped iframe, unchanged embed and direct image connection stopped receiving images for more than two minutes while their connections remained open. This verifies stalled delivery, but does not identify the exact provider or network trigger.
+
+Recognized HTTPS app.onsign.tv/embed URLs now use an isolated client for the image protocol used by OnSign's public viewer. A canvas renders the image itself, without provider headings, page padding or timestamps. Every replacement WebSocket restores arraybuffer handling. Only successfully decoded images reset the 30-second freshness deadline; heartbeat traffic cannot hide a stalled preview. Missing images, decoding failures and network interruptions trigger automatic reconnects with capped retry delays. The last image remains visible with a reconnecting label until a fresh image arrives. Hidden/unmounted previews close their connections and dispose timers; visibility and online events resume delivery. Other providers retain their iframe rendering.
+
+Verification: production build/TypeScript and ESLint passed. Thirty-one focused checks passed, including stale delivery on an open connection, heartbeat handling, replacement binary type, image decoding failure, Blob normalization, healthy delivery without periodic resets, pause/resume, disposal and late-frame cleanup. The real configured feed rendered and visibly changed over several minutes in an isolated browser monitor, with no captured browser errors. Disposable browser fixture servers and databases were cleaned up by their eight-minute expiry; the final targeted browser revocation check did not complete before fixture expiry. Existing revocation integration checks and stream disposal unit checks remain evidence for access cleanup, rather than a newly completed end-to-end revocation check. Live inventory, accounts and monitor keys were unchanged.
+
+The adapter uses the public viewer's protocol, which is not a guaranteed versioned API. Actual OnSign player/WebView compatibility, outbound WSS on the final server network and prolonged unattended playback still need rollout verification. The preview cannot recover an offline source player or a browser that suspends JavaScript. The monitor retains its dark-only palette.
+
+## Unattended monitor refinement — 9 October 2026
+
+The monitor now always uses the dark palette. Removed the dim/soft appearance menu, theme state, stored wall preference lookup, and unused theme CSS. Browser inspection confirmed a dark wall even while the global site preference was light.
+
+For a subsequent report of previews staying frozen while visible, shortened OnSign connection renewal from five minutes to 60–65 seconds with a five-second spread between cards, and removed manual reconnect controls from the view-only wall. This bounds the delay before the next reconnect attempt when the browser is running normally; it is not automatic frame-staleness detection. Existing online/tab-resume recovery and off-page cleanup remain in place. A stalled physical player, provider outage, or a WebView that has suspended JavaScript cannot be repaired by an iframe reconnect.
+
+Verification: production build/TypeScript and repository lint pass; focused recovery tests pass, including an explicit one-minute interval requirement. An isolated PostgreSQL fixture using the real configured OnSign preview stayed visible through two automatic renewal cycles. The iframe connection counter advanced from 0 to 1 to 2 without clicking, fresh image updates arrived after each cycle, and no browser errors were captured. Its temporary server, database and private fixture were removed. No live monitor keys, accounts or inventory were changed. Physical OnSign player and prolonged playback verification remain pending; the shorter renewal can briefly clear a preview every minute.
+
 ## Preview recovery verification — 9 October 2026
 
 Investigated a report of card contents occasionally freezing in Chrome. The configured OnSign embed renders JPEG image updates over a WebSocket. Its currently served reconnect code creates a replacement socket without restoring the original arraybuffer binary type; that is a likely stall mechanism, not a reproduction of the user's particular interruption. The cross-origin iframe exposes no supported freshness signal to this application.

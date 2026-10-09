@@ -31,7 +31,7 @@ The URL is shown once. Save it privately in OnSign before leaving Settings. Only
 
 The monitor shell opens without a login prompt, but its data requires either the active private key or a signed-in staff session. The key is sent in an Authorization header, not a query string or cookie. It grants only the current wall selection and required location labels, with no user accounts, activity history, inventory editing, or Controller access. Anyone holding the link can view that wall; it is not tied to a hardware ID.
 
-The monitor route permits embedding for OnSign. Admin, Controller, account, and API routes retain framing protection. Test the URL on the actual player/WebView, including its handling of URL fragments and embedded OnSign previews. In IIS/access logging, do not log Authorization headers. If the hosting address changes, update the URL prefix saved in OnSign; the same key remains valid.
+The monitor route permits embedding for OnSign. Admin, Controller, account, and API routes retain framing protection. Test the URL on the actual player/WebView, including its handling of URL fragments and the OnSign image connection. The device must allow outbound WSS to app.onsign.tv. OnSign cards use the existing configured preview token; the private wall key is never sent to OnSign. In IIS/access logging, do not log Authorization headers. If the hosting address changes, update the URL prefix saved in OnSign; the same key remains valid.
 
 ## Security and configuration
 
