@@ -1,4 +1,3 @@
-import Workspace from "@/components/workspace";
-import { requirePage } from "@/lib/auth";
+import MonitorPage from "@/components/monitor-page";
 export const dynamic = "force-dynamic";
-export default async function Page() { return <Workspace view="monitor" account={await requirePage("monitor")} />; }
+export default function Page() { return <MonitorPage />; }

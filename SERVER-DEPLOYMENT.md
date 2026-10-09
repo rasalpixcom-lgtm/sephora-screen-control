@@ -81,6 +81,10 @@ Use a protected PostgreSQL password file or enter the password interactively. Re
 
 After `npm run build`, run `npm run test:auth` on a development PostgreSQL cluster. The suite creates and drops its own random test database and runs the actual standalone Node server. It does not mutate the real Sephora database. Production HTTPS/IIS and Windows service startup must still be verified on the actual company server; they cannot be verified without its domain and access.
 
+## Private monitor link
+
+For OnSign playback without login, apply the new monitor_access migration before starting this release, then create the private link in Admin → Settings. Paste the complete URL, including its key fragment, into OnSign. Use the configured HTTPS AUTH_URL so the generated URL is reachable by the player. There is one active link; replacement revokes the old link. See AUTHENTICATION.md for key storage, embedding, and player verification.
+
 ## Other hosting
 
 The same source works on Linux Node.js servers and hosts that support Node.js plus PostgreSQL. The Dockerfile builds a standalone container without embedding environment secrets. Supply runtime environment variables and a reachable PostgreSQL database, run migrations, and put HTTPS in front. Static-only web hosting is insufficient. The Docker image and Windows IIS/service configuration are supplied deployment options; the local verification uses native Node.js and a PostgreSQL container.

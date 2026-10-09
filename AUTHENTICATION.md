@@ -21,7 +21,17 @@ The migrated local database already has an Admin; use the existing login ID and 
 | Controller | No access | Control | View |
 | Wall device | No access | No access | View |
 
-Staff sessions expire after 8 hours; wall sessions after 30 days. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes require the current password and revoke other sessions. The UI then signs out the current session. Use a dedicated wall account on the monitoring PC.
+Staff sessions expire after 8 hours; optional wall account sessions after 30 days. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes require the current password and revoke other sessions. The UI then signs out the current session. OnSign players use the private link described below instead of an interactive account login.
+
+## Private monitor link for OnSign
+
+Admin → Settings → Private monitor link → Create monitor link. Copy the complete URL, including its `#key=…` fragment, into OnSign's Website Link App. Only one link is active. It has no automatic expiry and survives app/player restarts and normal updates. Use HTTPS on the company server.
+
+The URL is shown once. Save it privately in OnSign before leaving Settings. Only a SHA-256 hash of its random 256-bit key is stored in PostgreSQL, so the application cannot retrieve a lost copy. Replace link creates a new key and revokes the previous key atomically; existing walls clear their previews at the next successful poll, normally within three seconds. Disable link revokes it without issuing a replacement. Offline players cannot receive revocation until they reconnect.
+
+The monitor shell opens without a login prompt, but its data requires either the active private key or a signed-in staff session. The key is sent in an Authorization header, not a query string or cookie. It grants only the current wall selection and required location labels, with no user accounts, activity history, inventory editing, or Controller access. Anyone holding the link can view that wall; it is not tied to a hardware ID.
+
+The monitor route permits embedding for OnSign. Admin, Controller, account, and API routes retain framing protection. Test the URL on the actual player/WebView, including its handling of URL fragments and embedded OnSign previews. In IIS/access logging, do not log Authorization headers. If the hosting address changes, update the URL prefix saved in OnSign; the same key remains valid.
 
 ## Security and configuration
 

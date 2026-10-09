@@ -2,6 +2,16 @@
 
 Reviewed on 8 October 2026.
 
+## Private monitor link verification — 9 October 2026
+
+Added a single active, non-expiring monitor link in Admin Settings, with confirmed replacement and disable actions. Only a SHA-256 hash of the random 256-bit key is stored. Transactions and an advisory lock serialize creation/replacement; generation checks prevent stale controls from replacing or disabling another Admin's new link. Link actions are audited without recording the key. The link is revealed once and stays in component memory only.
+
+The monitor page opens without login. Its separate GET-only endpoint accepts the private key in an Authorization header or an existing staff session, and returns only selected screens and necessary labels. It cannot authorize Admin/Controller APIs. A revoked key cannot fall back to an Admin cookie. The monitor can be embedded; other routes retain X-Frame-Options: DENY. No private key is included in server-rendered markup or page request URLs.
+
+Verification: production build/TypeScript and ESLint pass; 148 server integration checks pass against an isolated PostgreSQL database using the real LAN address and localhost. This includes key creation, concurrent creation/replacement, read-only scope, malformed/unknown keys, CSRF rejection, metadata secrecy, disable/recreate, group/location selection, and restart persistence. Twenty-four origin checks and twelve shared selection checks pass. Browser checks confirmed playback without login, Settings controls in light/dark modes, replacement warning/cancellation, and removal of all iframe previews on the next poll after revocation. Temporary UI credentials and the isolated database were cleaned up after the interrupted browser test.
+
+The new migration adds only the monitor_access table and is applied locally. Existing accounts and inventory were not changed. Physical OnSign player/WebView playback and the company server's HTTPS configuration still require verification there. This feature is not a hardware binding: anyone with the link has view access.
+
 ## Scope
 
 Reviewed the active API routes, page access guards, credential/session handling, database queries and transactions, inventory hierarchy, shared wall state, Admin forms, user dialogs, Controller selection flow, Monitor polling/paging, theme handling, migration/import scripts, standalone packaging, and Windows/container deployment configuration. Repository-wide ESLint and the production TypeScript build cover application code and bundled UI components. Legacy Sites/Cloudflare helpers remain inactive reference files.

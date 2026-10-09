@@ -1,4 +1,5 @@
-import { pgTable, text, integer, boolean, timestamp, bigint, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, bigint, primaryKey, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), parentId: text("parent_id"), liveUrl: text("live_url"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() });
 export const groupMembers = pgTable("group_members", { groupId: text("group_id").notNull(), screenId: text("screen_id").notNull() }, (table) => [primaryKey({ columns: [table.groupId, table.screenId] })]);
@@ -21,3 +22,7 @@ export const account = pgTable("auth_account", {
 export const verification = pgTable("auth_verification", { id: text("id").primaryKey(), identifier: text("identifier").notNull(), value: text("value").notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull() });
 export const rateLimit = pgTable("auth_rate_limit", { id: text("id").primaryKey(), key: text("key").notNull().unique(), count: integer("count").notNull(), lastRequest: bigint("last_request", { mode: "number" }).notNull() });
 export const bootstrap = pgTable("auth_bootstrap", { id: text("id").primaryKey() });
+export const monitorAccess = pgTable("monitor_access", {
+  id: text("id").primaryKey(), tokenHash: text("token_hash"), generation: text("generation").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, table => [check("monitor_access_singleton", sql`${table.id} = 'main'`)]);

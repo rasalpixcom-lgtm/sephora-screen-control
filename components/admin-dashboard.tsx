@@ -23,6 +23,7 @@ import "./admin-dashboard.css";
 import SignOut from "@/components/sign-out";
 import UsersPanel from "@/components/users-panel";
 import ChangePassword from "@/components/change-password";
+import MonitorLinkPanel from "@/components/monitor-link-panel";
 
 
 
@@ -254,7 +255,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
 
         {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}
-        {section === "settings" && <><div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div><section className="adm-panel adm-signin-status" aria-label="Sign-in status"><ShieldCheck size={20}/><div><h2>Login ID and password sign-in</h2><p>Manage Admin, Controller, and Wall device accounts in <Link href="/admin/users">Users</Link>. Staff sessions last 8 hours; wall device sessions last 30 days.</p></div></section><ChangePassword/></>}
+        {section === "settings" && <><MonitorLinkPanel refreshKey={usersRefreshKey}/><div className="adm-info-grid"><section className="adm-panel adm-info-card"><Monitor size={28}/><h2>OnSign previews</h2><p>Add an HTTPS OnSign preview link when creating or editing a screen. OnSign must allow the preview to be embedded.</p><div className="adm-info-line"><span>Configured links</span><strong>{byType("screen").filter((item) => !!item.liveUrl).length} of {byType("screen").length}</strong></div><div className="adm-info-line"><span>Online/offline status</span><strong>Unavailable with preview URLs only</strong></div></section><section className="adm-panel adm-info-card"><CircleHelp size={28}/><h2>Monitoring wall</h2><p>The wall follows the Controller selection. Cards fit the display size, with additional screens shown on the next page.</p><div className="adm-info-line"><span>Wall rotation</span><strong>{state.display.autoAdvance ? `${state.display.intervalSeconds} seconds` : "Paused"}</strong></div><div className="adm-info-line"><span>Selection refresh</span><strong>Every 3 seconds</strong></div></section></div><section className="adm-panel adm-signin-status" aria-label="Sign-in status"><ShieldCheck size={20}/><div><h2>Login ID and password sign-in</h2><p>Manage Admin, Controller, and Wall device accounts in <Link href="/admin/users">Users</Link>. Staff sessions last 8 hours; wall device sessions last 30 days.</p></div></section><ChangePassword/></>}
 
       </>}
 

@@ -1,9 +1,9 @@
 # Sephora Screen Control
 
-Central screen management with three protected workspaces:
+Central screen management with three workspaces:
 - Admin: countries, regions, locations, screens, groups, accounts, and activity.
 - Controller: choose the shared wall selection and page rotation.
-- Monitor: read-only live-preview cards.
+- Monitor: read-only live-preview cards, using a private OnSign link or staff session.
 
 ## Stack
 
@@ -35,6 +35,8 @@ The build includes a standalone Node server and its static assets. Run db:migrat
 
 See AUTHENTICATION.md for roles and first Admin setup. The local accounts and inventory have been migrated to PostgreSQL with their existing password hashes. Sign in again with the same credentials. The original SQLite data remains unchanged.
 
+For an OnSign player, create the single private monitor link in Admin → Settings. Paste the full link into OnSign once. It requires no interactive login. Replacing the link revokes its predecessor; only the random key's hash is stored. Apply the new monitor-access database migration before starting this release.
+
 npm run db:import imports a SQLite file into an empty PostgreSQL database. It does not copy sessions. Never point tests or imports at a production database without reading their requirements.
 
 ## Windows Server and other hosts
@@ -45,6 +47,6 @@ See SERVER-DEPLOYMENT.md for Windows/IIS, HTTPS, service startup, database confi
 
 After npm run build, run npm run test:auth on a development PostgreSQL cluster. It exercises the actual standalone production server in an isolated random database and deletes that test database afterward. The development PostgreSQL role needs CREATE DATABASE for this test only. The production account should not have that privilege.
 
-See CODE-REVIEW.md for the latest review, fixes, 105 integration checks, selection-logic checks, and backup restoration results. Browser/OnSign and actual company-server verification remain rollout steps.
+See CODE-REVIEW.md for the latest review, fixes, 148 integration checks, browser checks, selection-logic checks, and backup restoration results. Physical OnSign playback and actual company-server verification remain rollout steps.
 
 The legacy build directory, Sites scripts, D1 schema/migrations, and .openai metadata document the previous deployment and are not part of the active server runtime.

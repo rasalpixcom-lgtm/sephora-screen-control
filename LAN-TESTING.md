@@ -9,7 +9,7 @@ The current Wi-Fi address is **192.168.2.131**, port **5174**.
 | Monitor | http://192.168.2.131:5174/monitor |
 | Login | http://192.168.2.131:5174/login |
 
-On the hosting PC, you can also use http://localhost:5174 or http://127.0.0.1:5174 with the same page paths. Other devices use the Wi-Fi IP above. Each browser/address signs in separately; existing account credentials still work. Both addresses use the same database and wall selection. Roles determine which pages each account can open. Keep this PC powered on, awake, connected to Wi-Fi, and the server running.
+On the hosting PC, you can also use http://localhost:5174 or http://127.0.0.1:5174 with the same page paths. Other devices use the Wi-Fi IP above. Admin and Controller browsers sign in separately; existing account credentials still work. For OnSign, use the complete private monitor URL created in Admin → Settings, including its key fragment; no login is needed. The plain monitor URL can use a signed-in staff session. Both addresses use the same database and wall selection. Keep this PC powered on, awake, connected to Wi-Fi, and the server running.
 
 ## Configuration
 
@@ -21,7 +21,7 @@ Private IP HTTP access requires an explicit opt-in. Public HTTP origins remain r
 
 ## Verification
 
-The production build and lint pass. Twenty-four origin-policy tests confirm the private-IP exception, explicit local aliases, same-host writes, and rejection of public HTTP. All 112 server integration checks passed using both localhost and the actual Wi-Fi IP with a temporary test port and isolated PostgreSQL database, including login/cookies, roles, and shared wall selection across addresses. Windows previously confirmed creation of the scoped firewall rule. These are checks on the hosting PC; access from the physical iPad/other PC still needs confirmation there.
+The production build and lint pass. Twenty-four origin-policy tests confirm the private-IP exception, explicit local aliases, same-host writes, and rejection of public HTTP. All 148 server integration checks passed using both localhost and the actual Wi-Fi IP with a temporary test port and isolated PostgreSQL database, including login/cookies, roles, private monitor links, replacement/revocation, restart persistence, and shared wall selection across addresses. Windows previously confirmed creation of the scoped firewall rule. Browser checks verified the monitor without login and cleared previews after revocation. Physical OnSign playback and access from the actual iPad/other PC still need confirmation there.
 
 ## If a device cannot connect
 

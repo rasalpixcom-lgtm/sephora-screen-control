@@ -8,8 +8,11 @@ const nextConfig: NextConfig = {
     return [{ source: "/(.*)", headers: [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "no-referrer" },
-      { key: "X-Frame-Options", value: "DENY" },
-    ] }];
+    ] },
+    // The read-only wall can be embedded in an OnSign WebView/SoC player.
+    // All other pages retain framing protection. Its data still requires access.
+    { source: "/((?!monitor$).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }] },
+    { source: "/monitor", headers: [{ key: "Cache-Control", value: "no-store" }] }];
   },
 };
 
