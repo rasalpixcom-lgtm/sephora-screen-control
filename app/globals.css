@@ -479,6 +479,9 @@ html.dark {
 }
 
 /* Card finishes only; page structure and wall preview framing are unchanged. */
+.preview-reconnect { flex:none; display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid var(--wall-border); border-radius:8px; background:transparent; color:var(--wall-subtle); cursor:pointer; }
+.preview-reconnect:hover { color:var(--wall-text); background:var(--wall-preview); }
+.preview-reconnect:focus-visible { outline:2px solid var(--work-focus); outline-offset:2px; }
 :root {
   --card-fill: linear-gradient(155deg,#f0f1f2 0%,#e4e6e8 100%);
   --card-line: #c9cdd2;

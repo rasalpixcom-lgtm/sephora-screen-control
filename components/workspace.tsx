@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Palette, Pause, Play, Plus, UserRound, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Palette, Pause, Play, Plus, RefreshCw, UserRound, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,6 +12,7 @@ import ControllerPanel from "@/components/controller-panel";
 import type { Display, Entity, EntityType, Member, Selection } from "@/lib/store";
 import { clientFetch } from "@/lib/client-fetch";
 import { screensFor as matchingScreens } from "@/lib/screens";
+import { isOnSignEmbed, previewStagger, startPreviewRecovery } from "@/lib/preview-recovery";
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type View = "controller" | "admin" | "monitor";
@@ -27,21 +28,18 @@ function placeName(entity: Entity | undefined, entities: Entity[]) {
   return [store?.name, region?.name].filter(Boolean).join(" · ");
 }
 
-function isOnSignEmbed(url: string) {
-  try {
-    const source = new URL(url);
-    return source.protocol === "https:" && source.hostname === "app.onsign.tv" && source.pathname.startsWith("/embed/");
-  } catch {
-    return false;
-  }
-}
-
 function ScreenCard({ screen, entities }: { screen: Entity; entities: Entity[] }) {
+  const [connection, setConnection] = useState(0);
+  const onSign = !!screen.liveUrl && isOnSignEmbed(screen.liveUrl);
+  useEffect(() => {
+    if (!onSign) return;
+    return startPreviewRecovery(() => setConnection(current => current + 1), window, document, previewStagger(screen.id));
+  }, [onSign, screen.id, screen.liveUrl]);
   return <article className="screen-card">
-    <div className={`screen-viewport${screen.liveUrl && isOnSignEmbed(screen.liveUrl) ? " screen-viewport-onsign" : ""}`}>
-      {screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="lazy" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
+    <div className={`screen-viewport${onSign ? " screen-viewport-onsign" : ""}`}>
+      {screen.liveUrl ? <iframe key={`${screen.liveUrl}:${connection}`} title={`${screen.name} live preview`} src={screen.liveUrl} loading="eager" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
     </div>
-    <div className="screen-caption"><div><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div></div>
+    <div className="screen-caption"><div><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div>{screen.liveUrl && <button className="preview-reconnect" type="button" onClick={() => setConnection(current => current + 1)} aria-label={`Reconnect ${screen.name} preview`} title="Reconnect preview"><RefreshCw size={15}/></button>}</div>
   </article>;
 }
 

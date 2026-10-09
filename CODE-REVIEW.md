@@ -2,6 +2,14 @@
 
 Reviewed on 8 October 2026.
 
+## Preview recovery verification — 9 October 2026
+
+Investigated a report of card contents occasionally freezing in Chrome. The configured OnSign embed renders JPEG image updates over a WebSocket. Its currently served reconnect code creates a replacement socket without restoring the original arraybuffer binary type; that is a likely stall mechanism, not a reproduction of the user's particular interruption. The cross-origin iframe exposes no supported freshness signal to this application.
+
+Added per-card manual reconnect, eager loading for current-page frames, staggered renewal approximately every five minutes, recovery after the browser comes online, and recovery after returning from a tab hidden for at least 15 seconds. Timers/listeners are disposed when a card leaves the page. Hidden tabs do not perform renewals. These are connection recovery safeguards, not offline-player detection; renewal may briefly clear the preview.
+
+Verification: focused fake-clock tests cover periodic renewal, network events, tab visibility, deduplication, stagger and cleanup, plus strict OnSign URL recognition. ESLint and production build/TypeScript pass. In the browser, a real configured OnSign preview rendered inside an isolated test monitor; manual reconnect replaced the frame and new image updates arrived, with zero captured browser errors. The full isolated PostgreSQL suite passed 149 checks including the browser verification gate, and its temporary credentials/database were removed. The local production server was rebuilt and restarted on port 5174; live inventory, accounts and monitor key were unchanged. Long-duration playback and physical OnSign player testing remain rollout checks.
+
 ## Private monitor link verification — 9 October 2026
 
 Added a single active, non-expiring monitor link in Admin Settings, with confirmed replacement and disable actions. Only a SHA-256 hash of the random 256-bit key is stored. Transactions and an advisory lock serialize creation/replacement; generation checks prevent stale controls from replacing or disabling another Admin's new link. Link actions are audited without recording the key. The link is revealed once and stays in component memory only.
