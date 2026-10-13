@@ -39,7 +39,11 @@ For an OnSign player, create the single private monitor link in Admin → Settin
 
 The monitoring wall always uses its dark black-and-green palette, including startup and error screens. It has no appearance menu and ignores previously saved wall appearance preferences. Admin and Controller retain their own light/dark options.
 
-For supported `https://app.onsign.tv/embed/...` links, cards render OnSign's incoming images directly rather than embedding/cropping its viewer. A 30-second image watchdog automatically reconnects if no successfully decoded images arrive, even if the socket remains open. Heartbeats and capped retry delays handle interruptions; returning to the tab or regaining connectivity also reconnects. The previous minute-based iframe refresh has been removed. No clicking is required. The last image remains visible during reconnection with a small status label, which disappears when fresh images arrive. Only the current page's previews connect.
+For supported `https://app.onsign.tv/embed/...` links, cards render OnSign's incoming images directly rather than embedding/cropping its viewer. A 30-second image watchdog automatically reconnects if no successfully decoded images arrive, even if the socket remains open. Heartbeats and capped retry delays handle interruptions; returning to the tab or regaining connectivity also reconnects. The previous minute-based iframe refresh has been removed. After 30 seconds of visible preview time without a decoded image, a burgundy warning with the company character replaces the preview. The warning clears automatically when an image returns. Missing-image progress survives page rotations, pauses off-page, and resets when the monitor reloads. Only the current page's browser previews connect.
+
+Controller → Preview issues lists server observations across the entire inventory, with quick status filters, country/region/location filters, search and up to 20 rows per page. More filters provides other statuses; Details shows exact timestamps in GST. Pagination appears only for multiple pages, and the Controller keeps a stable layout when scrollbars appear. Opening the tab or changing filters does not change the wall. Show issues on wall displays the current filtered failures; Show on wall displays one screen. Recovery removes a screen from the unavailable list on the next successful server check, without automatically changing an existing wall selection.
+
+The Node server checks three OnSign previews at a time, waits up to 30 seconds for a decoded image, and queues each completed check again after 60 seconds. Queues can take longer for large inventories. Missing and unsupported URLs have separate categories; the checker never contacts arbitrary saved URLs. Results older than three minutes become unknown. Observations are in memory and start fresh after a server restart. The server also needs outbound WSS access to `app.onsign.tv`; server/network problems can affect several previews together. These observations measure image delivery, not whether a physical player is online.
 
 This adapter uses the image protocol served by OnSign's public embed viewer, not a guaranteed versioned API. Test it on the actual OnSign player and final hosting domain; provider protocol changes may require an adapter update. The display device needs outbound HTTPS/WSS access to `app.onsign.tv`. Other providers' URLs still use iframes. Receiving images confirms preview freshness, not physical player health; an offline source cannot be repaired by reconnecting.
 
@@ -53,6 +57,21 @@ See SERVER-DEPLOYMENT.md for Windows/IIS, HTTPS, service startup, database confi
 
 After npm run build, run npm run test:auth on a development PostgreSQL cluster. It exercises the actual standalone production server in an isolated random database and deletes that test database afterward. The development PostgreSQL role needs CREATE DATABASE for this test only. The production account should not have that privilege.
 
-See CODE-REVIEW.md for the latest review, fixes, 148 integration checks, browser checks, selection-logic checks, and backup restoration results. Physical OnSign playback and actual company-server verification remain rollout steps.
+See CODE-REVIEW.md for the latest review, test results, browser checks and backup restoration results. Run `node tests/preview-health.mjs` for the server checker regression suite. Actual company-server verification of new releases remains a rollout step.
+
+The current development regression commands are:
+```powershell
+npm run lint
+npm run build
+node --experimental-strip-types tests/network-origin.mjs
+node --experimental-strip-types tests/screens.logic.mjs
+node --experimental-strip-types tests/onsign-stream.mjs
+node --experimental-strip-types tests/location-filters.mjs
+node tests/preview-health.mjs
+npm run test:auth
+npm run test:activity
+npm run test:import
+```
+Run these on the development checkout with its private `.env.local` and a development database role. The server integration suites create and drop disposable databases; they are not company-server startup commands.
 
 The legacy build directory, Sites scripts, D1 schema/migrations, and .openai metadata document the previous deployment and are not part of the active server runtime.

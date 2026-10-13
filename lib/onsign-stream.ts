@@ -3,14 +3,18 @@
 export const FRAME_TIMEOUT_MS = 30000;
 export const HEARTBEAT_MS = 25000;
 export type PreviewStatus = "connecting" | "live" | "reconnecting" | "unavailable";
+export type PreviewFreshness = { missingMs: number };
 type Socket = Pick<WebSocket, "binaryType" | "readyState" | "send" | "close" | "onopen" | "onclose" | "onerror" | "onmessage">;
 type Environment = {
   createSocket: (url: string) => Socket;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
+  now?: () => number;
 };
 type Options = {
   onStatus: (status: PreviewStatus) => void;
+  onStale?: (stale: boolean) => void;
+  freshness?: PreviewFreshness;
   onFrame: (bytes: ArrayBuffer, rotation: number, isCurrent: () => boolean) => Promise<void>;
 };
 
@@ -26,6 +30,28 @@ export function onSignToken(url: string): string | null {
 export function startOnSignStream(token: string, options: Options, environment: Environment) {
   let socket: Socket | null = null, stopped = false, paused = false, attempt = 0, heartbeatId = 1;
   let frameTimer: number | undefined, heartbeatTimer: number | undefined, retryTimer: number | undefined;
+  let staleTimer: number | undefined;
+  const freshness = options.freshness || { missingMs: 0 };
+  const now = environment.now || Date.now;
+  let watchingSince: number | undefined;
+  let stale = freshness.missingMs >= FRAME_TIMEOUT_MS;
+  const clearStaleTimer = () => {
+    if (staleTimer !== undefined) environment.clearTimeout(staleTimer);
+    staleTimer = undefined;
+    if (watchingSince !== undefined) freshness.missingMs = Math.min(FRAME_TIMEOUT_MS, freshness.missingMs + Math.max(0, now() - watchingSince));
+    watchingSince = undefined;
+  };
+  // Reconnect attempts must not postpone the missing-image warning.
+  const watchFreshness = () => {
+    clearStaleTimer();
+    if (stopped || paused || stale) return;
+    watchingSince = now();
+    staleTimer = environment.setTimeout(() => {
+      staleTimer = undefined;
+      freshness.missingMs = FRAME_TIMEOUT_MS; watchingSince = undefined;
+      if (!stopped && !paused && !stale) { stale = true; options.onStale?.(true); }
+    }, Math.max(0, FRAME_TIMEOUT_MS - freshness.missingMs));
+  };
   let pending: { id: number; rotation: number } | null = null;
   let status: PreviewStatus | null = null;
   const report = (next: PreviewStatus) => { if (next !== status) { status = next; options.onStatus(next); } };
@@ -41,10 +67,12 @@ export function startOnSignStream(token: string, options: Options, environment: 
   const retry = (unavailable = false) => {
     if (stopped || paused) return;
     close(); report(unavailable ? "unavailable" : "reconnecting");
+    if (stopped || paused) return;
     const delay = unavailable ? 30000 : Math.min(30000, 1000 * 2 ** Math.min(attempt++, 5));
     retryTimer = environment.setTimeout(() => { retryTimer = undefined; connect(); }, delay);
   };
   const deadline = () => {
+    if (stopped || paused) return;
     if (frameTimer !== undefined) environment.clearTimeout(frameTimer);
     // Only a successfully decoded image resets this timer, not socket activity.
     frameTimer = environment.setTimeout(() => retry(), FRAME_TIMEOUT_MS);
@@ -96,14 +124,19 @@ export function startOnSignStream(token: string, options: Options, environment: 
         await options.onFrame(bytes, frame.rotation, isCurrent);
         if (!isCurrent()) return;
         send({ t: "ack", ack: frame.id });
-        if (isCurrent()) { attempt = 0; report("live"); deadline(); }
+        if (isCurrent()) {
+          attempt = 0; report("live"); deadline();
+          clearStaleTimer(); freshness.missingMs = 0;
+          if (stale) { stale = false; options.onStale?.(false); }
+          watchFreshness();
+        }
       } catch { if (isCurrent()) retry(); }
     };
   };
-  report("connecting"); connect();
+  options.onStale?.(stale); watchFreshness(); report("connecting"); connect();
   return {
-    pause() { if (stopped || paused) return; paused = true; close(); },
-    resume() { if (stopped) return; paused = false; close(); report("reconnecting"); connect(); },
-    dispose() { stopped = true; close(); },
+    pause() { if (stopped || paused) return; paused = true; clearStaleTimer(); close(); },
+    resume() { if (stopped) return; paused = false; close(); watchFreshness(); report("reconnecting"); connect(); },
+    dispose() { stopped = true; clearStaleTimer(); close(); },
   };
 }

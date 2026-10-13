@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $resultFile = Join-Path $taskRoot '.server-runtime\lan-firewall-result.txt'
+New-Item -ItemType Directory -Path (Split-Path -Parent $resultFile) -Force | Out-Null
 try {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = [Security.Principal.WindowsPrincipal]::new($identity)

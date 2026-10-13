@@ -1,15 +1,19 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { startOnSignStream, type PreviewStatus } from "@/lib/onsign-stream";
+import { TriangleAlert } from "lucide-react";
+import { startOnSignStream, type PreviewStatus, type PreviewFreshness } from "@/lib/onsign-stream";
 
-export default function OnSignPreview({ token, name }: { token: string; name: string }) {
+export default function OnSignPreview({ token, name, getFreshness }: { token: string; name: string; getFreshness: (token: string) => PreviewFreshness }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<PreviewStatus>("connecting");
+  const [stale, setStale] = useState(false);
   useEffect(() => {
     let disposed = false, sequence = 0;
     const decoding = new Set<() => void>();
     const stream = startOnSignStream(token, {
+      freshness: getFreshness(token),
       onStatus: next => { if (!disposed) setStatus(next); },
+      onStale: next => { if (!disposed) setStale(next); },
       onFrame: (bytes, rotation, isCurrent) => new Promise<void>((resolve, reject) => {
         const frameSequence = ++sequence;
         const image = new Image();
@@ -51,9 +55,12 @@ export default function OnSignPreview({ token, name }: { token: string; name: st
     window.addEventListener("online", resume);
     document.addEventListener("visibilitychange", visibility);
     return () => { disposed = true; stream.dispose(); for (const cancel of decoding) cancel(); window.removeEventListener("online", resume); document.removeEventListener("visibilitychange", visibility); };
-  }, [token]);
+  }, [token, getFreshness]);
   return <div className="onsign-preview" data-preview-status={status}>
-    <canvas ref={canvas} aria-label={`${name} live preview`} role="img"/>
-    {status !== "live" && <span className="onsign-preview-state" role="status">{status === "connecting" ? "Connecting preview…" : status === "unavailable" ? "Preview unavailable · retrying" : "Reconnecting preview…"}</span>}
+    <canvas ref={canvas} aria-label={`${name} live preview`} role="img" aria-hidden={stale}/>
+    {stale ? <div className="onsign-preview-alert" role="status" aria-label={`${name}: preview connection lost. Preview unavailable.`}>
+      <div className="onsign-preview-character" aria-hidden="true"/>
+      <div className="onsign-preview-alert-copy"><TriangleAlert aria-hidden="true"/><strong>Connection lost</strong><span>Preview unavailable</span></div>
+    </div> : status !== "live" && <span className="onsign-preview-state" role="status">{status === "connecting" ? "Connecting preview…" : status === "unavailable" ? "Preview unavailable · retrying" : "Reconnecting preview…"}</span>}
   </div>;
 }

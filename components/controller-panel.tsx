@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ChevronRight, Globe2, Layers3, LayoutGrid, MapPin, Monitor, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, ChevronRight, Globe2, Layers3, LayoutGrid, MapPin, Monitor, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Display, Entity, Member, Selection } from "@/lib/store";
 import "./controller-panel.css";
 import { screensFor } from "@/lib/screens";
+import { clientFetch } from "@/lib/client-fetch";
+import PreviewIssues, { type HealthSnapshot } from "@/components/preview-issues";
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type Props = {
@@ -25,11 +27,27 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
   const { entities, members, display } = state;
   const selection = display.selection;
   const selectionMode = selection.groupId ? "groups" : "locations";
-  const [browse, setBrowse] = useState<{ scope: string; mode: "locations" | "groups" } | null>(null);
+  const [browse, setBrowse] = useState<{ scope: string; mode: "locations" | "groups" | "issues" } | null>(null);
   const scope = [selection.groupId, selection.countryId, selection.regionId, selection.storeId].join("|");
-  const mode = browse?.scope === scope ? browse.mode : selectionMode;
-  const setMode = (next: "locations" | "groups") => setBrowse({ scope, mode: next });
+  const mode = browse?.mode === "issues" || browse?.scope === scope ? browse.mode : selectionMode;
+  const setMode = (next: "locations" | "groups" | "issues") => setBrowse({ scope, mode: next });
   const [query, setQuery] = useState("");
+  const [health, setHealth] = useState<HealthSnapshot | null>(null);
+  const [healthError, setHealthError] = useState("");
+  useEffect(() => {
+    let disposed = false, timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const response = await clientFetch("/api/preview-health", { cache: "no-store" });
+        if (!response.ok) throw new Error(response.status === 401 ? "Your session expired. Sign in again to view preview checks." : "Preview checks could not be loaded. Retrying automatically.");
+        const snapshot: HealthSnapshot = await response.json();
+        if (!disposed) { setHealth(snapshot); setHealthError(""); }
+      } catch (error) { if (!disposed) setHealthError(error instanceof Error ? error.message : "Preview checks could not be loaded."); }
+      finally { if (!disposed) timer = setTimeout(poll, 5000); }
+    };
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, []);
 
   const countries = entities.filter((item) => item.type === "country");
   const regions = selection.countryId ? entities.filter((item) => item.type === "region" && item.parentId === selection.countryId) : [];
@@ -56,7 +74,7 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
   const availableScreens = useMemo(() => screensFor(state, { ...selection, screenIds: undefined }), [state, selection]);
   const wallScreens = useMemo(() => screensFor(state, selection), [state, selection]);
   const visibleScreens = availableScreens.filter((screen) => `${screen.name} ${screenPlace(screen, entities)}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const wallLabel = group?.name || [country?.name, region?.name, location?.name].filter(Boolean).join(" / ") || "All locations";
+  const wallLabel = group?.name || [country?.name, region?.name, location?.name].filter(Boolean).join(" / ") || (selection.screenIds?.length ? "Selected screens" : "All locations");
 
   function selectScreen(id: string) {
     const ids = selection.screenIds?.includes(id)
@@ -88,9 +106,10 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
     <div className="ctrl-mode" role="tablist" aria-label="Choose how to browse screens">
       <button role="tab" aria-selected={mode === "locations"} className={mode === "locations" ? "active" : ""} onClick={() => { setMode("locations"); setQuery(""); }}><MapPin size={19}/><span><strong>By location</strong><small>Country → region → location</small></span></button>
       <button role="tab" aria-selected={mode === "groups"} className={mode === "groups" ? "active" : ""} onClick={() => { setMode("groups"); setQuery(""); }}><Layers3 size={19}/><span><strong>Groups</strong><small>Screens across locations</small></span><span className="ctrl-mode-count">{groups.length}</span></button>
+      <button role="tab" aria-selected={mode === "issues"} className={mode === "issues" ? "active" : ""} onClick={() => setMode("issues")}><AlertTriangle size={19}/><span><strong>Preview issues</strong></span><span className="ctrl-mode-count">{healthError || health?.inventoryError || !health?.inventoryAt ? "—" : health.checks.filter(item => item.status === "unavailable" && entities.some(screen => screen.id === item.screenId)).length}</span></button>
     </div>
 
-    <div className="ctrl-grid">
+    {mode === "issues" ? <PreviewIssues entities={entities} health={health} error={healthError} busy={busy} onDisplayChange={onDisplayChange}/> : <div className="ctrl-grid">
       <section className="ctrl-panel ctrl-browse" aria-label={mode === "locations" ? "Browse by location" : "Browse groups"}>
         <div className="ctrl-panel-head"><div><span className="ctrl-overline">{mode === "locations" ? "Choose a location" : "Choose a group"}</span><h2>{mode === "locations" ? "Browse locations" : "Choose a group"}</h2><p>{mode === "locations" ? "Select a country, then a region and location." : "Show matching screens from multiple locations together."}</p></div><button className="ctrl-reset" disabled={busy} onClick={() => onDisplayChange({})}><RotateCcw size={15}/> Show all</button></div>
         {mode === "locations" ? <>{country && <nav className="ctrl-path" aria-label="Location path"><button disabled={busy} onClick={() => { setQuery(""); onDisplayChange({}); }}>Countries</button>{country && <><ChevronRight size={14}/><button disabled={busy} onClick={() => { setQuery(""); onDisplayChange({ countryId: country.id }); }}>{country.name}</button></>}{region && <><ChevronRight size={14}/><button disabled={busy} onClick={() => { setQuery(""); onDisplayChange({ countryId: selection.countryId, regionId: region.id }); }}>{region.name}</button></>}</nav>}<div className="ctrl-steps">
@@ -104,6 +123,6 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
         <div className="ctrl-panel-head"><div><span className="ctrl-overline">{mode === "groups" ? "GROUP SCREENS" : "Choose screens"}</span><h2>{scopeReady ? group?.name || location?.name || "Screens" : "Screens"}</h2>{scopeReady && <p>All screens are shown by default. Select screens to show a smaller set.</p>}</div>{scopeReady && <span className="ctrl-screen-count">{availableScreens.length}</span>}</div>
         {scopeReady ? <><div className="ctrl-screen-tools"><label className="ctrl-search"><Search size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search these screens" aria-label="Search these screens"/></label><button className={`ctrl-all ${!selection.screenIds?.length ? "active" : ""}`} disabled={busy} onClick={() => onDisplayChange({ ...selection, screenIds: undefined })}>All screens</button></div><div className="ctrl-screen-list">{visibleScreens.map((screen) => <button key={screen.id} className={`ctrl-screen ${selection.screenIds?.includes(screen.id) ? "selected" : ""}`} aria-pressed={!!selection.screenIds?.includes(screen.id)} disabled={busy} onClick={() => selectScreen(screen.id)}><span className="ctrl-screen-icon"><Monitor size={20}/></span><span className="ctrl-screen-label"><strong>{screen.name}</strong><small>{screenPlace(screen, entities)}</small></span><span className={`ctrl-source ${screen.liveUrl ? "ready" : ""}`}>{screen.liveUrl ? "Preview link" : "No preview link"}</span><span className="ctrl-check">{selection.screenIds?.includes(screen.id) && <Check size={14}/>}</span></button>)}{!visibleScreens.length && <div className="ctrl-empty">{query ? "No screens match this search." : "There are no screens here yet."}</div>}</div><div className="ctrl-screen-foot"><SlidersHorizontal size={16}/>{selection.screenIds?.length ? `${selection.screenIds.length} selected for the wall` : `${availableScreens.length === 1 ? "The screen" : `All ${availableScreens.length} screens`} in this ${group ? "group" : "location"} ${availableScreens.length === 1 ? "is" : "are"} on the wall`}</div></> : <div className="ctrl-screen-wait"><div className="ctrl-screen-wait-icon"><Monitor size={30}/></div><strong>{mode === "groups" ? "Choose a group to view its screens." : "Choose a location to view its screens."}</strong>{mode === "locations" && <div className="ctrl-wait-steps"><span className={country ? "done" : ""}>Country</span><ChevronRight size={14}/><span className={region ? "done" : ""}>Region</span><ChevronRight size={14}/><span className={location ? "done" : ""}>Location</span><ChevronRight size={14}/><span>Screens</span></div>}</div>}
       </section>
-    </div>
+    </div>}
   </div>;
 }

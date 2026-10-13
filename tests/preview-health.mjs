@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import sharp from "sharp";
+
+const output = new URL("../.server-runtime/preview-health-test.cjs", import.meta.url);
+await fs.mkdir(new URL("../.server-runtime/", import.meta.url), { recursive: true });
+await build({ stdin: { contents: 'export * from "./lib/preview-health"; export * from "./lib/preview-probe";', resolveDir: process.cwd(), loader: "ts" }, outfile: fileURLToPath(output), platform: "node", format: "cjs", bundle: true, external: ["sharp"] });
+const { PreviewHealthChecker, CHECK_INTERVAL_MS, RESULT_MAX_AGE_MS, probePreview, validatePreviewImage } = createRequire(import.meta.url)(fileURLToPath(output));
+let checks = 0;
+const check = (condition, description) => { assert.ok(condition, description); checks++; };
+const flush = () => new Promise(resolve => setImmediate(resolve));
+const screens = Array.from({ length: 5 }, (_, index) => ({ id: String(index), liveUrl: `https://app.onsign.tv/embed/token-${index}` }));
+let now = 1000;
+const probes = [];
+const checker = new PreviewHealthChecker(token => {
+  let resolve;
+  const result = new Promise(done => { resolve = done; });
+  const task = { token, resolve, cancelled: false }; probes.push(task);
+  return { result, cancel: () => { task.cancelled = true; resolve({ received: false, at: now }); } };
+}, () => now);
+try {
+  checker.sync([...screens, { id: "missing", liveUrl: null }, { id: "other", liveUrl: "https://example.test/embed/url" }]);
+  const status = id => checker.snapshot().find(item => item.screenId === id);
+  check(status("missing").status === "no_link", "missing URLs are distinguished from unavailable images");
+  check(status("other").status === "unsupported", "non-OnSign URLs are not contacted");
+  check(status("0").status === "unknown", "unchecked previews never appear healthy");
+  checker.pump(); check(probes.length === 3, "queue caps concurrent sockets at three");
+  checker.pump(); check(probes.length === 3, "repeated ticks cannot duplicate active checks");
+  check(status("0").status === "checking" && status("4").status === "unknown", "queued and active checks remain distinct");
+  probes[0].resolve({ received: true, at: now }); await flush();
+  check(status("0").status === "available" && !!status("0").lastImageAt, "decoded image records receipt time and availability");
+  checker.pump(); check(probes.length === 4 && probes[3].token === "token-3", "queue fills freed capacity fairly");
+  probes[1].resolve({ received: false, at: now }); await flush();
+  check(status("1").status === "unavailable" && status("1").lastImageAt === null, "failed check does not invent an image");
+  checker.pump(); check(probes.length === 5, "all inventory screens eventually enter the queue");
+  for (const task of probes.slice(2)) task.resolve({ received: true, at: now }); await flush();
+  checker.pump(); check(probes.length === 5, "completed previews are not hammered between scheduled checks");
+  now += CHECK_INTERVAL_MS; checker.pump();
+  check(probes.length === 8, "checks resume after the recheck interval");
+  check(status("1").status === "unavailable", "known warning remains while rechecking");
+  probes[6].resolve({ received: true, at: now }); await flush();
+  check(status("1").status === "available", "successful subsequent check removes the warning");
+  probes[5].resolve({ received: false, at: now }); await flush();
+  check(status("0").status === "unavailable" && !!status("0").lastImageAt, "failure retains historical image timestamp");
+  now += RESULT_MAX_AGE_MS + 1;
+  check(status("0").status === "unknown", "outdated observations are no longer presented as current failures");
+  const old = probes[7];
+  checker.sync([{ ...screens[2], liveUrl: "https://app.onsign.tv/embed/new-token" }]); await flush();
+  check(old.cancelled, "changed links cancel obsolete connections");
+  check(checker.snapshot().length === 1 && status("2").status === "unknown" && !status("2").lastImageAt, "changed URLs and deleted screens cannot retain old results");
+  checker.pump(); check(probes.at(-1).token === "new-token", "changed link is checked without waiting for old deadline");
+  checker.stop(); await flush();
+  check(probes.at(-1).cancelled && checker.snapshot().length === 0, "shutdown closes pending checks and ignores their results");
+
+  const jpeg = await sharp({ create: { width: 8, height: 8, channels: 3, background: "black" } }).jpeg().toBuffer();
+  const bytes = jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength);
+  await validatePreviewImage(bytes); checks++;
+  await assert.rejects(validatePreviewImage(new Uint8Array([255, 216, 255, 217]).buffer)); checks++;
+  await assert.rejects(validatePreviewImage(new Uint8Array([1, 2, 3]).buffer)); checks++;
+  let socket;
+  const factory = url => (socket = { url, binaryType: "blob", readyState: 1, sent: [], closed: false, send(message) { this.sent.push(JSON.parse(message)); }, close() { this.closed = true; this.readyState = 3; } });
+  const live = probePreview("test-token", { createSocket: factory, timeoutMs: 1000 });
+  socket.onopen(); check(socket.url === "wss://app.onsign.tv/livews", "probe only connects to fixed provider endpoint");
+  check(socket.sent[0].data.originalRes === false, "probe requests reduced-resolution preview");
+  await socket.onmessage({ data: JSON.stringify({ t: "live-view:image", binaryField: "buffer", id: 2, data: {} }) });
+  await socket.onmessage({ data: bytes });
+  check((await live.result).received && socket.closed, "valid black image counts and the probe socket is immediately released");
+  const cancelled = probePreview("test-token", { createSocket: factory }); cancelled.cancel();
+  check(!(await cancelled.result).received && socket.closed, "probe cancellation closes socket and settles once");
+  const timeout = probePreview("test-token", { createSocket: factory, timeoutMs: 20 });
+  // Keep this test process alive while production timers are deliberately unreferenced.
+  const hold = setTimeout(() => {}, 100);
+  check(!(await timeout.result).received && socket.closed, "missing image deadline frees connection"); clearTimeout(hold);
+  console.log(`${checks} server preview health checks passed.`);
+} finally { checker.stop(); await fs.unlink(output).catch(() => {}); }

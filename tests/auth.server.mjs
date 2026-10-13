@@ -46,6 +46,7 @@ async function request(route, body, cookie = "", extra = {}) { return fetch(orig
 async function login(email, pw = password, ip = "192.0.2.10") { const response = await request("/api/auth/sign-in/email", { email, password: pw }, "", { "x-forwarded-for": ip }); const cookie = response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; "); return { response, cookie }; }
 try {
   check((await request("/api/state")).status === 401, "anonymous inventory is blocked");
+  check((await request("/api/preview-health")).status === 401, "anonymous preview health is blocked");
   check((await request("/admin")).status === 307, "anonymous Admin redirects to login");
   const monitorPage = await request("/monitor");
   check(monitorPage.status === 200 && !monitorPage.headers.has("x-frame-options"), "monitor shell opens without login and permits OnSign embedding");
@@ -119,6 +120,21 @@ try {
   check((await request("/api/users", { action: "create", name: "Weak", email: "weak@example.test", role: "controller", password: "short" }, admin.cookie)).status === 400, "short passwords are rejected");
   const controller = await login("controller2@example.test", password, "192.0.2.11"); const viewer = await login("viewer2@example.test", password, "192.0.2.12");
   check(controller.response.status === 200 && viewer.response.status === 200, "staff credentials work without email verification");
+  const healthResponse = await request("/api/preview-health", undefined, controller.cookie);
+  const healthSnapshot = await healthResponse.json();
+  check(healthResponse.status === 200 && Array.isArray(healthSnapshot.checks), "Controller can read background preview checks");
+  check(healthResponse.headers.get("cache-control") === "no-store", "preview observations are never cached");
+  check(!JSON.stringify(healthSnapshot).includes("liveUrl") && !JSON.stringify(healthSnapshot).includes("token"), "preview health does not expose preview URLs or tokens");
+  check((await request("/api/preview-health", undefined, admin.cookie)).status === 200, "Admin can read preview checks");
+  check((await request("/api/preview-health", {}, controller.cookie)).status === 405, "preview health endpoint cannot mutate wall state");
+  let checkedScreen;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const snapshot = await (await request("/api/preview-health", undefined, controller.cookie)).json();
+    checkedScreen = snapshot.checks.find(item => item.screenId === screen.id);
+    if (checkedScreen?.status === "unsupported") break;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  check(checkedScreen?.status === "unsupported", "background checker discovers saved screens and distinguishes unsupported links");
   const durations = (await db.prepare("SELECT u.role, EXTRACT(EPOCH FROM (s.expires_at - s.created_at)) * 1000 AS duration FROM auth_session s JOIN auth_user u ON s.user_id = u.id").all()).results;
   check(durations.every((s) => Math.abs(s.duration - (8 * 3600) * 1000) < 5000), "staff sessions have the intended lifetimes");
   check((await request("/account", undefined, controller.cookie)).status === 200, "Controller can manage own password");
@@ -167,6 +183,7 @@ try {
   try { await pool.query("UPDATE auth_user SET disabled=false WHERE id=$1",[legacyUser.id]); } catch (error) { blocked = error.code === "23514"; }
   check(blocked,"database prevents an enabled retired monitor role");
   const key = new URLSearchParams(new URL(firstLink.link).hash.slice(1)).get("key");
+  check((await request("/api/preview-health", undefined, "", { Authorization: "Bearer " + key })).status === 401, "private monitor link cannot read all-screen preview checks");
   check(new URL(firstLink.link).origin === origin && !new URL(firstLink.link).search && /^[a-f0-9]{64}$/.test(key), "generated OnSign link uses a random key in the fragment only");
   const storedLink = await db.prepare("SELECT * FROM monitor_access").all();
   check(storedLink.results.length === 1 && storedLink.results[0].token_hash === crypto.createHash("sha256").update(key).digest("hex") && !JSON.stringify(storedLink).includes(key), "PostgreSQL stores one key hash without the raw private link");

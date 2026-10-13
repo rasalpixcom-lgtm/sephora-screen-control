@@ -1,6 +1,52 @@
 # Code review and local verification
 
-Latest review: 9 October 2026.
+## Controller scrollbar stability — 13 October 2026
+
+Reproduced a 15px loss of content width when the page scrollbar appeared. The Controller now reserves a stable root scrollbar gutter across all three tabs, with an always-scroll fallback for browsers without gutter support. This is scoped to the Controller; the full-screen monitor is unaffected. Browser measurements confirmed identical card positions and widths between short and scrolling results at 1280px, 1920px and 390px, with no phone horizontal overflow or browser warnings/errors. Expanded details were also checked. Production build/TypeScript and lint passed.
+
+## Preview issues simplification — 13 October 2026
+
+Replaced the summary/status dropdown with quick Unavailable and No link filters, plus Awaiting checks when pending or selected. Other statuses remain accessible under More filters. Country, Region, Location and search remain available. Clear filters appears only with an active non-default filter. Rows show a relative check time; native expandable Details retain the exact GST timestamps. Single-page pagination is hidden, and queue timing/player-status context is under How checks work.
+
+Verification: production build/TypeScript and lint passed; 85 focused checks passed (location filters 9, preview health 28, stream recovery 48). An isolated browser fixture verified status filtering, geography/search, advanced-filter collapse, individual and filtered bulk wall selections, busy-state protection, recovery without automatic wall changes, pagination above twenty rows, and empty results. Desktop and 390px layouts were inspected without horizontal overflow. This was a presentation change; no company data or server deployment was changed, and nothing was pushed.
+
+## Pre-push review — 13 October 2026
+
+Reviewed the active application routes, authentication/role checks, request limits and origins, PostgreSQL queries and transactions, Admin account and inventory forms, activity filters/pagination, Controller selections, monitor access and rotation, OnSign streaming and preview-health queue/probes, migrations/imports, standalone assets, Windows scripts and container configuration. Unchanged vendored UI components were covered by lint and compilation; the retained D1/Sites files are historical and are not the active runtime.
+
+Fixed three issues during this review:
+
+- Stream status/recovery callbacks could dispose or pause a preview while its handler was still running, allowing new timers to be scheduled afterward. Timer scheduling now respects the stopped/paused state. A regression first failed against the previous implementation and then passed with the fix.
+- Preview issues could retain a deleted or moved country/region/location filter after a live inventory refresh. Invalid descendants now reset, while valid filters and the wall selection remain intact. The browser fixture verified location reparenting and region removal without React warnings or errors.
+- The Windows LAN firewall helper assumed its result-log directory existed. It now creates that directory before applying a rule. PowerShell parsing passed; no firewall rule was changed by this review.
+
+Verification: **358 automated checks passed**: authentication/server integration 165, activity query/API 62, origin policy 24, selection logic 12, stream recovery 48, preview queue/decode/probes 28, changing-location filters 9, and SQLite import 10. Lint and production build/TypeScript passed. A read-only backup restored into a disposable local database with all **12 tables** matching. Integration tests used random disposable databases and cleaned them up. The rebuilt laptop server returned HTTP 200 for health and the character PNG; Sharp and the PNG are present in the standalone package, and no `.env` file remains in that package.
+
+The current npm production audit reports zero known vulnerabilities. The full audit retains five high findings in the development ESLint/fast-glob/micromatch/braces chain. Its proposed lint-config downgrade to Next 14 is not an appropriate fix for this Next 16 app; those findings remain unresolved and are not part of the standalone production dependency set.
+
+Git whitespace checks passed. A credential-pattern scan covered 199 text files among 211 publishable files; its only flagged file was the reviewed local setup script's generated-password template, not a stored password. Private environment files, runtime logs, fixtures and the backup remain ignored. GitHub `main`, `production`, and local HEAD still point to `e928ae7d762a4e3648b1405c47e0ac6e74b05ed1`; the reviewed changes are local and uncommitted. No push, production release or company-PC deployment was performed.
+
+Remaining limits: preview observations do not establish physical player status, server networking can affect all previews, large inventories take longer to scan, and the provider protocol is not a guaranteed API. The new checker still needs verification on the company PC's outbound network after a separately authorized release. Company startup, scheduled backups and prolonged unattended operation were not retested here. This review found no remaining blocking defect in the reviewed application paths; it is not a guarantee of defect-free software.
+
+## Controller preview issues — 12 October 2026
+
+Added Preview issues beside By location and Groups. Authenticated staff can read all-screen preview observations, filter by geography/status, search and paginate twenty rows at a time. Opening the tab and changing filters do not change the wall. Explicit buttons select the current filtered failures (maximum 500) or one screen. Successful rechecks remove recovered screens from the unavailable list without silently changing an already chosen wall selection.
+
+A singleton checker starts with the Node server, reloads inventory every fifteen seconds, limits checks to three concurrent connections and uses the existing OnSign protocol at its fixed WSS endpoint. Each probe waits at most thirty seconds for a decoded JPEG, closes its socket after success/deadline/cancellation and becomes eligible for rechecking sixty seconds later. Decode limits are 8MB, sixteen million pixels and three seconds. Sharp is declared as a direct dependency. No images or raw tokens are exposed by the API or retained as snapshots. Missing links and unsupported URLs are separate; arbitrary saved URLs are never fetched. Deleted/changed links cancel old probes. Results older than three minutes become unknown; memory observations reset on server restart. A large queue can take longer than a minute to revisit every screen. Connectivity observations concern preview delivery, not physical player status.
+
+Verification: 251 automated checks passed (165 standalone authentication/integration, 28 server checker/decode/probe checks, 46 monitor stream checks and 12 selection checks). The integration suite verifies inventory discovery on the real server, Admin/Controller access, anonymous/private-monitor denial, no-store responses, no URL/token exposure and a read-only endpoint. Lint, production build/TypeScript and Git whitespace checks passed. An isolated browser fixture verified tab opening preserves selection; explicit wall actions; search; cascading filter reset; pagination; missing-link category; recovery removal and a 390px phone layout without horizontal overflow. A visual check prompted consistent 44px action buttons. Fixtures were removed; only the ignored screenshot remains. No company inventory was changed, no GitHub push was made, and the company PC was not deployed.
+
+## Character preview warning — 12 October 2026
+
+OnSign cards now show the supplied company character, an amber warning icon, "Connection lost" as the heading and "Preview unavailable" underneath after 30 seconds of active preview time without a successfully rendered image. The existing socket retry logic continues behind the warning. A fresh image clears the warning and resets its deadline; valid black images still count as received images. The heading refers to preview delivery and does not establish that the player is offline.
+
+Each preview retains missing-image progress within the monitor workspace across page rotations. Three unsuccessful ten-second visits accumulate thirty seconds; time off-page or while the document is hidden does not count. Already shown warnings survive rotation until an image succeeds. Reloading the monitor or removing a preview from the selected scope clears this in-memory progress. The label describes preview availability, not confirmed player connectivity. Non-OnSign iframe previews and screens with no configured URL keep their existing behavior.
+
+Warning styling now uses a static dark burgundy gradient with a muted red inset border, light heading, soft rose secondary text and the existing amber icon. The inset border preserves layout dimensions and the caption remains unchanged. Contrast against the lightest gradient color measures 12.23:1 for the heading, 8.27:1 for secondary text and 7.89:1 for the icon. Lint, all 46 recovery checks and the production build passed after this styling update.
+
+Verification: 46 stream checks pass, including early repeated failures, recovery, pause/resume, disposal, cumulative page visits and retained warnings. Repository ESLint and production build/TypeScript pass. A temporary browser fixture rendered the actual warning component at 300px, 455px and 618px card widths with the complete character and readable messages. Original character PNG retained unchanged; CSS frames the character within the supplied transparent canvas. No live inventory, company-PC deployment or production branch was changed.
+
+Latest review: 13 October 2026.
 
 ## Pre-push review — 9 October 2026
 

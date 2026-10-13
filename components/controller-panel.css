@@ -1,3 +1,9 @@
+/* Reserve the page scrollbar space as results, tabs and details change height. */
+html:has(.ctrl) { scrollbar-gutter:stable; }
+@supports not (scrollbar-gutter:stable) {
+  html:has(.ctrl) { overflow-y:scroll; }
+}
+
 .ctrl {
   --ctrl-surface: #fff;
   --ctrl-surface-soft: #f8f8f8;
@@ -301,6 +307,41 @@ html.dark .ctrl-source { color: #e5b881; }
 .app-shell:has(.ctrl) .workspace-dot { background:var(--work-muted); }
 
 /* Keep phone header controls together, with navigation on the next row. */
+.ctrl-mode { flex-wrap:wrap; }
+.ctrl-issue-summary { display:flex; flex-wrap:wrap; gap:14px 26px; padding:18px 22px; border-bottom:1px solid var(--work-line); color:var(--work-muted); font-size:13px; }
+.ctrl-issue-summary strong { color:var(--work-text); margin-right:4px; }
+.ctrl-issue-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; padding:20px 22px 0; }
+.ctrl-issue-filters label,.ctrl-issue-more label { display:flex; flex-direction:column; gap:8px; font-size:13px; font-weight:500; color:var(--work-text); min-width:0; }
+.ctrl-issue-filters select,.ctrl-issue-more select { width:100%; min-width:0; min-height:44px; border:1px solid var(--work-line); border-radius:12px; padding:10px; color:var(--work-text); background:var(--work-soft); }
+.ctrl-issue-summary { align-items:center; justify-content:space-between; gap:12px; }
+.ctrl-issue-status-filters { display:flex; flex-wrap:wrap; gap:8px; }
+.ctrl-issue-more { padding:16px 22px 0; }
+.ctrl-issue-more label { max-width:360px; }
+.ctrl-issue-details summary,.ctrl-issue-help summary { cursor:pointer; color:var(--work-muted); font-size:13px; padding:10px 0; width:fit-content; }
+.ctrl-issue-details summary:hover,.ctrl-issue-help summary:hover { color:var(--work-text); }
+.ctrl-issue-details summary:focus-visible,.ctrl-issue-help summary:focus-visible { outline:2px solid var(--work-focus); outline-offset:3px; border-radius:4px; }
+.ctrl-issue-details small { display:block; padding-bottom:6px; }
+.ctrl-issue-footer { flex-wrap:wrap; }
+.ctrl-issue-help { margin-left:auto; }
+.ctrl-issue-help[open] { flex-basis:100%; margin-left:0; }
+.ctrl-issue-help p { max-width:720px; margin:0 0 4px; font-size:13px; }
+.ctrl-issue-notice { margin:16px 22px 0; padding:12px 14px; border:1px solid var(--work-line); border-radius:12px; color:var(--work-muted); font-size:13px; line-height:1.5; }
+.ctrl-issue-list { padding:0 22px 20px; }
+.ctrl-issue-row { display:flex; align-items:center; gap:18px; padding:18px 0; border-bottom:1px solid var(--work-line); }
+.ctrl-issue-row:last-child { border-bottom:0; }
+.ctrl-issue-copy { display:flex; flex-direction:column; gap:5px; flex:1; min-width:0; }
+.ctrl-issue-copy strong { font-size:15px; font-weight:500; color:var(--work-text); overflow-wrap:anywhere; }
+.ctrl-issue-copy span,.ctrl-issue-copy small { color:var(--work-muted); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.ctrl-issue-status { border:1px solid var(--work-line); border-radius:999px; padding:6px 10px; color:var(--work-text); font-size:12px; text-align:center; }
+.ctrl-issue-status.unavailable { color:#8a2237; background:#fbe5e9; border-color:#d997a4; }
+html.dark .ctrl-issue-status.unavailable { color:#f4c8d1; background:#3b2027; border-color:#935563; }
+.ctrl-issues button:disabled { opacity:.5; cursor:not-allowed; }
+.ctrl-issues .ctrl-all { min-height:44px; padding:0 16px; }
+.ctrl-issues .ctrl-open-wall { border:1px solid var(--work-action); }
+.ctrl-issue-footer { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; border-top:1px solid var(--work-line); color:var(--work-muted); font-size:12px; line-height:1.5; }
+.ctrl-issue-footer nav { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+@media(max-width:850px) { .ctrl-issue-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .ctrl-issues .ctrl-panel-head,.ctrl-issue-footer { flex-direction:column; align-items:flex-start; } }
+@media(max-width:600px) { .ctrl-mode button { flex:1 1 140px; } .ctrl-issue-row { flex-wrap:wrap; gap:12px; } .ctrl-issue-copy { flex-basis:100%; } .ctrl-issue-filters { grid-template-columns:1fr; } .ctrl-issue-filters,.ctrl-issue-list,.ctrl-issue-more { padding-left:18px; padding-right:18px; } .ctrl-issue-help { margin-left:0; } .ctrl-issues .ctrl-screen-tools { flex-wrap:wrap; } .ctrl-issues .ctrl-search { flex-basis:200px; } }
 @media(max-width:600px) {
   .app-shell:has(.ctrl) .topbar,html.dark .app-shell:has(.ctrl) .topbar {
     display:grid;

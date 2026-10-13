@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { startOnSignStream, onSignToken, FRAME_TIMEOUT_MS, HEARTBEAT_MS } from "../lib/onsign-stream.ts";
 let checks = 0;
 function check(condition, description) { assert.ok(condition, description); checks++; }
-function fixture(onFrame = async () => {}) {
+function fixture(onFrame = async () => {}, freshness = { missingMs: 0 }, callbacks = {}) {
   let time = 0, id = 0;
-  const timers = new Map(), sockets = [], statuses = [];
+  const timers = new Map(), sockets = [], statuses = [], staleStates = [];
   const environment = {
     createSocket(url) {
       const socket = { url, readyState:0, binaryType:"blob", sent:[], closed:false,
@@ -15,8 +15,9 @@ function fixture(onFrame = async () => {}) {
     },
     setTimeout(callback, delay) { const key=++id;timers.set(key,{callback,at:time+delay});return key; },
     clearTimeout(key) { timers.delete(key); },
+    now: () => time,
   };
-  const controller=startOnSignStream("example-token",{onStatus:status=>statuses.push(status),onFrame},environment);
+  const controller=startOnSignStream("example-token",{onStatus:status=>{statuses.push(status);callbacks.onStatus?.(status);},onStale:stale=>{staleStates.push(stale);callbacks.onStale?.(stale);},freshness,onFrame},environment);
   const advance = delay => {
     const end=time+delay;
     while(true) {
@@ -30,7 +31,7 @@ function fixture(onFrame = async () => {}) {
     await socket.message(JSON.stringify({t:"live-view:image",id:2,binaryField:"buffer",data:{rotation}}));
     await socket.message(bytes);
   };
-  return {controller,sockets,statuses,timers,advance,frame};
+  return {controller,sockets,statuses,staleStates,timers,advance,frame};
 }
 
 check(onSignToken("https://app.onsign.tv/embed/a_B-12/")==="a_B-12","valid preview token");
@@ -88,4 +89,44 @@ steady.controller.dispose();
 const blob=fixture(async(bytes)=>{assert.ok(bytes instanceof ArrayBuffer);});blob.sockets[0].open();
 await blob.frame(blob.sockets[0],0,new Blob(["image bytes"]));
 check(blob.statuses.at(-1)==="live","older-WebView Blob frames normalize successfully");blob.controller.dispose();
+const warning=fixture();
+warning.advance(29999);check(warning.staleStates.at(-1)===false,"no warning before 30 seconds without an image");
+warning.advance(1);check(warning.staleStates.at(-1)===true,"missing images show warning at 30 seconds");
+warning.advance(1000);check(warning.staleStates.at(-1)===true,"reconnecting keeps the warning visible");
+warning.sockets.at(-1).open();await warning.frame(warning.sockets.at(-1));
+check(warning.staleStates.at(-1)===false,"successful image clears warning automatically");
+warning.advance(29999);check(warning.staleStates.at(-1)===false,"recovery starts a fresh image deadline");warning.controller.dispose();
+
+const failures=fixture();
+for(const duration of [1000,2000,4000,8000]){failures.sockets.at(-1).onerror?.({});failures.advance(duration);}
+failures.advance(15000);check(failures.staleStates.at(-1)===true,"repeated failures cannot postpone the 30 second warning");failures.controller.dispose();
+
+const progress={missingMs:0};
+const visit1=fixture(undefined,progress);visit1.advance(10000);visit1.controller.dispose();
+check(progress.missingMs===10000,"first page visit retains elapsed missing-image time");
+const visit2=fixture(undefined,progress);visit2.advance(10000);visit2.controller.dispose();
+check(progress.missingMs===20000,"page rotation accumulates a second visit without resetting");
+const visit3=fixture(undefined,progress);visit3.advance(9999);check(visit3.staleStates.at(-1)===false,"third visit has not reached cumulative deadline early");
+visit3.advance(1);check(visit3.staleStates.at(-1)===true,"three unsuccessful 10 second visits show the warning");visit3.controller.dispose();
+const revisit=fixture(undefined,progress);check(revisit.staleStates.at(-1)===true,"warning survives page rotation");
+revisit.sockets[0].open();await revisit.frame(revisit.sockets[0]);
+check(progress.missingMs===0&&revisit.staleStates.at(-1)===false,"live image resets retained progress");revisit.controller.dispose();
+
+const hidden=fixture();hidden.advance(10000);hidden.controller.pause();hidden.advance(120000);
+check(hidden.staleStates.at(-1)===false,"time hidden does not count toward the warning");
+hidden.controller.resume();hidden.advance(20000);check(hidden.staleStates.at(-1)===true,"visible time continues after pause");hidden.controller.dispose();
+check(hidden.timers.size===0,"warning and transport timers are cleaned up together");
+
+const stoppedOnLive = fixture(undefined, undefined, { onStatus: status => { if (status === "live") stoppedOnLive.controller.dispose(); } });
+stoppedOnLive.sockets[0].open(); await stoppedOnLive.frame(stoppedOnLive.sockets[0]);
+check(stoppedOnLive.timers.size === 0, "a live callback cannot recreate timers after disposing the stream");
+let sawWarning = false;
+const stoppedOnRecovery = fixture(undefined, undefined, { onStale: stale => {
+  if (stale) sawWarning = true;
+  else if (sawWarning) stoppedOnRecovery.controller.pause();
+} });
+stoppedOnRecovery.advance(FRAME_TIMEOUT_MS + 1000);
+stoppedOnRecovery.sockets.at(-1).open(); await stoppedOnRecovery.frame(stoppedOnRecovery.sockets.at(-1));
+check(stoppedOnRecovery.timers.size === 0, "a recovery callback cannot recreate timers after pausing the stream");
+stoppedOnRecovery.controller.dispose();
 console.log(checks+" OnSign stream recovery checks passed.");
