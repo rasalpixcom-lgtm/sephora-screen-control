@@ -574,3 +574,36 @@ html:has(.adm-shell) body[data-scroll-locked] {
 @media(max-width:600px) { .adm-content { padding: 32px 16px 48px; } .adm-page-head { align-items: flex-start; flex-wrap: wrap; gap: 14px; } .adm-page-head h1 { font-size: 30px; } .adm-private-pill { display: none; } .adm-breadcrumb { font-size: 9px; } .adm-topbar { padding: 0 16px; gap: 10px; } .adm-metric { min-height: 118px; } }
 .adm-monitor-link{margin-bottom:24px}.adm-monitor-link h2{display:flex;align-items:center;gap:10px}.adm-monitor-link-body{padding:24px}.adm-monitor-link-body p{color:var(--work-muted);font-size:14px;line-height:1.6}.adm-link-status{font-size:12px;font-weight:600}.adm-monitor-link-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}.adm-monitor-link small{color:var(--work-muted);font-size:12px;line-height:1.6}.adm-monitor-copy{margin-top:20px}.adm-monitor-copy label{display:block;font-size:13px;margin-bottom:8px}.adm-monitor-copy>div{display:flex;gap:10px;margin-bottom:8px}.adm-monitor-copy input{min-width:0;flex:1;border:1px solid var(--work-line);background:var(--work-soft);color:inherit;padding:12px 14px;border-radius:12px;font:inherit;font-size:13px}.adm-monitor-copy input:focus{outline:2px solid #35b68e;outline-offset:2px}.adm-monitor-note{margin-top:12px}.adm-monitor-link .adm-error{display:flex;gap:12px;align-items:center;justify-content:space-between}
 @media(max-width:600px){.adm-monitor-link-body{padding:18px}.adm-monitor-copy>div{flex-direction:column}.adm-monitor-copy button{align-self:flex-start}.adm-monitor-link .adm-panel-head{flex-wrap:wrap}}
+
+.adm-report-panel { overflow:hidden; }
+.adm-report-intro { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:24px; border-bottom:1px solid var(--work-line); }
+.adm-report-intro h2 { margin:0; font-size:18px; font-weight:600; }
+.adm-report-intro p { margin:0; color:var(--work-muted); font-size:13px; line-height:1.55; }
+.adm-report-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:20px 24px 24px; border-bottom:1px solid var(--work-line); }
+.adm-report-filters>label,.adm-report-duration { display:grid; gap:7px; min-width:0; color:var(--work-text); font-size:13px; font-weight:500; }
+.adm-report-duration select { width:100%; min-height:44px; padding:9px 12px; border:1px solid var(--work-line); border-radius:12px; background:var(--work-soft); color:var(--work-text); }
+.adm-report-search { grid-column:span 3; }
+.adm-report-search .adm-search { width:100%; min-width:0; }
+.adm-report-filter-actions { display:flex; align-items:end; gap:10px; }
+.adm-report-meta { display:flex; justify-content:space-between; gap:16px; padding:15px 24px; color:var(--work-muted); font-size:12px; }
+.adm-report-meta strong { color:var(--work-text); font-size:13px; font-weight:600; }
+.adm-report-table { table-layout:fixed; min-width:750px; }
+.adm-report-table th:nth-child(1) { width:25%; }
+.adm-report-table th:nth-child(2) { width:30%; }
+.adm-report-table th:nth-child(3) { width:25%; }
+.adm-report-table th:nth-child(4) { width:20%; }
+.adm-report-table td { vertical-align:top; line-height:1.45; overflow-wrap:anywhere; }
+.adm-report-table td strong,.adm-report-table td small { display:block; }
+.adm-report-table td small { margin-top:4px; color:var(--work-muted); font-size:11px; font-weight:400; }
+.adm-report-table .adm-report-duration-value { color:#c95d68; font-variant-numeric:tabular-nums; }
+html.dark .adm-report-table .adm-report-duration-value { color:#ff9da8; }
+.adm-report-delayed { width:max-content; padding:3px 7px; border:1px solid #a77a37; border-radius:999px; color:#a26918 !important; }
+html.dark .adm-report-delayed { color:#efba64 !important; border-color:#775d32; }
+@media(max-width:1100px) { .adm-report-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .adm-report-search { grid-column:span 1; } }
+@media(max-width:700px) {
+  .adm-report-intro { padding:18px; flex-direction:column; align-items:flex-start; }
+  .adm-report-filters { grid-template-columns:1fr; padding:18px; gap:12px; }
+  .adm-report-search { grid-column:auto; }
+  .adm-report-meta { padding:13px 18px; flex-direction:column; gap:4px; }
+  .adm-report-table { min-width:750px; }
+}

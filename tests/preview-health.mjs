@@ -15,12 +15,13 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const screens = Array.from({ length: 5 }, (_, index) => ({ id: String(index), liveUrl: `https://app.onsign.tv/embed/token-${index}` }));
 let now = 1000;
 const probes = [];
+const observations = [];
 const checker = new PreviewHealthChecker(token => {
   let resolve;
   const result = new Promise(done => { resolve = done; });
   const task = { token, resolve, cancelled: false }; probes.push(task);
   return { result, cancel: () => { task.cancelled = true; resolve({ received: false, at: now }); } };
-}, () => now);
+}, () => now, result => observations.push(result));
 try {
   checker.sync([...screens, { id: "missing", liveUrl: null }, { id: "other", liveUrl: "https://example.test/embed/url" }]);
   const status = id => checker.snapshot().find(item => item.screenId === id);
@@ -35,6 +36,7 @@ try {
   checker.pump(); check(probes.length === 4 && probes[3].token === "token-3", "queue fills freed capacity fairly");
   probes[1].resolve({ received: false, at: now }); await flush();
   check(status("1").status === "unavailable" && status("1").lastImageAt === null, "failed check does not invent an image");
+  check(observations.some(result => result.screenId === "0" && result.received) && observations.some(result => result.screenId === "1" && !result.received), "completed checks publish persistence observations without preview URLs");
   checker.pump(); check(probes.length === 5, "all inventory screens eventually enter the queue");
   for (const task of probes.slice(2)) task.resolve({ received: true, at: now }); await flush();
   checker.pump(); check(probes.length === 5, "completed previews are not hammered between scheduled checks");

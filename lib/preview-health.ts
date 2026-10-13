@@ -9,12 +9,13 @@ type Screen = { id: string; liveUrl: string | null };
 type Result = { received: boolean; at: number };
 type Probe = (token: string) => { result: Promise<Result>; cancel: () => void };
 type Entry = { token: string | null; status: PreviewHealthStatus; lastImageAt: number | null; checkedAt: number | null; due: number };
+export type PreviewObservation = { screenId:string; token:string; received:boolean; checkedAt:number };
 
 // One queue per server, independent of wall selection and connected browsers.
 export class PreviewHealthChecker {
   private entries = new Map<string, Entry>();
   private active = new Map<string, { entry: Entry; cancel: () => void }>();
-  constructor(private probe: Probe, private now: () => number = Date.now) {}
+  constructor(private probe: Probe, private now: () => number = Date.now, private onResult?: (result:PreviewObservation) => void) {}
 
   sync(screens: Screen[]) {
     const ids = new Set(screens.map(screen => screen.id));
@@ -46,6 +47,7 @@ export class PreviewHealthChecker {
         entry.checkedAt = result.at;
         if (result.received) entry.lastImageAt = result.at;
         entry.due = this.now() + CHECK_INTERVAL_MS;
+        this.onResult?.({ screenId:id, token:entry.token!, received:result.received, checkedAt:result.at });
       };
       void task.result.then(finish, () => finish({ received: false, at: this.now() }));
     }

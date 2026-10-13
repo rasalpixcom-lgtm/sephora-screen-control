@@ -40,7 +40,7 @@ try {
   assert.notEqual(run().status,0,"nonempty destination must be refused");
   assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM auth_user")).rows[0].n,3);
   await pool.query("TRUNCATE auth_user CASCADE");
-  await pool.query("TRUNCATE entities, activity_log");
+  await pool.query("TRUNCATE preview_screen_state, preview_incident, entities, activity_log");
   const invalid = new DatabaseSync(file); invalid.exec("UPDATE auth_user SET role = 'invalid' WHERE id = 'wall'"); invalid.close();
   assert.notEqual(run().status,0,"unsupported roles must fail the import");
   assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM entities")).rows[0].n,0,"failed import must roll back earlier inventory writes");

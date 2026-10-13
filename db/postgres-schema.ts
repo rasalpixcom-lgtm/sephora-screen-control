@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, bigint, primaryKey, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, bigint, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), parentId: text("parent_id"), liveUrl: text("live_url"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() });
@@ -26,3 +26,26 @@ export const monitorAccess = pgTable("monitor_access", {
   id: text("id").primaryKey(), tokenHash: text("token_hash"), generation: text("generation").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, table => [check("monitor_access_singleton", sql`${table.id} = 'main'`)]);
+export const previewScreenState = pgTable("preview_screen_state", {
+  screenId: text("screen_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
+  sourceFingerprint: text("source_fingerprint").notNull(),
+  status: text("status").notNull(),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, table => [check("preview_screen_state_status", sql`${table.status} IN ('available', 'unavailable')`)]);
+export const previewIncident = pgTable("preview_incident", {
+  id: text("id").primaryKey(),
+  screenId: text("screen_id").notNull().references(() => entities.id, { onDelete: "cascade" }),
+  sourceFingerprint: text("source_fingerprint").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }).notNull(),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolutionReason: text("resolution_reason"),
+}, table => [
+  uniqueIndex("preview_incident_one_open_per_screen_idx").on(table.screenId).where(sql`${table.resolvedAt} IS NULL`),
+  index("preview_incident_screen_idx").on(table.screenId),
+  index("preview_incident_open_started_idx").on(table.resolvedAt, table.startedAt),
+  check("preview_incident_resolution_reason", sql`${table.resolutionReason} IS NULL OR ${table.resolutionReason} IN ('recovered', 'configuration_changed')`),
+]);

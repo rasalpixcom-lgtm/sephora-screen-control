@@ -9,6 +9,8 @@ export async function GET() {
     await db.prepare("SELECT id, role, disabled FROM auth_user LIMIT 1").first();
     await db.prepare("SELECT id, selection FROM display_state LIMIT 1").first();
     await db.prepare("SELECT id FROM monitor_access LIMIT 1").first();
+    await db.prepare("SELECT screen_id FROM preview_screen_state LIMIT 1").first();
+    await db.prepare("SELECT id FROM preview_incident LIMIT 1").first();
     return Response.json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
   }
   catch { return Response.json({ status: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }

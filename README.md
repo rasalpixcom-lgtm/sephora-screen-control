@@ -1,7 +1,7 @@
 # Sephora Screen Control
 
 Central screen management with three workspaces:
-- Admin: countries, regions, locations, screens, groups, accounts, and activity.
+- Admin: countries, regions, locations, screens, groups, accounts, activity, and reports.
 - Controller: choose the shared wall selection and page rotation.
 - Monitor: read-only live-preview cards, using a private OnSign link or staff session.
 
@@ -43,7 +43,11 @@ For supported `https://app.onsign.tv/embed/...` links, cards render OnSign's inc
 
 Controller → Preview issues lists server observations across the entire inventory, with quick status filters, country/region/location filters, search and up to 20 rows per page. More filters provides other statuses; Details shows exact timestamps in GST. Pagination appears only for multiple pages, and the Controller keeps a stable layout when scrollbars appear. Opening the tab or changing filters does not change the wall. Show issues on wall displays the current filtered failures; Show on wall displays one screen. Recovery removes a screen from the unavailable list on the next successful server check, without automatically changing an existing wall selection.
 
-The Node server checks three OnSign previews at a time, waits up to 30 seconds for a decoded image, and queues each completed check again after 60 seconds. Queues can take longer for large inventories. Missing and unsupported URLs have separate categories; the checker never contacts arbitrary saved URLs. Results older than three minutes become unknown. Observations are in memory and start fresh after a server restart. The server also needs outbound WSS access to `app.onsign.tv`; server/network problems can affect several previews together. These observations measure image delivery, not whether a physical player is online.
+The Node server checks three OnSign previews at a time, waits up to 30 seconds for a decoded image, and queues each completed check again after 60 seconds. Queues can take longer for large inventories. Missing and unsupported URLs have separate categories; the checker never contacts arbitrary saved URLs. Results older than three minutes become unknown. The Controller's immediate observations start fresh after a restart; report incidents and last successful checks persist in PostgreSQL. The server also needs outbound WSS access to `app.onsign.tv`; server/network problems can affect several previews together. These observations measure image delivery, not whether a physical player is online.
+
+Admin → Reports defaults to all current unresolved preview incidents lasting 20 minutes or more. Separate ranges cover 20 minutes to under 1 hour, 1 to under 2 hours, 2 to under 3 hours, 3 to under 5 hours, 5 to under 10 hours, and 10 hours or more. Lower limits are inclusive and upper limits exclusive: exactly 2 hours belongs only to the 2-to-under-3-hour range and All. Dropdown filters update immediately; literal text search updates after a 300-millisecond pause. Filter changes reset to page one, and Clear filters restores the defaults. Results are ordered longest first with 25 rows per page. The page refreshes every minute and keeps existing rows visible during updates. Download PDF is available once the selected filters finish loading and exports the same range and filters across all pages (up to 5,000 screens), with GST timestamps, continuous serial numbers, the PIXCOM logo and repeated table headings. Checks older than five minutes are marked Verification delayed; periods without server checks are not proof of continuous physical-player downtime.
+
+Apply `0004_preview_incidents.sql` through `npm run db:migrate` before starting this release. Tracking begins with the first failed server check after deployment; earlier history cannot be reconstructed. Successful checks resolve incidents. Replacing/removing a preview link closes its old incident; missing and unsupported links are excluded. Deleted screens remove their incident records. Report APIs and PDF exports require an Admin session and never include private preview URLs or tokens.
 
 This adapter uses the image protocol served by OnSign's public embed viewer, not a guaranteed versioned API. Test it on the actual OnSign player and final hosting domain; provider protocol changes may require an adapter update. The display device needs outbound HTTPS/WSS access to `app.onsign.tv`. Other providers' URLs still use iframes. Receiving images confirms preview freshness, not physical player health; an offline source cannot be repaired by reconnecting.
 
@@ -70,6 +74,7 @@ node --experimental-strip-types tests/location-filters.mjs
 node tests/preview-health.mjs
 npm run test:auth
 npm run test:activity
+npm run test:reports
 npm run test:import
 ```
 Run these on the development checkout with its private `.env.local` and a development database role. The server integration suites create and drop disposable databases; they are not company-server startup commands.

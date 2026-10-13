@@ -3,7 +3,7 @@ import AdminDashboard, { type Section } from "@/components/admin-dashboard";
 import { requirePage } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
-const valid = new Set<Section>(["screens", "countries", "regions", "locations", "groups", "activity", "settings", "users"]);
+const valid = new Set<Section>(["screens", "countries", "regions", "locations", "groups", "activity", "reports", "settings", "users"]);
 export default async function Page({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   if (section === "access") redirect("/admin/settings");

@@ -7,7 +7,7 @@ import { clientFetch } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowUpRight, ClipboardList, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowUpRight, ClipboardList, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -26,16 +26,17 @@ import ChangePassword from "@/components/change-password";
 import MonitorLinkPanel from "@/components/monitor-link-panel";
 import ActivityPanel from "@/components/activity-panel";
 import LocationPicker from "@/components/location-picker";
+import PreviewReportsPanel from "@/components/preview-reports-panel";
 
 
 
 type State = { entities: Entity[]; members: Member[]; display: Display; activity: Activity[] };
 
-export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "settings" | "users";
+export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "reports" | "settings" | "users";
 
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", settings: "Settings", users: "Users" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", reports: "Reports", settings: "Settings", users: "Users" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
@@ -52,6 +53,7 @@ const navigation = [
   { id: "locations", icon: MapPin }, { id: "groups", icon: Layers3 },
 
   { id: "activity", icon: ClipboardList },
+  { id: "reports", icon: FileText },
 
   { id: "users", icon: Users },
   { id: "settings", icon: Settings2 },
@@ -235,6 +237,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
     locations: "Stores and malls where screens are installed.", groups: "Combine similar screens across locations.",
 
     activity: "Recent changes to screens, groups, and the monitoring wall.",
+    reports: "View unavailable previews and export reports.",
 
     settings: "Preview links and monitoring wall behavior.",
     users: "Accounts and permissions for your team.",
@@ -277,6 +280,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
         {section === "groups" && <div className="adm-group-grid">{byType("group").map((group) => <article className="adm-group-card" key={group.id}><div className="adm-group-card-heading"><div><h2>{group.name}</h2><p>{state.members.filter((member) => member.groupId === group.id).length} assigned {state.members.filter((member) => member.groupId === group.id).length === 1 ? "screen" : "screens"}</p></div><button className="adm-delete" onClick={() => openDelete(group)} aria-label={`Delete ${group.name}`}><Trash2 size={17}/></button></div><div className="adm-group-screen-list">{state.members.filter((member) => member.groupId === group.id).slice(0,3).map((member) => { const screen = entities.find((item) => item.id === member.screenId); return screen ? <span key={member.screenId}><Monitor size={16}/><span className="adm-group-screen-copy"><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></span> : null; })}{state.members.filter((member) => member.groupId === group.id).length > 3 && <span>+{state.members.filter((member) => member.groupId === group.id).length - 3} more screens</span>}{!state.members.some((member) => member.groupId === group.id) && <span>No screens assigned</span>}</div><div className="adm-group-actions"><button className="adm-secondary-btn" onClick={() => openEditor("group", group)}>Rename</button><button className="adm-primary-btn" onClick={() => openGroup(group.id)}>Manage screens</button></div></article>)}{!byType("group").length && <div className="adm-empty adm-panel">No groups yet. Add one to collect screens across stores.</div>}</div>}
 
         {section === "activity" && <ActivityPanel refreshKey={usersRefreshKey}/>}
+        {section === "reports" && <PreviewReportsPanel entities={entities} refreshKey={usersRefreshKey}/>}
 
 
         {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}
