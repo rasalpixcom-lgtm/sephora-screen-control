@@ -1,0 +1,27 @@
+.adm-email-alerts h2 { display:flex; align-items:center; gap:9px; }
+.adm-email-body { padding:24px; }
+.adm-email-sender { color:var(--work-muted); font-size:12px; white-space:nowrap; }
+.adm-email-sender.ready,.adm-email-success { color:var(--work-accent,#36b68c); }
+.adm-email-from { color:var(--work-muted); font-size:13px; margin:0; }
+.adm-form .adm-email-check { display:flex; align-items:center; gap:9px; font-weight:550; }
+.adm-form .adm-email-check input { height:17px; width:17px; accent-color:#39b88d; }
+.adm-email-timing { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.adm-email-note { color:var(--work-muted); font-size:12px; line-height:1.5; }
+.adm-email-recipients { border:0; padding:0; margin:0; display:grid; gap:9px; }
+.adm-email-recipients legend { margin-bottom:9px; font-size:13px; font-weight:600; }
+.adm-email-recipient { display:flex; gap:8px; }
+.adm-email-recipient input { min-width:0; flex:1; }
+.adm-email-recipients > button { justify-self:start; }
+.adm-email-history { margin-top:24px; border-top:1px solid var(--work-line); padding-top:14px; }
+.adm-email-history h3 { font-size:14px; margin:0 0 10px; }
+.adm-email-history-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+.adm-email-history-heading h3 { margin:0; }
+.adm-email-history-heading button { font-size:12px; padding:8px 12px; }
+.adm-email-delivery summary { color:var(--work-muted); cursor:pointer; }
+.adm-email-delivery details small { display:block; margin-top:6px; }
+.adm-email-delivery { display:flex; gap:12px; justify-content:space-between; border-top:1px solid var(--work-line); padding:12px 0; font-size:12px; }
+.adm-email-delivery > div { display:flex; flex-direction:column; min-width:0; gap:4px; }
+.adm-email-delivery small { color:var(--work-muted); line-height:1.5; }
+.adm-email-delivery > span { color:#f48b9b; text-transform:capitalize; flex:none; }
+.adm-email-delivery > span[data-status="sent"] { color:#63cba5; }
+@media(max-width:600px) { .adm-email-body {padding:18px;} .adm-email-timing {grid-template-columns:1fr;} .adm-email-alerts .adm-panel-head {align-items:start;flex-wrap:wrap;gap:10px;} .adm-email-body .adm-form-actions {flex-wrap:wrap;} }

@@ -1,0 +1,7 @@
+.adm-settings-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px; padding:5px; border:1px solid var(--work-line); border-radius:16px; background:var(--work-surface); }
+.adm-settings-tabs button { border:0; border-radius:11px; padding:12px 18px; background:transparent; color:var(--work-muted); font:inherit; font-size:14px; font-weight:600; cursor:pointer; }
+.adm-settings-tabs button[aria-selected="true"] { background:var(--work-selected); color:var(--work-text); }
+.adm-settings-tabs button:focus-visible { outline:2px solid var(--work-accent,#39b88d); outline-offset:2px; }
+.adm-settings-panel { display:grid; gap:20px; }
+.adm-settings-panel[hidden] { display:none; }
+@media(max-width:600px) { .adm-settings-tabs button { padding:10px 12px; font-size:13px; } }

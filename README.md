@@ -53,6 +53,25 @@ This adapter uses the image protocol served by OnSign's public embed viewer, not
 
 npm run db:import imports a SQLite file into an empty PostgreSQL database. It does not copy sessions. Never point tests or imports at a production database without reading their requirements.
 
+## Email alerts
+
+Admin → Settings → Email alerts lets Admins choose recipients, the unavailable duration, a grouping window, and optional recovery emails. Alerts start disabled. Defaults are 20 minutes unavailable plus a 5-minute grouping window: the first qualifying preview starts the window, and other qualifying previews join that email. A preview that recovers before sending is excluded. Emails include screen names, locations, durations, and GST timestamps. Missing and unsupported preview links and stale observations do not qualify.
+
+Settings has three tabs: Email alerts, Monitoring (private monitor link and monitor overview), and Account security. Switching tabs preserves unsaved email edits; refreshing restores the selected tab but discards unsaved edits. Delivery history initially shows the latest three entries, with an option to expand the latest ten. Failed, unconfirmed and partially accepted deliveries offer expandable details. Tabs support arrow keys, Home and End, and wrap on narrow screens.
+
+Configure the Gmail sender in the server's private `.env.local`:
+
+```dotenv
+ALERT_EMAIL_USER=your-address@gmail.com
+ALERT_EMAIL_APP_PASSWORD=your-google-app-password
+```
+
+Use a dedicated sender account and a [Google App Password](https://support.google.com/accounts/answer/185833?hl=en). App Passwords require 2-Step Verification and may be unavailable for some account policies. Never commit the password or enter it in the browser. Gmail credentials are read only on the server; recipients are editable in Admin Settings. The server needs outbound access to Gmail SMTP on port 465.
+
+Apply `npm run db:migrate`, rebuild, and restart the server. Save recipients, send a test email, check the inbox/spam folder, then enable alerts. “Sender configured” means credentials are present; an accepted delivery means SMTP accepted the message, which does not guarantee inbox delivery. Recipient addresses use BCC.
+
+The background worker runs while the Node server is running, even when no browser is open. Current qualifying outages are included after enabling alerts. Successful notifications are recorded per incident to avoid repeats; a later separate outage can alert again. Definite delivery failures retry with increasing delays capped at 60 minutes. An interrupted send with an uncertain outcome is recorded as Unconfirmed and is not automatically repeated; check recipients' inboxes before taking further action. Partial acceptance is recorded without resending to everyone. Recent deliveries appear in Settings. Recovery emails are optional and only cover previously notified incidents with fresh successful checks.
+
 ## Windows Server and other hosts
 
 See SERVER-DEPLOYMENT.md for Windows/IIS, HTTPS, service startup, database configuration, backups, first setup, and other Node.js hosting options. The old chatgpt.site URL remains a previous Cloudflare-backed publication; this server migration is not deployed there.
@@ -75,6 +94,7 @@ node tests/preview-health.mjs
 npm run test:auth
 npm run test:activity
 npm run test:reports
+npm run test:email-alerts
 npm run test:import
 ```
 Run these on the development checkout with its private `.env.local` and a development database role. The server integration suites create and drop disposable databases; they are not company-server startup commands.
