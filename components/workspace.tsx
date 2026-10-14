@@ -13,8 +13,12 @@ import { clientFetch } from "@/lib/client-fetch";
 import { screensFor as matchingScreens } from "@/lib/screens";
 import { onSignToken, type PreviewFreshness } from "@/lib/onsign-stream";
 import OnSignPreview from "@/components/onsign-preview";
+import "@/components/screen-card.css";
+import MonitorPreviewStatus from "@/components/monitor-preview-summary";
+import type { MonitorPreviewSummary } from "@/lib/monitor-preview-summary";
+import { unavailableMinutes } from "@/lib/preview-timing";
 
-type State = { entities: Entity[]; members: Member[]; display: Display };
+type State = { entities: Entity[]; members: Member[]; display: Display; previewIncidents?: Record<string, string>; previewSummary?: MonitorPreviewSummary; previewObservedAt?: string };
 type View = "controller" | "admin" | "monitor";
 type WebModelContext = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => Promise<unknown> }, options: { signal: AbortSignal }) => void | Promise<void> };
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" } };
@@ -27,13 +31,18 @@ function placeName(entity: Entity | undefined, entities: Entity[]) {
   return [store?.name, region?.name].filter(Boolean).join(" · ");
 }
 
-function ScreenCard({ screen, entities, getFreshness }: { screen: Entity; entities: Entity[]; getFreshness: (token: string) => PreviewFreshness }) {
+function ScreenCard({ screen, entities, getFreshness, unavailableSince, observedAt }: { screen: Entity; entities: Entity[]; getFreshness: (token: string) => PreviewFreshness; unavailableSince?: string; observedAt?: string }) {
   const token = screen.liveUrl ? onSignToken(screen.liveUrl) : null;
+  const [unavailable, setUnavailable] = useState(false);
+  const startedAt = unavailableSince ? Date.parse(unavailableSince) : NaN;
+  const minutes = unavailableMinutes(unavailableSince, observedAt);
+  const duration = minutes === null ? "Duration unknown" : minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const since = minutes === null ? null : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(startedAt);
   return <article className="screen-card">
     <div className="screen-viewport">
-      {token ? <OnSignPreview key={token} token={token} name={screen.name} getFreshness={getFreshness}/> : screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="eager" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
+      {token ? <OnSignPreview key={token} token={token} name={screen.name} getFreshness={getFreshness} onUnavailableChange={setUnavailable}/> : screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="eager" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
     </div>
-    <div className="screen-caption"><div><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div></div>
+    <div className="screen-caption"><div className="screen-caption-identity"><strong>{screen.name}</strong><span>{placeName(screen, entities)}</span></div>{token && unavailable && <div className="screen-caption-outage"><strong>{minutes === null ? duration : `Unavailable for ${duration}`}</strong>{since && <time dateTime={unavailableSince}>Since {since} GST</time>}</div>}</div>
   </article>;
 }
 
@@ -99,8 +108,8 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
       // Share leftover width between cards instead of leaving it at the right edge.
       grid.style.setProperty("--wall-columns", String(columns));
       const cardWidth = (grid.clientWidth - gap * (columns - 1)) / columns;
-      const caption = grid.querySelector<HTMLElement>(".screen-caption");
-      const captionHeight = caption ? caption.getBoundingClientRect().height : 64;
+      const captions = Array.from(grid.querySelectorAll<HTMLElement>(".screen-caption"));
+      const captionHeight = captions.length ? Math.max(...captions.map(caption => caption.getBoundingClientRect().height)) : 64;
       const cardHeight = (cardWidth - 2) * 9 / 16 + captionHeight + 2;
       // Leave room for the pager, even on a page where it is currently hidden.
       const compact = window.innerWidth > 600;
@@ -112,6 +121,8 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
     updatePageSize();
     const observer = new ResizeObserver(updatePageSize);
     observer.observe(grid);
+    const heading = grid.parentElement?.querySelector(".monitor-heading");
+    if (heading) observer.observe(heading);
     window.addEventListener("resize", updatePageSize);
     return () => { observer.disconnect(); window.removeEventListener("resize", updatePageSize); };
   }, [view, loading, allScreens.length]);
@@ -192,8 +203,8 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
     {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link>{account?.role === "admin" && <Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link>}</nav><Link href="/account" className="icon-button" aria-label="Your account" title="Your account"><UserRound size={17}/></Link><SignOut compact className="icon-button"/><ThemeToggle className="workspace-theme-toggle"/></header>}
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
-      <div className="monitor-heading"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || (selection.screenIds?.length ? "Selected screens" : "All locations")}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><div className="monitor-actions">{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
-      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities} getFreshness={getFreshness}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>{error ? "Monitor unavailable" : "No screens selected"}</h2></div>}
+      <div className="monitor-heading"><div className="monitor-overview"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || (selection.screenIds?.length ? "Selected screens" : "All locations")}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><MonitorPreviewStatus summary={error ? undefined : state.previewSummary} byCountry={!selection.countryId && !selection.regionId && !selection.storeId && !selection.groupId && !selection.screenIds?.length}/></div><div className="monitor-actions">{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
+      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities} getFreshness={getFreshness} unavailableSince={state.previewIncidents?.[screen.id]} observedAt={state.previewObservedAt}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>{error ? "Monitor unavailable" : "No screens selected"}</h2></div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>
       {view !== "controller" && state.entities.some((item) => item.isDemo) && <div className="sample-note"><span className="sample-badge">SAMPLE SETUP</span><span>Example locations and screens are ready to explore. Add your OnSign links in Admin to show previews.</span></div>}

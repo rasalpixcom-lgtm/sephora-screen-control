@@ -33,6 +33,10 @@ try {
   check(status("0").status === "checking" && status("4").status === "unknown", "queued and active checks remain distinct");
   probes[0].resolve({ received: true, at: now }); await flush();
   check(status("0").status === "available" && !!status("0").lastImageAt, "decoded image records receipt time and availability");
+  check(checker.snapshotFor([screens[0]]).length === 1 && checker.snapshotFor([screens[0]])[0].status === "available", "scoped monitor checks include only requested screens");
+  check(checker.snapshotFor([{...screens[0],liveUrl:"https://app.onsign.tv/embed/replaced-source"}])[0].status === "unknown", "monitor counts cannot reuse a healthy result from a replaced preview source");
+  check(checker.snapshotFor([{...screens[0],liveUrl:null}])[0].status === "no_link" && checker.snapshotFor([{...screens[0],liveUrl:"https://example.test/preview"}])[0].status === "unsupported", "monitor counts classify current link configuration before inventory refresh");
+  check(checker.snapshot().length === 7 && status("0").status === "available", "scoped monitor reads cannot reset the global checker inventory");
   checker.pump(); check(probes.length === 4 && probes[3].token === "token-3", "queue fills freed capacity fairly");
   probes[1].resolve({ received: false, at: now }); await flush();
   check(status("1").status === "unavailable" && status("1").lastImageAt === null, "failed check does not invent an image");
@@ -49,6 +53,7 @@ try {
   check(status("0").status === "unavailable" && !!status("0").lastImageAt, "failure retains historical image timestamp");
   now += RESULT_MAX_AGE_MS + 1;
   check(status("0").status === "unknown", "outdated observations are no longer presented as current failures");
+  check(checker.snapshotFor([screens[0]])[0].status === "unknown", "stale preview observations become checking in scoped monitor data");
   const old = probes[7];
   checker.sync([{ ...screens[2], liveUrl: "https://app.onsign.tv/embed/new-token" }]); await flush();
   check(old.cancelled, "changed links cancel obsolete connections");

@@ -3,10 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { startOnSignStream, type PreviewStatus, type PreviewFreshness } from "@/lib/onsign-stream";
 
-export default function OnSignPreview({ token, name, getFreshness }: { token: string; name: string; getFreshness: (token: string) => PreviewFreshness }) {
+export default function OnSignPreview({ token, name, getFreshness, onUnavailableChange }: { token: string; name: string; getFreshness: (token: string) => PreviewFreshness; onUnavailableChange?: (unavailable: boolean) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<PreviewStatus>("connecting");
   const [stale, setStale] = useState(false);
+  useEffect(() => { onUnavailableChange?.(stale); return () => onUnavailableChange?.(false); }, [stale, onUnavailableChange]);
   useEffect(() => {
     let disposed = false, sequence = 0;
     const decoding = new Set<() => void>();

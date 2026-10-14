@@ -32,7 +32,15 @@ const liveUrl=id=>"https://app.onsign.tv/embed/"+tokenFor(id);
 async function addEntity(id,type,name,parentId=null,url=null){await pool.query("INSERT INTO entities (id,type,name,parent_id,live_url,is_demo,created_at) VALUES ($1,$2,$3,$4,$5,0,$6)",[id,type,name,parentId,url,new Date(now).toISOString()]);}
 let server,logs="";
 try {
-  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===5,"migration is idempotent and records the preview schema");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===6,"migration is idempotent and records the preview and country short-name schemas");
+  const shortNameMigration = fs.readFileSync("db/postgres-migrations/0005_country_short_names.sql","utf8").replace(/\r\n/g,"\n");
+  const migrationHash = content => crypto.createHash("sha256").update(content).digest("hex");
+  await pool.query("UPDATE server_migrations SET checksum=$1 WHERE name='0005_country_short_names.sql'",[migrationHash(shortNameMigration.replace(/\n/g,"\r\n"))]);
+  await migrate(pool);
+  check(true,"identical migrations remain compatible with recorded Windows line-ending checksums");
+  await pool.query("UPDATE server_migrations SET checksum=$1 WHERE name='0005_country_short_names.sql'",["0".repeat(64)]);
+  await assert.rejects(migrate(pool),/Applied migration changed/); check(true,"migration checks still reject genuinely changed SQL");
+  await pool.query("UPDATE server_migrations SET checksum=$1 WHERE name='0005_country_short_names.sql'",[migrationHash(shortNameMigration)]);
   const parsed=reportLib.parsePreviewReportQuery(new URLSearchParams("threshold=120&page=2&q=mall"));
   check(parsed.threshold===120&&parsed.page===2&&parsed.q==="mall","report query accepts supported filters");
   for(const query of ["threshold=30","duration=30","duration=","page=0","page="+"9".repeat(400),"q="+"x".repeat(121)]) assert.throws(()=>reportLib.parsePreviewReportQuery(new URLSearchParams(query)));
@@ -134,6 +142,10 @@ try {
     finally {await pool.query(`ALTER TABLE ${table}_health_fixture RENAME TO ${table}`);}
   }
   check((await request("/api/health")).status===200,"health check recovers after report tables are restored");
+  await pool.query("ALTER TABLE entities RENAME COLUMN short_name TO short_name_health_fixture");
+  try { check((await request("/api/health")).status===503,"health check detects a missing country short-name migration"); }
+  finally { await pool.query("ALTER TABLE entities RENAME COLUMN short_name_health_fixture TO short_name"); }
+  check((await request("/api/health")).status===200,"health check recovers after the short-name column is restored");
   if(process.env.REPORT_BROWSER_CHECK==="true"){
     const fixture=path.join(root,".server-runtime","reports-browser-fixture.json"),resume=path.join(root,".server-runtime","reports-browser-resume");
     fs.rmSync(resume,{force:true}); fs.writeFileSync(fixture,JSON.stringify({origin,email:"admin@example.test",password}));

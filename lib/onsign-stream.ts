@@ -1,6 +1,7 @@
 // Adapter for the image protocol used by OnSign's public /embed/ viewer.
 // Keep it isolated: OnSign may change this protocol independently of our app.
 export const FRAME_TIMEOUT_MS = 30000;
+export const WARNING_DELAY_MS = 60000;
 export const HEARTBEAT_MS = 25000;
 export type PreviewStatus = "connecting" | "live" | "reconnecting" | "unavailable";
 export type PreviewFreshness = { missingMs: number };
@@ -34,11 +35,11 @@ export function startOnSignStream(token: string, options: Options, environment: 
   const freshness = options.freshness || { missingMs: 0 };
   const now = environment.now || Date.now;
   let watchingSince: number | undefined;
-  let stale = freshness.missingMs >= FRAME_TIMEOUT_MS;
+  let stale = freshness.missingMs >= WARNING_DELAY_MS;
   const clearStaleTimer = () => {
     if (staleTimer !== undefined) environment.clearTimeout(staleTimer);
     staleTimer = undefined;
-    if (watchingSince !== undefined) freshness.missingMs = Math.min(FRAME_TIMEOUT_MS, freshness.missingMs + Math.max(0, now() - watchingSince));
+    if (watchingSince !== undefined) freshness.missingMs = Math.min(WARNING_DELAY_MS, freshness.missingMs + Math.max(0, now() - watchingSince));
     watchingSince = undefined;
   };
   // Reconnect attempts must not postpone the missing-image warning.
@@ -48,9 +49,9 @@ export function startOnSignStream(token: string, options: Options, environment: 
     watchingSince = now();
     staleTimer = environment.setTimeout(() => {
       staleTimer = undefined;
-      freshness.missingMs = FRAME_TIMEOUT_MS; watchingSince = undefined;
+      freshness.missingMs = WARNING_DELAY_MS; watchingSince = undefined;
       if (!stopped && !paused && !stale) { stale = true; options.onStale?.(true); }
-    }, Math.max(0, FRAME_TIMEOUT_MS - freshness.missingMs));
+    }, Math.max(0, WARNING_DELAY_MS - freshness.missingMs));
   };
   let pending: { id: number; rotation: number } | null = null;
   let status: PreviewStatus | null = null;

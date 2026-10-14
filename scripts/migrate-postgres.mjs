@@ -10,10 +10,11 @@ export async function migrate(pool) {
     await client.query("SELECT pg_advisory_xact_lock(724015)");
     await client.query("CREATE TABLE IF NOT EXISTS server_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())");
     for (const name of fs.readdirSync("db/postgres-migrations").filter((name) => name.endsWith(".sql")).sort()) {
-      const sql = fs.readFileSync(path.join("db/postgres-migrations", name), "utf8");
+      const sql = fs.readFileSync(path.join("db/postgres-migrations", name), "utf8").replace(/\r\n/g, "\n");
       const checksum = crypto.createHash("sha256").update(sql).digest("hex");
+      const windowsChecksum = crypto.createHash("sha256").update(sql.replace(/\n/g, "\r\n")).digest("hex");
       const prior = (await client.query("SELECT checksum FROM server_migrations WHERE name = $1", [name])).rows[0];
-      if (prior) { if (prior.checksum !== checksum) throw new Error(`Applied migration changed: ${name}`); continue; }
+      if (prior) { if (prior.checksum !== checksum && prior.checksum !== windowsChecksum) throw new Error(`Applied migration changed: ${name}`); continue; }
       await client.query(sql);
       await client.query("INSERT INTO server_migrations (name, checksum) VALUES ($1, $2)", [name, checksum]);
     }

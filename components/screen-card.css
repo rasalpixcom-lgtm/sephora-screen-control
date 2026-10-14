@@ -1,0 +1,38 @@
+/* Load the outage footer styles with the card component. */
+html .app-shell-monitor[data-wall-theme] .screen-card { container-type:inline-size; }
+html .app-shell-monitor[data-wall-theme] .screen-caption > .screen-caption-identity { flex:1; }
+html .app-shell-monitor[data-wall-theme] .screen-caption > .screen-caption-outage {
+  flex:none;
+  margin-left:auto;
+  align-items:flex-end;
+  text-align:right;
+  gap:2px;
+}
+html .app-shell-monitor[data-wall-theme] .screen-caption > .screen-caption-outage strong {
+  color:#f48b9b;
+  font-size:12px;
+  font-weight:600;
+  line-height:18px;
+  letter-spacing:0;
+}
+html .app-shell-monitor[data-wall-theme] .screen-caption > .screen-caption-outage time {
+  display:block;
+  color:var(--wall-subtle, #adc1b7);
+  font-family:inherit;
+  font-size:11px;
+  font-weight:400;
+  line-height:16px;
+  white-space:nowrap;
+}
+@container(max-width:360px) {
+  html .app-shell-monitor[data-wall-theme] .screen-caption:has(.screen-caption-outage) {
+    height:auto;
+    min-height:48px;
+    flex-wrap:wrap;
+    gap:6px;
+    padding-top:8px;
+    padding-bottom:8px;
+  }
+  html .app-shell-monitor[data-wall-theme] .screen-caption:has(.screen-caption-outage) > .screen-caption-identity { flex-basis:100%; }
+  html .app-shell-monitor[data-wall-theme] .screen-caption > .screen-caption-outage { margin-left:auto; }
+}

@@ -62,5 +62,17 @@ export class PreviewHealthChecker {
     }));
   }
 
+  snapshotFor(screens: Screen[]): PreviewHealth[] {
+    const checks = new Map(this.snapshot().map(check => [check.screenId, check]));
+    return screens.map(screen => {
+      const token = screen.liveUrl ? onSignToken(screen.liveUrl) : null;
+      const status: PreviewHealthStatus = !screen.liveUrl ? "no_link" : !token ? "unsupported" : "unknown";
+      const entry = this.entries.get(screen.id);
+      return entry && entry.token === token && (token || entry.status === status)
+        ? checks.get(screen.id)!
+        : { screenId: screen.id, status, lastImageAt: null, checkedAt: null };
+    });
+  }
+
   stop() { this.entries.clear(); for (const task of this.active.values()) task.cancel(); this.active.clear(); }
 }

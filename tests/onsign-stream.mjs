@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { startOnSignStream, onSignToken, FRAME_TIMEOUT_MS, HEARTBEAT_MS } from "../lib/onsign-stream.ts";
+import { startOnSignStream, onSignToken, FRAME_TIMEOUT_MS, WARNING_DELAY_MS, HEARTBEAT_MS } from "../lib/onsign-stream.ts";
 let checks = 0;
 function check(condition, description) { assert.ok(condition, description); checks++; }
 function fixture(onFrame = async () => {}, freshness = { missingMs: 0 }, callbacks = {}) {
@@ -36,7 +36,8 @@ function fixture(onFrame = async () => {}, freshness = { missingMs: 0 }, callbac
 
 check(onSignToken("https://app.onsign.tv/embed/a_B-12/")==="a_B-12","valid preview token");
 for(const url of ["http://app.onsign.tv/embed/token","https://app.onsign.tv.attacker.test/embed/token","https://app.onsign.tv:8443/embed/token","https://app.onsign.tv/players/token","https://app.onsign.tv/embed/","https://app.onsign.tv/embed/a/b","invalid"])check(onSignToken(url)===null,"reject invalid preview endpoint");
-check(FRAME_TIMEOUT_MS===30000,"stale detection uses image age, with a 30 second deadline");
+check(FRAME_TIMEOUT_MS===30000,"transport still reconnects after a 30 second image deadline");
+check(WARNING_DELAY_MS===60000,"visible missing-image warning waits 60 seconds");
 const received=[];
 const live=fixture(async(bytes,rotation,isCurrent)=>{received.push({size:bytes.byteLength,rotation,current:isCurrent()});});
 const first=live.sockets[0];
@@ -90,31 +91,39 @@ const blob=fixture(async(bytes)=>{assert.ok(bytes instanceof ArrayBuffer);});blo
 await blob.frame(blob.sockets[0],0,new Blob(["image bytes"]));
 check(blob.statuses.at(-1)==="live","older-WebView Blob frames normalize successfully");blob.controller.dispose();
 const warning=fixture();
-warning.advance(29999);check(warning.staleStates.at(-1)===false,"no warning before 30 seconds without an image");
-warning.advance(1);check(warning.staleStates.at(-1)===true,"missing images show warning at 30 seconds");
-warning.advance(1000);check(warning.staleStates.at(-1)===true,"reconnecting keeps the warning visible");
+warning.advance(59999);check(warning.staleStates.at(-1)===false,"no warning before 60 seconds without an image");
+warning.advance(1);check(warning.staleStates.at(-1)===true,"missing images show warning at 60 seconds");
+warning.advance(3000);check(warning.staleStates.at(-1)===true,"reconnecting keeps the warning visible");
 warning.sockets.at(-1).open();await warning.frame(warning.sockets.at(-1));
 check(warning.staleStates.at(-1)===false,"successful image clears warning automatically");
-warning.advance(29999);check(warning.staleStates.at(-1)===false,"recovery starts a fresh image deadline");warning.controller.dispose();
+warning.advance(59999);check(warning.staleStates.at(-1)===false,"recovery starts a fresh warning deadline");warning.controller.dispose();
+
+const brief=fixture();
+brief.advance(FRAME_TIMEOUT_MS);check(brief.sockets[0].closed && brief.staleStates.at(-1)===false,"30-second reconnection keeps the warning hidden");
+brief.advance(1000);brief.sockets.at(-1).open();await brief.frame(brief.sockets.at(-1));
+check(!brief.staleStates.includes(true),"image recovery one second after reconnection causes no warning flash");
+brief.advance(59999);check(brief.staleStates.at(-1)===false,"brief recovery resets the full 60-second warning delay");
+brief.advance(1);check(brief.staleStates.at(-1)===true,"a subsequent continuous outage still warns at 60 seconds");brief.controller.dispose();
 
 const failures=fixture();
 for(const duration of [1000,2000,4000,8000]){failures.sockets.at(-1).onerror?.({});failures.advance(duration);}
-failures.advance(15000);check(failures.staleStates.at(-1)===true,"repeated failures cannot postpone the 30 second warning");failures.controller.dispose();
+failures.advance(45000);check(failures.staleStates.at(-1)===true,"repeated failures cannot postpone the 60 second warning");failures.controller.dispose();
 
 const progress={missingMs:0};
 const visit1=fixture(undefined,progress);visit1.advance(10000);visit1.controller.dispose();
 check(progress.missingMs===10000,"first page visit retains elapsed missing-image time");
 const visit2=fixture(undefined,progress);visit2.advance(10000);visit2.controller.dispose();
 check(progress.missingMs===20000,"page rotation accumulates a second visit without resetting");
-const visit3=fixture(undefined,progress);visit3.advance(9999);check(visit3.staleStates.at(-1)===false,"third visit has not reached cumulative deadline early");
-visit3.advance(1);check(visit3.staleStates.at(-1)===true,"three unsuccessful 10 second visits show the warning");visit3.controller.dispose();
+const visit3=fixture(undefined,progress);visit3.advance(39999);check(visit3.staleStates.at(-1)===false,"page rotation has not reached the 60-second cumulative deadline early");
+visit3.advance(1);check(visit3.staleStates.at(-1)===true,"unsuccessful page visits show warning after 60 seconds of cumulative visible time");visit3.controller.dispose();
 const revisit=fixture(undefined,progress);check(revisit.staleStates.at(-1)===true,"warning survives page rotation");
 revisit.sockets[0].open();await revisit.frame(revisit.sockets[0]);
 check(progress.missingMs===0&&revisit.staleStates.at(-1)===false,"live image resets retained progress");revisit.controller.dispose();
 
 const hidden=fixture();hidden.advance(10000);hidden.controller.pause();hidden.advance(120000);
 check(hidden.staleStates.at(-1)===false,"time hidden does not count toward the warning");
-hidden.controller.resume();hidden.advance(20000);check(hidden.staleStates.at(-1)===true,"visible time continues after pause");hidden.controller.dispose();
+hidden.controller.resume();hidden.advance(49999);check(hidden.staleStates.at(-1)===false,"hidden time cannot shorten the 60-second warning delay");
+hidden.advance(1);check(hidden.staleStates.at(-1)===true,"visible time continues after pause");hidden.controller.dispose();
 check(hidden.timers.size===0,"warning and transport timers are cleaned up together");
 
 const stoppedOnLive = fixture(undefined, undefined, { onStatus: status => { if (status === "live") stoppedOnLive.controller.dispose(); } });
@@ -125,7 +134,7 @@ const stoppedOnRecovery = fixture(undefined, undefined, { onStale: stale => {
   if (stale) sawWarning = true;
   else if (sawWarning) stoppedOnRecovery.controller.pause();
 } });
-stoppedOnRecovery.advance(FRAME_TIMEOUT_MS + 1000);
+stoppedOnRecovery.advance(WARNING_DELAY_MS + 3000);
 stoppedOnRecovery.sockets.at(-1).open(); await stoppedOnRecovery.frame(stoppedOnRecovery.sockets.at(-1));
 check(stoppedOnRecovery.timers.size === 0, "a recovery callback cannot recreate timers after pausing the stream");
 stoppedOnRecovery.controller.dispose();

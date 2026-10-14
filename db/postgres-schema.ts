@@ -1,7 +1,10 @@
 import { pgTable, text, integer, boolean, timestamp, bigint, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), parentId: text("parent_id"), liveUrl: text("live_url"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() });
+export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
+  check("entities_country_short_name_check", sql`${table.shortName} IS NULL OR (${table.type} = 'country' AND ${table.shortName} = btrim(${table.shortName}) AND char_length(${table.shortName}) BETWEEN 1 AND 12)`),
+  uniqueIndex("entities_country_short_name_idx").on(sql`lower(${table.shortName})`).where(sql`${table.type} = 'country' AND ${table.shortName} IS NOT NULL`),
+]);
 export const groupMembers = pgTable("group_members", { groupId: text("group_id").notNull(), screenId: text("screen_id").notNull() }, (table) => [primaryKey({ columns: [table.groupId, table.screenId] })]);
 export const displayState = pgTable("display_state", { id: text("id").primaryKey(), selection: text("selection").notNull(), autoAdvance: integer("auto_advance").notNull().default(1), intervalSeconds: integer("interval_seconds").notNull().default(10), updatedAt: text("updated_at").notNull() });
 export const activityLog = pgTable("activity_log", { id: text("id").primaryKey(), action: text("action").notNull(), entityType: text("entity_type"), entityId: text("entity_id"), entityName: text("entity_name"), actor: text("actor").notNull(), createdAt: text("created_at").notNull() });

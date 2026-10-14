@@ -39,6 +39,13 @@ export async function POST(request: NextRequest) {
       const type = body.type as EntityType;
       if (!types.includes(type) || !validName(body.name)) return bad("Enter a valid name.");
       const name = (body.name as string).trim();
+      const existing = body.action === "update" ? entity(body.id) : undefined;
+      if (body.action === "update" && (!existing || existing.type !== type)) return bad("Item not found.", 404);
+      if (body.shortName !== undefined && body.shortName !== null && typeof body.shortName !== "string") return bad("Enter a valid abbreviation.");
+      const shortName = body.shortName === undefined ? existing?.shortName || null : typeof body.shortName === "string" && body.shortName.trim() ? body.shortName.trim() : null;
+      if (shortName && (shortName.length > 12 || /[\u0000-\u001f\u007f]/.test(shortName))) return bad("Abbreviations must be 12 characters or fewer, without line breaks.");
+      if (shortName && type !== "country") return bad("Only countries can have abbreviations.");
+      if (shortName && state.entities.some(item => item.type === "country" && item.shortName?.toLowerCase() === shortName.toLowerCase() && (body.action === "create" || item.id !== body.id))) return bad("A country with this abbreviation already exists.");
       if (body.parentId !== undefined && body.parentId !== null && typeof body.parentId !== "string") return bad("Choose a valid parent.");
       const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
       if (parentType[type] && entity(parentId)?.type !== parentType[type]) return bad(`Select a ${parentType[type]} first.`);
@@ -55,14 +62,13 @@ export async function POST(request: NextRequest) {
       if (duplicate) return bad("An item with this name already exists here.");
       if (body.action === "create") {
         const id = crypto.randomUUID();
-        await db.prepare("INSERT INTO entities (id, type, name, parent_id, live_url, is_demo, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)")
-          .bind(id, type, name, parentId, liveUrl, now).run();
+        await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)")
+          .bind(id, type, name, shortName, parentId, liveUrl, now).run();
         audit = { action: "created", type, id, name };
       } else {
-        const existing = entity(body.id);
         if (!existing || existing.type !== type) return bad("Item not found.", 404);
-        await db.prepare("UPDATE entities SET name = ?, parent_id = ?, live_url = ?, is_demo = 0 WHERE id = ?")
-          .bind(name, parentId, liveUrl, existing.id).run();
+        await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, is_demo = 0 WHERE id = ?")
+          .bind(name, shortName, parentId, liveUrl, existing.id).run();
         audit = { action: "updated", type, id: existing.id, name };
       }
     } else if (body.action === "delete") {
