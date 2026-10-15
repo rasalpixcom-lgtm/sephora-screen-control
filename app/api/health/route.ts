@@ -15,6 +15,11 @@ export async function GET() {
     await db.prepare("SELECT id FROM email_alert_settings LIMIT 1").first();
     await db.prepare("SELECT id FROM email_alert_queue LIMIT 1").first();
     await db.prepare("SELECT id FROM email_alert_delivery LIMIT 1").first();
+    if(!await db.prepare("SELECT name FROM server_migrations WHERE name = '0007_manual_email_alerts.sql'").first())throw new Error("Manual alert migration is missing");
+    await db.prepare("SELECT id FROM whatsapp_alert_settings LIMIT 1").first();
+    await db.prepare("SELECT id FROM whatsapp_alert_queue LIMIT 1").first();
+    await db.prepare("SELECT id FROM whatsapp_alert_delivery LIMIT 1").first();
+    if(!await db.prepare("SELECT name FROM server_migrations WHERE name = '0008_whatsapp_alerts.sql'").first())throw new Error("WhatsApp alert migration is missing");
     return Response.json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
   }
   catch { return Response.json({ status: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }

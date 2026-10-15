@@ -4,5 +4,7 @@ export async function register() {
     startPreviewHealthChecks();
     const { startEmailAlertWorker } = await import("./lib/email-alert-server");
     startEmailAlertWorker();
+    const { startWhatsAppAlertWorker } = await import("./lib/whatsapp-alert-server");
+    startWhatsAppAlertWorker();
   }
 }

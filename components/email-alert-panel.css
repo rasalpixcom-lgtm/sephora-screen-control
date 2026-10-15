@@ -25,3 +25,8 @@
 .adm-email-delivery > span { color:#f48b9b; text-transform:capitalize; flex:none; }
 .adm-email-delivery > span[data-status="sent"] { color:#63cba5; }
 @media(max-width:600px) { .adm-email-body {padding:18px;} .adm-email-timing {grid-template-columns:1fr;} .adm-email-alerts .adm-panel-head {align-items:start;flex-wrap:wrap;gap:10px;} .adm-email-body .adm-form-actions {flex-wrap:wrap;} }
+
+.adm-email-delivery > span[data-status="accepted"] { color:#63cba5; }
+.adm-email-delivery > span[data-status="pending"],.adm-email-delivery > span[data-status="sending"] { color:var(--work-muted); }
+
+.adm-whatsapp-alerts .adm-email-delivery > span { text-transform:none; }

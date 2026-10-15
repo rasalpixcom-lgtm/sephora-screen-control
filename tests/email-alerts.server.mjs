@@ -162,10 +162,47 @@ try {
   process.env.ALERT_EMAIL_APP_PASSWORD=fakePassword;
   await settings({enabled:false});
 
+  await screen("manual");await observe("manual",310);
+  const manualBeforeQueue=JSON.stringify((await pool.query("SELECT * FROM email_alert_queue ORDER BY id")).rows);
+  const manualPreview=await lib.previewManualAlert({now:at(310)});
+  check(manualPreview.screenCount===1&&manualPreview.recipientCount===2,"manual preview includes a fresh outage below the duration threshold while automatic alerts are disabled");
+  const manualBeforeSent=sent.length;
+  const manualResult=await lib.sendManualAlert(manualPreview.confirmationToken,{now:at(310),send});
+  check(manualResult.status==="sent"&&sent.length===manualBeforeSent+1&&sent.at(-1).kind==="manual","manual reports send immediately without grouping");
+  check(JSON.stringify((await pool.query("SELECT * FROM email_alert_queue ORDER BY id")).rows)===manualBeforeQueue,"manual sends do not modify the automatic queue or notification state");
+  await assert.rejects(lib.sendManualAlert(manualPreview.confirmationToken,{now:at(310.5),send}),error=>error.status===429);checks++;
+  await lib.sendManualAlert(manualPreview.confirmationToken,{now:at(311.1),send});
+  check(sent.length===manualBeforeSent+2,"a previously emailed current outage may be manually sent again after the rate limit");
+  const beforeEdit=await lib.previewManualAlert({now:at(311.2)});await settings({enabled:false,recipients:["changed@example.test"]});
+  await assert.rejects(lib.sendManualAlert(beforeEdit.confirmationToken,{now:at(312.2),send}),error=>error.status===409);checks++;
+  const beforeRecovery=await lib.previewManualAlert({now:at(312.2)});await observe("manual",312.3,true);
+  await assert.rejects(lib.sendManualAlert(beforeRecovery.confirmationToken,{now:at(312.4),send}),error=>error.status===409);checks++;
+  const emptyManual=await lib.previewManualAlert({now:at(320)});
+  check(emptyManual.screenCount===0,"manual reports exclude recovered, changed-source and stale previews");
+  await assert.rejects(lib.sendManualAlert(emptyManual.confirmationToken,{now:at(320),send}),error=>error.status===400);checks++;
+  check(lib.alertMailContent({...sample,kind:"manual"}).subject.includes("Manual report"),"manual emails are clearly distinguished from automatic notifications");
+  await observe("manual",330);const nextManual=await lib.previewManualAlert({now:at(330)});
+  const beforeConcurrentManual=sent.length;
+  const concurrentManual=await Promise.allSettled([lib.sendManualAlert(nextManual.confirmationToken,{now:at(330),send}),lib.sendManualAlert(nextManual.confirmationToken,{now:at(330),send})]);
+  check(concurrentManual.filter(item=>item.status==="fulfilled").length===1&&sent.length===beforeConcurrentManual+1,"concurrent manual requests send only one email");
+  await observe("manual",350);await settings({});await lib.processEmailAlerts({now:at(350),send});await observe("manual",355);await lib.processEmailAlerts({now:at(355),send});
+  check(sent.at(-1).kind==="unavailable"&&sent.at(-1).rows.some(row=>row.screenName==="manual"),"manual sending does not suppress a later automatic notification");
+  await settings({enabled:false});
+
+  // Review regressions: stale recovery notifications and clock-skewed checks.
+  await settings({});await screen("review-recovery");await observe("review-recovery",360);await observe("review-recovery",380);await lib.processEmailAlerts({now:at(380),send});await observe("review-recovery",385);await lib.processEmailAlerts({now:at(385),send});
+  await observe("review-recovery",386,true);await lib.processEmailAlerts({now:at(386),send});const beforeSupersededRecovery=sent.length;
+  await observe("review-recovery",387);await observe("review-recovery",392,true);await lib.processEmailAlerts({now:at(392),send});
+  check(sent.length===beforeSupersededRecovery,"an older queued email recovery is excluded after a newer outage starts");
+  await screen("review-future");await observe("review-future",400);await observe("review-future",430);await lib.processEmailAlerts({now:at(420),send});
+  check(!(await pool.query("SELECT q.id FROM email_alert_queue q JOIN preview_incident i ON i.id=q.incident_id WHERE i.screen_id='review-future'")).rowCount,"future-dated checks cannot qualify automatic outage emails");
+  await screen("review-future-recovery");await observe("review-future-recovery",440);await observe("review-future-recovery",460);await lib.processEmailAlerts({now:at(460),send});await observe("review-future-recovery",465);await lib.processEmailAlerts({now:at(465),send});await observe("review-future-recovery",470,true);await lib.processEmailAlerts({now:at(469),send});
+  check(!(await pool.query("SELECT q.id FROM email_alert_queue q JOIN preview_incident i ON i.id=q.incident_id WHERE i.screen_id='review-future-recovery' AND q.kind='recovery'")).rowCount,"future recovery timestamps cannot qualify automatic recovery emails");await settings({enabled:false});
+
   // Exercise real API permissions and test-mail endpoint against the compiled application.
   const portProbe=net.createServer();await new Promise(resolve=>portProbe.listen(0,"127.0.0.1",resolve));const port=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
   const origin="http://127.0.0.1:"+port,password=crypto.randomBytes(24).toString("base64url"),bootstrap=crypto.randomBytes(32).toString("hex");
-  const serverEnv={...process.env,PORT:String(port),HOSTNAME:"127.0.0.1",DATABASE_URL:testUrl.toString(),AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:"",ALLOW_LAN_HTTP:"false",AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),EMAIL_ALERT_WORKER_DISABLED:"true"};
+  const serverEnv={...process.env,PORT:String(port),HOSTNAME:"127.0.0.1",DATABASE_URL:testUrl.toString(),AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:"",ALLOW_LAN_HTTP:"false",AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),EMAIL_ALERT_WORKER_DISABLED:"true",WHATSAPP_ALERT_WORKER_DISABLED:"true"};
   server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:serverEnv,stdio:["ignore","pipe","pipe"]});server.stdout.on("data",chunk=>logs+=chunk);server.stderr.on("data",chunk=>logs+=chunk);
   let ready=false;for(let attempt=0;attempt<60;attempt++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{}if(server.exitCode!==null)break;await new Promise(resolve=>setTimeout(resolve,500));}
   assert.ok(ready,"compiled test server starts: "+logs.slice(-1000));
@@ -188,6 +225,19 @@ try {
   const smtpBefore=smtpMessages.length;
   check((await request("/api/email-alerts/test",{},cookie)).status===200&&smtpMessages.length===smtpBefore+1,"test endpoint sends one real message to the local SMTP fixture");
   check((await request("/api/email-alerts/test",{},cookie)).status===429,"test sends are rate limited across requests");
+  check((await request("/api/email-alerts/manual")).status===401&&(await request("/api/email-alerts/manual",{confirmationToken:"0".repeat(64)})).status===401,"anonymous manual previews and sends are blocked");
+  check((await request("/api/email-alerts/manual",undefined,controllerCookie)).status===403&&(await request("/api/email-alerts/manual",{confirmationToken:"0".repeat(64)},controllerCookie)).status===403,"Controller cannot preview or send manual reports");
+  check((await request("/api/email-alerts/manual",{confirmationToken:"0".repeat(64)},cookie,{Origin:"https://attacker.test"})).status===403,"cross-origin manual sends are rejected");
+  check((await request("/api/email-alerts/manual",{recipient:"override@example.test"},cookie)).status===400,"manual requests cannot supply arbitrary recipients");
+  await screen("api-manual");await lib.recordPreviewResult({screenId:"api-manual",token:token("api-manual"),checkedAt:Date.now()-30000,received:false});
+  const manualApiResponse=await request("/api/email-alerts/manual",undefined,cookie),manualApi=await manualApiResponse.json();
+  check(manualApiResponse.status===200&&manualApiResponse.headers.get("cache-control")==="no-store"&&manualApi.screenCount===1&&!JSON.stringify(manualApi).includes("email-test-"),"manual confirmation provides uncached counts without preview secrets");
+  // Return the fake-clock delivery history to wall time before API assertions.
+  await pool.query("UPDATE email_alert_delivery SET started_at=now()-interval '2 minutes'");
+  const beforeManualSmtp=smtpMessages.length;
+  check((await request("/api/email-alerts/manual",{confirmationToken:manualApi.confirmationToken},cookie)).status===200&&smtpMessages.length===beforeManualSmtp+1,"Admin manual endpoint sends the current report through local SMTP");
+  check((await request("/api/email-alerts/manual",{confirmationToken:manualApi.confirmationToken},cookie)).status===429,"manual rate limit persists across API requests");
+  check((await(await request("/api/email-alerts",undefined,cookie)).json()).deliveries.some(item=>item.kind==="manual"),"manual sends appear separately in recent delivery history");
   check((await request("/admin/settings",undefined,cookie)).status===200,"Admin Settings page includes the alert panel route");
   for(const table of ["email_alert_settings","email_alert_queue","email_alert_delivery"]){
     await pool.query(`ALTER TABLE ${table} RENAME TO ${table}_health_test`);
@@ -195,6 +245,9 @@ try {
     finally{await pool.query(`ALTER TABLE ${table}_health_test RENAME TO ${table}`);}
   }
   check((await request("/api/health")).status===200,"health recovers after alert tables are restored");
+  await pool.query("UPDATE server_migrations SET name='manual_alert_health_fixture' WHERE name='0007_manual_email_alerts.sql'");
+  try{check((await request("/api/health")).status===503,"health detects a missing manual-alert migration");}
+  finally{await pool.query("UPDATE server_migrations SET name='0007_manual_email_alerts.sql' WHERE name='manual_alert_health_fixture'");}
   if(process.env.TEST_EMAIL_ALERT_UI==="true"){
     const fixture=path.join(root,".server-runtime","email-alert-ui.json"),resume=path.join(root,".server-runtime","email-alert-ui-resume");
     await fs.unlink(resume).catch(()=>{});

@@ -5,11 +5,11 @@ import { onSignToken } from "./onsign-stream";
 import { previewSourceFingerprint } from "./preview-incidents";
 import { RESULT_MAX_AGE_MS } from "./preview-health";
 import { alertSender, AlertMailError, sendAlertMail, type AlertMail, type AlertMailRow, type MailResult } from "./alert-mail";
-import type { EmailAlertSettings, EmailAlertSnapshot } from "./email-alert-shared";
+import type { EmailAlertSettings, EmailAlertSnapshot, ManualAlertPreview } from "./email-alert-shared";
 
 export class EmailAlertServiceError extends Error { constructor(message:string,public status=400){super(message);} }
 type SettingsRow={enabled:boolean;threshold_minutes:number;grouping_minutes:number;recovery_email:boolean;recipients:string[];revision:string;updated_at:Date};
-type IncidentRow=AlertMailRow & {id:string;screenId:string;sourceFingerprint:string;liveUrl:string|null;resolutionReason:string|null;previewStatus:string|null;stateFingerprint:string|null;stateCheckedAt:string|null;recoveryQueuedAt:string|null};
+type IncidentRow=AlertMailRow & {id:string;screenId:string;sourceFingerprint:string;liveUrl:string|null;resolutionReason:string|null;previewStatus:string|null;stateFingerprint:string|null;stateCheckedAt:string|null;recoveryQueuedAt:string|null;newerIncident:boolean};
 const settingsFrom=(row:SettingsRow):EmailAlertSettings=>({enabled:row.enabled,thresholdMinutes:row.threshold_minutes,groupingMinutes:row.grouping_minutes,recoveryEmail:row.recovery_email,recipients:row.recipients,revision:row.revision,updatedAt:row.updated_at.toISOString()});
 async function settingsFor(client:PoolClient) {
   const row=(await client.query<SettingsRow>("SELECT * FROM email_alert_settings WHERE id='main'")).rows[0];
@@ -38,7 +38,7 @@ export async function saveEmailAlertSettings(settings:EmailAlertSettings,actor:s
 const incidentSql=`SELECT i.id, i.screen_id AS "screenId", i.source_fingerprint AS "sourceFingerprint", s.live_url AS "liveUrl",
   s.name AS "screenName", l.name AS "locationName", r.name AS "regionName", c.name AS "countryName",
   i.started_at AS "startedAt", i.last_checked_at AS "lastCheckedAt", i.resolved_at AS "resolvedAt", i.resolution_reason AS "resolutionReason",
-  ps.status AS "previewStatus", ps.source_fingerprint AS "stateFingerprint", ps.last_checked_at AS "stateCheckedAt", rq.queued_at AS "recoveryQueuedAt"
+  ps.status AS "previewStatus", ps.source_fingerprint AS "stateFingerprint", ps.last_checked_at AS "stateCheckedAt", rq.queued_at AS "recoveryQueuedAt", EXISTS(SELECT 1 FROM preview_incident newer WHERE newer.screen_id=i.screen_id AND newer.started_at>i.resolved_at) AS "newerIncident"
   FROM preview_incident i JOIN entities s ON s.id=i.screen_id AND s.type='screen'
   JOIN entities l ON l.id=s.parent_id AND l.type='store' JOIN entities r ON r.id=l.parent_id AND r.type='region'
   JOIN entities c ON c.id=r.parent_id AND c.type='country' LEFT JOIN preview_screen_state ps ON ps.screen_id=s.id
@@ -51,10 +51,12 @@ function currentSource(row:IncidentRow) {
   return !!token && previewSourceFingerprint(token)===row.sourceFingerprint;
 }
 function qualifies(row:IncidentRow,kind:"unavailable"|"recovery",settings:EmailAlertSettings,now:Date) {
-  if (!currentSource(row)) return false;
+  if (!currentSource(row)||!row.stateCheckedAt||row.stateFingerprint!==row.sourceFingerprint) return false;
+  const checked=Date.parse(row.stateCheckedAt);
+  if(checked>now.getTime()||checked<now.getTime()-RESULT_MAX_AGE_MS||Date.parse(row.startedAt)>now.getTime())return false;
   // Once qualified and queued, ordinary settings edits must not discard a recovery.
-  if (kind==="recovery") return settings.recoveryEmail && row.resolutionReason==="recovered" && !!row.resolvedAt && (!settings.updatedAt||!!row.recoveryQueuedAt||Date.parse(row.resolvedAt)>=Date.parse(settings.updatedAt)) && row.previewStatus==="available" && row.stateFingerprint===row.sourceFingerprint && !!row.stateCheckedAt && Date.parse(row.stateCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS;
-  return !row.resolvedAt && Date.parse(row.startedAt)<=now.getTime()-settings.thresholdMinutes*60000 && Date.parse(row.lastCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS && row.previewStatus==="unavailable" && row.stateFingerprint===row.sourceFingerprint;
+  if (kind==="recovery") return settings.recoveryEmail && !row.newerIncident && row.resolutionReason==="recovered" && !!row.resolvedAt && Date.parse(row.resolvedAt)<=now.getTime() && (!settings.updatedAt||!!row.recoveryQueuedAt||Date.parse(row.resolvedAt)>=Date.parse(settings.updatedAt)) && row.previewStatus==="available" && row.stateFingerprint===row.sourceFingerprint && !!row.stateCheckedAt && Date.parse(row.stateCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS;
+  return !row.resolvedAt && Date.parse(row.startedAt)<=now.getTime()-settings.thresholdMinutes*60000 && Date.parse(row.lastCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS && Date.parse(row.lastCheckedAt)<=now.getTime() && row.previewStatus==="unavailable" && row.stateFingerprint===row.sourceFingerprint;
 }
 type Sender=(mail:AlertMail)=>Promise<MailResult>;
 async function delivery(client:PoolClient,kind:AlertMail["kind"],recipients:string[],rows:IncidentRow[],queueIds:string[],now:Date,send:Sender) {
@@ -135,6 +137,45 @@ export async function sendTestAlert() {
   });
   if (!result) throw new EmailAlertServiceError("An email is being sent. Try again shortly.",409);
   if(result.status==="failed"||result.status==="uncertain") throw new EmailAlertServiceError(result.code==="authentication"?"Gmail authentication failed. Check the server credentials.":result.status==="uncertain"?"Delivery could not be confirmed. Check your inbox before resending.":"The test email could not be sent. Check delivery status.",503);
+  return result;
+}
+
+async function currentManualRows(client:PoolClient,settings:EmailAlertSettings,now:Date) {
+  const rows=(await client.query<IncidentRow>(`${incidentSql} WHERE i.resolved_at IS NULL ORDER BY i.started_at,i.screen_id`)).rows.map(normalized);
+  return rows.filter(row=>qualifies(row,"unavailable",{...settings,thresholdMinutes:0},now)
+    && Date.parse(row.lastCheckedAt)<=now.getTime() && !!row.stateCheckedAt
+    && Date.parse(row.stateCheckedAt)<=now.getTime() && Date.parse(row.stateCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS);
+}
+function manualPreview(settings:EmailAlertSettings,rows:IncidentRow[]):ManualAlertPreview {
+  const confirmationToken=crypto.createHash("sha256").update(JSON.stringify({revision:settings.revision,incidents:rows.map(row=>row.id).sort()})).digest("hex");
+  return {screenCount:rows.length,recipientCount:settings.recipients.length,confirmationToken};
+}
+export async function previewManualAlert(options:{now?:Date}={}) {
+  const client=await getPool().connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const settings=await settingsFor(client);
+    const result=manualPreview(settings,await currentManualRows(client,settings,options.now||new Date()));
+    await client.query("COMMIT");return result;
+  } catch(error){await client.query("ROLLBACK");throw error;} finally{client.release();}
+}
+export async function sendManualAlert(confirmationToken:string,options:{now?:Date;send?:Sender}={}) {
+  if(!alertSender().configured)throw new EmailAlertServiceError("Configure the Gmail sender on the server first.");
+  const result=await withDeliveryLock(async client=>{
+    const now=options.now||new Date();
+    const settings=await settingsFor(client);
+    if(!settings.recipients.length)throw new EmailAlertServiceError("Save at least one recipient before sending current alerts.");
+    const recent=(await client.query("SELECT id FROM email_alert_delivery WHERE kind='manual' AND started_at>$1::timestamptz-interval '60 seconds' LIMIT 1",[now])).rowCount;
+    if(recent)throw new EmailAlertServiceError("Wait 60 seconds before sending current alerts again.",429);
+    const rows=await currentManualRows(client,settings,now);
+    if(manualPreview(settings,rows).confirmationToken!==confirmationToken)throw new EmailAlertServiceError("Screens or recipients changed. Review the current counts and try again.",409);
+    if(!rows.length)throw new EmailAlertServiceError("No current confirmed unavailable previews to send.");
+    if(rows.length>500)throw new EmailAlertServiceError("Manual emails support up to 500 screens. Download the complete report from Reports instead.");
+    // A manual report is separate from the automatic queue and its incident deduplication.
+    return {...await delivery(client,"manual",settings.recipients,rows,[],now,options.send||sendAlertMail),screenCount:rows.length};
+  });
+  if(!result)throw new EmailAlertServiceError("An email is being sent. Try again shortly.",409);
+  if(result.status==="failed"||result.status==="uncertain")throw new EmailAlertServiceError(result.code==="authentication"?"Gmail authentication failed. Check the server credentials.":result.status==="uncertain"?"Delivery could not be confirmed. Check your inbox before resending.":"The manual email could not be sent. Check delivery status.",503);
   return result;
 }
 

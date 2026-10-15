@@ -28,6 +28,7 @@ import ActivityPanel from "@/components/activity-panel";
 import LocationPicker from "@/components/location-picker";
 import PreviewReportsPanel from "@/components/preview-reports-panel";
 import EmailAlertPanel from "@/components/email-alert-panel";
+import WhatsAppAlertPanel from "@/components/whatsapp-alert-panel";
 import SettingsTabs from "@/components/settings-tabs";
 
 
@@ -241,7 +242,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
     activity: "Recent changes to screens, groups, and the monitoring wall.",
     reports: "View unavailable previews and export reports.",
 
-    settings: "Email alerts, preview links, and monitoring wall behavior.",
+    settings: "Email and WhatsApp alerts, preview links, and account settings.",
     users: "Accounts and permissions for your team.",
 
   };
@@ -286,7 +287,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
 
         {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}
-        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/><section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
+        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} whatsapp={<WhatsAppAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/><section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
 
       </>}
 

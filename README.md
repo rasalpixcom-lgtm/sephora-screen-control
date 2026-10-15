@@ -57,7 +57,9 @@ npm run db:import imports a SQLite file into an empty PostgreSQL database. It do
 
 Admin → Settings → Email alerts lets Admins choose recipients, the unavailable duration, a grouping window, and optional recovery emails. Alerts start disabled. Defaults are 20 minutes unavailable plus a 5-minute grouping window: the first qualifying preview starts the window, and other qualifying previews join that email. A preview that recovers before sending is excluded. Emails include screen names, locations, durations, and GST timestamps. Missing and unsupported preview links and stale observations do not qualify.
 
-Settings has three tabs: Email alerts, Monitoring (private monitor link and monitor overview), and Account security. Switching tabs preserves unsaved email edits; refreshing restores the selected tab but discards unsaved edits. Delivery history initially shows the latest three entries, with an option to expand the latest ten. Failed, unconfirmed and partially accepted deliveries offer expandable details. Tabs support arrow keys, Home and End, and wrap on narrow screens.
+Settings has four tabs: Email alerts, WhatsApp alerts, Monitoring (private monitor link and monitor overview), and Account security. Switching tabs preserves unsaved alert edits; refreshing restores the selected tab but discards unsaved edits. Delivery history initially shows the latest three entries, with an option to expand the latest ten. Failed, unconfirmed and partially accepted deliveries offer expandable details. Tabs support arrow keys, Home and End, and wrap on narrow screens.
+
+**Send current alerts now** in Email alerts sends a manual report using the saved sender and recipients. Save edits first, review the current screen/recipient counts, then confirm Send now. It includes currently confirmed unavailable previews regardless of the alert duration, grouping window or previous automatic notification, and works even when automatic alerts are disabled. Missing/unsupported links, stale or future-dated observations, recovered previews and obsolete sources are excluded. If screens or saved recipients change before sending, review a fresh confirmation. Manual sends have a database-backed one-minute rate limit, appear separately in delivery history, and never alter the automatic incident queue or notification timing. No email is sent for an empty list. Manual emails support up to 500 screens and do not automatically retry; check delivery history/inboxes before retrying an unconfirmed send. Apply `0007_manual_email_alerts.sql` with `npm run db:migrate` before starting this version.
 
 Configure the Gmail sender in the server's private `.env.local`:
 
@@ -71,6 +73,27 @@ Use a dedicated sender account and a [Google App Password](https://support.googl
 Apply `npm run db:migrate`, rebuild, and restart the server. Save recipients, send a test email, check the inbox/spam folder, then enable alerts. “Sender configured” means credentials are present; an accepted delivery means SMTP accepted the message, which does not guarantee inbox delivery. Recipient addresses use BCC.
 
 The background worker runs while the Node server is running, even when no browser is open. Current qualifying outages are included after enabling alerts. Successful notifications are recorded per incident to avoid repeats; a later separate outage can alert again. Definite delivery failures retry with increasing delays capped at 60 minutes. An interrupted send with an uncertain outcome is recorded as Unconfirmed and is not automatically repeated; check recipients' inboxes before taking further action. Partial acceptance is recorded without resending to everyone. Recent deliveries appear in Settings. Recovery emails are optional and only cover previously notified incidents with fresh successful checks.
+
+## WhatsApp alerts
+
+Admin → Settings → WhatsApp alerts has independent controls for up to 20 individual recipient numbers, the unavailable duration, grouping, optional recovery messages, test PDFs and **Send current alerts now**. Alerts default to disabled with a 20-minute threshold and 5-minute grouping window. Include country codes, such as `+971501234567`; spaces, parentheses and hyphens are normalized. Local numbers and group/chat identifiers are rejected. Only Admins can view or change recipients or send messages.
+
+Configure UltraMsg in the server's private `.env.local`:
+
+```dotenv
+ULTRAMSG_INSTANCE_ID="instance8591"
+ULTRAMSG_TOKEN="your-private-ultramsg-token"
+```
+
+Keep the token on the server; never commit it or enter it in Settings. The instance must be linked/authenticated in UltraMsg using its WhatsApp QR setup, and the server needs outbound HTTPS access to `api.ultramsg.com`. Automatic/manual alerts and tests use [UltraMsg's document endpoint](https://docs.ultramsg.com/api/post/messages/document) with a PDF encoded directly in the POST body and a short caption. Recovery updates use its chat endpoint. No token or private preview URL is included in the message or request URL.
+
+Apply all migrations, including `0007_manual_email_alerts.sql` and `0008_whatsapp_alerts.sql`, rebuild, and restart the Node server. Save your number, press **Send test PDF**, and confirm the attachment opens in WhatsApp before enabling automatic alerts. “API configured” confirms environment values are present, not that the instance is authenticated. “Accepted / queued” means UltraMsg accepted the request; it can queue messages while its instance is disconnected. Delivery receipts are not polled, so actual phone delivery is a separate check. The local automated tests use fake credentials and a loopback provider and do not contact UltraMsg.
+
+The durable worker runs without a browser, checks its queue every 10 seconds, and handles up to three recipient jobs per pass. It batches database queue additions and revalidates saved numbers, preview source and fresh server observations before sending. Each qualifying outage is notified once per recipient. Adding a new number includes current qualifying outages after that number's grouping window; it does not forward an old message. Removed numbers are excluded from pending sends. Re-adding a number with a cancelled, unsent current outage restarts its grouping window; accepted notifications are not repeated. A new outage can notify again. Recovery messages cover only accepted outage notifications with a current successful preview check; an older recovery is excluded after a newer outage starts. Email timing, recipients and delivery queues stay independent.
+
+Test and manual buttons use the saved numbers and have separate persisted one-minute cooldowns. Manual reports work with automatic alerts disabled and bypass the threshold, grouping and prior notification status. Review the current screen/recipient counts before confirming. Changed recipients/screens require a new confirmation, and previews recovered before dispatch are excluded. Empty reports are not queued. Manual reports do not consume the automatic outage queue. Automatic and manual notifications include a short caption and a branded portrait PDF with screen/country totals, longest outage, numbered rows, full locations, durations, GST timestamps, repeated headings and page numbers. PDFs are generated in memory using the existing PDF library and assets; no public download URL is created. Test PDFs contain clearly marked fictional data. Recovery updates remain text and summarize very long lists within the chat limit. Manual PDFs support up to 5,000 screens; larger requests are rejected with guidance to narrow the report. Automatic alerts split larger queues into batches of up to 5,000 screens without dropping remaining entries. Attachments are capped at 7 MB of PDF bytes to stay below UltraMsg's 10,000,000-character base64 limit. Oversized or failed PDF generation is reported as a definite local failure without attempting a provider send or text fallback. Document uploads have a 30-second timeout; uncertain requests retain the existing duplicate-prevention behavior.
+
+Recent history shows the latest three recipient delivery entries, with expansion to ten. Explicit automatic rejections retry only the failed number, with increasing delays capped at 60 minutes. Accepted numbers are not resent. Interrupted or ambiguous requests become **Unconfirmed** and are not automatically repeated; check UltraMsg/WhatsApp before sending again. Manual and test failures are recorded without automatic retries.
 
 ## Windows Server and other hosts
 
@@ -95,8 +118,12 @@ npm run test:auth
 npm run test:activity
 npm run test:reports
 npm run test:email-alerts
+npm run test:whatsapp-alerts
+npm run test:whatsapp-pdf
 npm run test:import
 ```
+The PDF layout/content suite additionally needs a Python installation with `pypdf` and `pdfplumber`; set `PDF_TEST_PYTHON` to its executable when it is not the default `python`. These are development-only verification tools, not application runtime dependencies.
+
 Run these on the development checkout with its private `.env.local` and a development database role. The server integration suites create and drop disposable databases; they are not company-server startup commands.
 
 The legacy build directory, Sites scripts, D1 schema/migrations, and .openai metadata document the previous deployment and are not part of the active server runtime.

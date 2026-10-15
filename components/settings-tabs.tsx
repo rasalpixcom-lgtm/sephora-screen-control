@@ -5,12 +5,13 @@ import "./settings-tabs.css";
 
 const tabs = [
   { id: "email-alerts", label: "Email alerts" },
+  { id: "whatsapp-alerts", label: "WhatsApp alerts" },
   { id: "monitoring", label: "Monitoring" },
   { id: "account-security", label: "Account security" },
 ] as const;
 type TabId = typeof tabs[number]["id"];
 
-export default function SettingsTabs({ email, monitoring, account }: { email: ReactNode; monitoring: ReactNode; account: ReactNode }) {
+export default function SettingsTabs({ email, whatsapp, monitoring, account }: { email: ReactNode; whatsapp: ReactNode; monitoring: ReactNode; account: ReactNode }) {
   const [active, setActive] = useState<TabId>("email-alerts");
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
   useEffect(() => {
@@ -27,7 +28,7 @@ export default function SettingsTabs({ email, monitoring, account }: { email: Re
     setActive(id);
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}#${id}`);
   }
-  const panels = [email, monitoring, account];
+  const panels = [email, whatsapp, monitoring, account];
   return <div className="adm-settings">
     <div className="adm-settings-tabs" role="tablist" aria-label="Settings sections">
       {tabs.map((tab, index) => <button key={tab.id} ref={node => { buttons.current[index] = node; }}

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { validEmail } from "./email-alert-shared";
 export type AlertMailRow = { screenName:string; locationName:string; regionName:string; countryName:string; startedAt:string; lastCheckedAt:string; resolvedAt:string|null };
-export type AlertMail = {kind:"unavailable"|"recovery"|"test"; recipients:string[]; rows:AlertMailRow[]; generatedAt:Date; messageId:string};
+export type AlertMail = {kind:"unavailable"|"recovery"|"test"|"manual"; recipients:string[]; rows:AlertMailRow[]; generatedAt:Date; messageId:string};
 export type MailResult = {partial:boolean};
 export class AlertMailError extends Error { constructor(public code:string,public uncertain=false){super(code);} }
 export function alertSender() {
@@ -14,11 +14,11 @@ export function alertSender() {
 const escapeHtml = (value:string) => value.replace(/[&<>"']/g, character=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[character]!));
 const time = (value:string) => new Date(value).toLocaleString("en-GB",{timeZone:"Asia/Dubai",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false});
 export function alertMailContent(mail:AlertMail, includeLogo=true) {
-  const title=mail.kind==="test" ? "Email alerts test" : mail.kind==="recovery" ? "Preview recovered" : "Preview unavailable";
+  const title=mail.kind==="test" ? "Email alerts test" : mail.kind==="recovery" ? "Preview recovered" : mail.kind==="manual" ? "Current unavailable previews — Manual report" : "Preview unavailable";
   const subject=`Sephora Screen Control — ${title}${mail.kind==="test" ? "" : ` (${mail.rows.length} ${mail.rows.length===1?"screen":"screens"})`}`;
   const detail=mail.kind==="test" ? "Your email alert connection is working. This is a test message." : "Preview status reports image delivery; it does not confirm physical player connectivity.";
   const heading=mail.kind==="test"?title:`${title} · ${mail.rows.length} ${mail.rows.length===1?"screen":"screens"}`;
-  const accent=mail.kind==="unavailable"?"#b44759":"#208766";
+  const accent=mail.kind==="unavailable"||mail.kind==="manual"?"#b44759":"#208766";
   const rows=[...mail.rows].sort((a,b)=>{
     const duration=(row:AlertMailRow)=>(row.resolvedAt?Date.parse(row.resolvedAt):mail.generatedAt.getTime())-Date.parse(row.startedAt);
     return duration(b)-duration(a)||a.screenName.localeCompare(b.screenName);

@@ -2,7 +2,8 @@ export type EmailAlertSettings = {
   enabled: boolean; thresholdMinutes: number; groupingMinutes: number;
   recoveryEmail: boolean; recipients: string[]; revision: string; updatedAt?:string;
 };
-export type EmailAlertDelivery = { id:string; kind:"unavailable"|"recovery"|"test"; status:string; screenCount:number; startedAt:string; finishedAt:string|null; errorCode:string|null };
+export type EmailAlertDelivery = { id:string; kind:"unavailable"|"recovery"|"test"|"manual"; status:string; screenCount:number; startedAt:string; finishedAt:string|null; errorCode:string|null };
+export type ManualAlertPreview = { screenCount:number; recipientCount:number; confirmationToken:string };
 export type EmailAlertSnapshot = { settings:EmailAlertSettings; sender:{configured:boolean; address:string|null}; deliveries:EmailAlertDelivery[] };
 export class EmailAlertInputError extends Error {}
 export function validEmail(value:unknown): value is string {

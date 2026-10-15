@@ -69,7 +69,7 @@ export const emailAlertDelivery=pgTable("email_alert_delivery",{
   screenCount:integer("screen_count").notNull(),startedAt:timestamp("started_at",{withTimezone:true}).notNull(),finishedAt:timestamp("finished_at",{withTimezone:true}),errorCode:text("error_code"),
 },table=>[
   index("email_alert_delivery_started_idx").on(table.startedAt.desc()),
-  check("email_alert_delivery_kind_check",sql`${table.kind} IN ('unavailable','recovery','test')`),
+  check("email_alert_delivery_kind_check",sql`${table.kind} IN ('unavailable','recovery','test','manual')`),
   check("email_alert_delivery_status_check",sql`${table.status} IN ('sending','sent','partial','failed','uncertain')`),
 ]);
 export const emailAlertQueue=pgTable("email_alert_queue",{
@@ -80,4 +80,35 @@ export const emailAlertQueue=pgTable("email_alert_queue",{
   index("email_alert_queue_pending_idx").on(table.kind,table.queuedAt).where(sql`${table.status} = 'pending'`),
   check("email_alert_queue_kind_check",sql`${table.kind} IN ('unavailable','recovery')`),
   check("email_alert_queue_status_check",sql`${table.status} IN ('pending','sending','sent','cancelled','failed','uncertain')`),
+]);
+
+export const whatsappAlertSettings = pgTable("whatsapp_alert_settings", {
+  id:text("id").primaryKey(),enabled:boolean("enabled").notNull().default(false),
+  thresholdMinutes:integer("threshold_minutes").notNull().default(20),groupingMinutes:integer("grouping_minutes").notNull().default(5),
+  recoveryEmail:boolean("recovery_email").notNull().default(false),recipients:jsonb("recipients").$type<string[]>().notNull().default(sql`'[]'`),
+  revision:text("revision").notNull().default(sql`gen_random_uuid()::text`),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[
+  check("whatsapp_alert_settings_id_check",sql`${table.id} = 'main'`),
+  check("whatsapp_alert_settings_threshold_minutes_check",sql`${table.thresholdMinutes} BETWEEN 1 AND 1440`),
+  check("whatsapp_alert_settings_grouping_minutes_check",sql`${table.groupingMinutes} BETWEEN 1 AND 60`),
+  check("whatsapp_alert_settings_recipients_check",sql`jsonb_typeof(${table.recipients}) = 'array' AND jsonb_array_length(${table.recipients}) <= 20`),
+]);
+
+export const whatsappAlertDelivery=pgTable("whatsapp_alert_delivery",{
+ id:text("id").primaryKey(),batchId:text("batch_id").notNull(),recipient:text("recipient").notNull(),kind:text("kind").notNull(),status:text("status").notNull().default("pending"),
+ incidentIds:jsonb("incident_ids").$type<string[]>().notNull().default(sql`'[]'`),screenCount:integer("screen_count").notNull().default(0),
+ queuedAt:timestamp("queued_at",{withTimezone:true}).notNull(),finishedAt:timestamp("finished_at",{withTimezone:true}),errorCode:text("error_code"),providerId:text("provider_id"),
+},table=>[
+ index("whatsapp_alert_delivery_queued_idx").on(table.queuedAt.desc()),index("whatsapp_alert_delivery_pending_idx").on(table.queuedAt).where(sql`${table.status} = 'pending'`),
+ check("whatsapp_alert_delivery_kind_check",sql`${table.kind} IN ('unavailable','recovery','test','manual')`),
+ check("whatsapp_alert_delivery_status_check",sql`${table.status} IN ('pending','sending','accepted','failed','uncertain','cancelled')`),
+]);
+export const whatsappAlertQueue=pgTable("whatsapp_alert_queue",{
+ id:text("id").primaryKey(),incidentId:text("incident_id").notNull().references(()=>previewIncident.id,{onDelete:"cascade"}),recipient:text("recipient").notNull(),kind:text("kind").notNull(),status:text("status").notNull().default("pending"),
+ queuedAt:timestamp("queued_at",{withTimezone:true}).notNull(),retryAt:timestamp("retry_at",{withTimezone:true}),attempts:integer("attempts").notNull().default(0),deliveryId:text("delivery_id").references(()=>whatsappAlertDelivery.id),
+},table=>[
+ uniqueIndex("whatsapp_alert_queue_incident_id_kind_recipient_key").on(table.incidentId,table.kind,table.recipient),
+ index("whatsapp_alert_queue_pending_idx").on(table.recipient,table.kind,table.queuedAt).where(sql`${table.status} = 'pending'`),
+ check("whatsapp_alert_queue_kind_check",sql`${table.kind} IN ('unavailable','recovery')`),
+ check("whatsapp_alert_queue_status_check",sql`${table.status} IN ('pending','scheduled','accepted','cancelled','uncertain')`),
 ]);

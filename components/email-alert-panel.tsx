@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Mail, Plus, Trash2 } from "lucide-react";
 import { clientFetch } from "@/lib/client-fetch";
-import { deliveryErrorMessages, type EmailAlertSettings, type EmailAlertSnapshot } from "@/lib/email-alert-shared";
+import { deliveryErrorMessages, type EmailAlertSettings, type EmailAlertSnapshot, type ManualAlertPreview } from "@/lib/email-alert-shared";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import "./email-alert-panel.css";
 const thresholds=[10,20,30,60,120,180,300,600,1440];
 const time=(value:string)=>new Date(value).toLocaleString("en-GB",{timeZone:"Asia/Dubai",dateStyle:"medium",timeStyle:"short"})+" GST";
@@ -11,6 +12,7 @@ export default function EmailAlertPanel() {
   const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
   const [custom,setCustom]=useState(false);
   const [historyExpanded,setHistoryExpanded]=useState(false);
+  const [manual,setManual]=useState<ManualAlertPreview|null>(null);
   const initialized=useRef(false),mounted=useRef(true),writing=useRef(false),requestVersion=useRef(0);
   useEffect(()=>{
     mounted.current=true;let disposed=false,timer:ReturnType<typeof setTimeout>;
@@ -39,6 +41,22 @@ export default function EmailAlertPanel() {
     finally {writing.current=false;if(mounted.current)setBusy(false);}
   }
   const update=(value:Partial<EmailAlertSettings>)=>{if(draft){setDraft({...draft,...value});setMessage("");}};
+  async function manualAction(send=false){
+    if(writing.current||busy||dirty)return;
+    if(send&&!manual)return;
+    writing.current=true;requestVersion.current++;setBusy(true);setError("");setMessage("");
+    try{
+      const response=await clientFetch("/api/email-alerts/manual",send?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmationToken:manual!.confirmationToken})}:{cache:"no-store"});
+      const result=await response.json();if(!response.ok)throw new Error(result.error||"Could not send current alerts.");
+      if(!mounted.current)return;
+      if(!send)setManual(result);
+      else{
+        setManual(null);setMessage(result.status==="partial"?"Manual report sent, but some recipients were rejected. Check delivery status.":`Manual report for ${result.screenCount} ${result.screenCount===1?"screen":"screens"} accepted by the mail server. Check your inbox.`);
+        try{const snapshot=await clientFetch("/api/email-alerts",{cache:"no-store"});if(snapshot.ok&&mounted.current)setData(await snapshot.json());}catch{/* The normal poll refreshes delivery history if this refresh fails. */}
+      }
+    }catch(cause){if(mounted.current){setManual(null);setError(cause instanceof Error?cause.message:"Manual report request failed.");}}
+    finally{writing.current=false;if(mounted.current)setBusy(false);}
+  }
   return <section className="adm-panel adm-email-alerts" aria-labelledby="email-alert-title">
     <div className="adm-panel-head"><div><h2 id="email-alert-title"><Mail size={19}/> Email alerts</h2><p>Group previews that remain unavailable into one email.</p></div><span className={`adm-email-sender ${data?.sender.configured?"ready":""}`}>{data?.sender.configured?"Sender configured":"Sender not configured"}</span></div>
     <div className="adm-email-body">
@@ -50,12 +68,13 @@ export default function EmailAlertPanel() {
           <label>Alert after<select aria-label="Alert after" disabled={busy} value={custom?"custom":draft.thresholdMinutes} onChange={event=>{if(event.target.value==="custom")setCustom(true);else{setCustom(false);update({thresholdMinutes:Number(event.target.value)});}}}>{thresholds.map(minutes=><option value={minutes} key={minutes}>{minutes<60?`${minutes} minutes`:`${minutes/60} ${minutes===60?"hour":"hours"}`}</option>)}<option value="custom">Custom duration</option></select>{custom&&<input aria-label="Custom alert duration in minutes" type="number" min={1} max={1440} required disabled={busy} value={Number.isFinite(draft.thresholdMinutes)?draft.thresholdMinutes:""} onChange={event=>update({thresholdMinutes:event.target.valueAsNumber})}/>}</label>
           <label>Combine alerts for<select disabled={busy} value={draft.groupingMinutes} onChange={event=>update({groupingMinutes:Number(event.target.value)})}>{[1,5,10,15,30,60].map(minutes=><option value={minutes} key={minutes}>{minutes} {minutes===1?"minute":"minutes"}</option>)}{![1,5,10,15,30,60].includes(draft.groupingMinutes)&&<option value={draft.groupingMinutes}>{draft.groupingMinutes} minutes</option>}</select></label>
         </div>
-        <small className="adm-email-note">Each preview must pass the alert duration first. Grouping adds up to {draft.groupingMinutes} minutes before sending.</small>
+        <small className="adm-email-note">Each preview must pass the alert duration first. Grouping adds up to {draft.groupingMinutes} {draft.groupingMinutes===1?"minute":"minutes"} before sending.</small>
         <fieldset className="adm-email-recipients"><legend>Recipients</legend>{draft.recipients.map((email,index)=><div className="adm-email-recipient" key={index}><input type="email" required maxLength={254} aria-label={`Recipient ${index+1}`} placeholder="name@example.com" value={email} disabled={busy} onChange={event=>update({recipients:draft.recipients.map((item,itemIndex)=>itemIndex===index?event.target.value:item)})}/><button type="button" className="adm-secondary-btn" aria-label={`Remove recipient ${index+1}`} disabled={busy} onClick={()=>update({recipients:draft.recipients.filter((_,itemIndex)=>itemIndex!==index)})}><Trash2 size={16}/></button></div>)}<button type="button" className="adm-secondary-btn" disabled={busy||draft.recipients.length>=20} onClick={()=>update({recipients:[...draft.recipients,""]})}><Plus size={16}/> Add recipient</button></fieldset>
         <label className="adm-email-check"><input type="checkbox" checked={draft.recoveryEmail} disabled={busy} onChange={event=>update({recoveryEmail:event.target.checked})}/> Send recovery emails</label>
-        <div className="adm-form-actions"><button className="adm-secondary-btn" type="button" disabled={busy||dirty||!data?.sender.configured||!data?.settings.recipients.length} title={dirty?"Save changes before sending a test":"Send to saved recipients"} onClick={()=>void action(true)}>Send test email</button><button className="adm-primary-btn" disabled={busy||!dirty} type="submit">{busy?"Working…":"Save settings"}</button></div>
+        <div className="adm-form-actions"><button className="adm-secondary-btn" type="button" disabled={busy||dirty||!data?.sender.configured||!data?.settings.recipients.length} title={dirty?"Save changes before sending":"Review current issues and send to saved recipients"} onClick={()=>void manualAction()}>Send current alerts now</button><button className="adm-secondary-btn" type="button" disabled={busy||dirty||!data?.sender.configured||!data?.settings.recipients.length} title={dirty?"Save changes before sending a test":"Send to saved recipients"} onClick={()=>void action(true)}>Send test email</button><button className="adm-primary-btn" disabled={busy||!dirty} type="submit">{busy?"Working…":"Save settings"}</button></div>
       </form>}
-      {!!data?.deliveries.length&&<div className="adm-email-history"><div className="adm-email-history-heading"><h3>Recent deliveries</h3>{data.deliveries.length>3&&<button type="button" className="adm-secondary-btn" aria-expanded={historyExpanded} aria-controls="email-delivery-list" onClick={()=>setHistoryExpanded(value=>!value)}>{historyExpanded?"Show fewer":"Show recent deliveries"}</button>}</div><div id="email-delivery-list">{data.deliveries.slice(0,historyExpanded?10:3).map(delivery=><div key={delivery.id} className="adm-email-delivery"><div><strong>{delivery.kind==="test"?"Test email":`${delivery.kind==="recovery"?"Recovery":"Unavailable previews"} · ${delivery.screenCount} ${delivery.screenCount===1?"screen":"screens"}`}</strong><small>{time(delivery.startedAt)}</small>{delivery.errorCode&&["failed","uncertain","partial"].includes(delivery.status)&&<details><summary>Delivery details</summary><small>{deliveryErrorMessages[delivery.errorCode]||"Delivery failed. Check the sender configuration."}</small></details>}</div><span data-status={delivery.status}>{delivery.status==="sent"?"Accepted":delivery.status==="uncertain"?"Unconfirmed":delivery.status}</span></div>)}</div></div>}
+      {!!data?.deliveries.length&&<div className="adm-email-history"><div className="adm-email-history-heading"><h3>Recent deliveries</h3>{data.deliveries.length>3&&<button type="button" className="adm-secondary-btn" aria-expanded={historyExpanded} aria-controls="email-delivery-list" onClick={()=>setHistoryExpanded(value=>!value)}>{historyExpanded?"Show fewer":"Show recent deliveries"}</button>}</div><div id="email-delivery-list">{data.deliveries.slice(0,historyExpanded?10:3).map(delivery=><div key={delivery.id} className="adm-email-delivery"><div><strong>{delivery.kind==="test"?"Test email":`${delivery.kind==="recovery"?"Recovery":delivery.kind==="manual"?"Manual report":"Unavailable previews"} · ${delivery.screenCount} ${delivery.screenCount===1?"screen":"screens"}`}</strong><small>{time(delivery.startedAt)}</small>{delivery.errorCode&&["failed","uncertain","partial"].includes(delivery.status)&&<details><summary>Delivery details</summary><small>{deliveryErrorMessages[delivery.errorCode]||"Delivery failed. Check the sender configuration."}</small></details>}</div><span data-status={delivery.status}>{delivery.status==="sent"?"Accepted":delivery.status==="uncertain"?"Unconfirmed":delivery.status}</span></div>)}</div></div>}
     </div>
+    <Dialog open={!!manual} onOpenChange={open=>{if(!open&&!busy)setManual(null);}}><DialogContent className="adm-dialog" showCloseButton={!busy}><DialogHeader><DialogTitle>Send current alerts now?</DialogTitle><DialogDescription>{manual?.screenCount?`Send ${manual.screenCount} currently unavailable ${manual.screenCount===1?"screen":"screens"} to ${manual.recipientCount} saved ${manual.recipientCount===1?"recipient":"recipients"}? This sends immediately without changing automatic alerts.`:"There are no current confirmed unavailable previews to send."}</DialogDescription></DialogHeader><p className="adm-email-note">Missing links, unsupported previews and stale checks are excluded. Manual reports can be sent once per minute.</p><div className="adm-form-actions"><button type="button" className="adm-secondary-btn" disabled={busy} onClick={()=>setManual(null)}>Cancel</button><button type="button" className="adm-primary-btn" disabled={busy||!manual?.screenCount||manual.screenCount>500} onClick={()=>void manualAction(true)}>{busy?"Sending…":"Send now"}</button></div>{!!manual&&manual.screenCount>500&&<p role="alert">Manual emails support up to 500 screens. Download the complete report from Reports instead.</p>}</DialogContent></Dialog>
   </section>;
 }
