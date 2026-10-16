@@ -21,7 +21,7 @@ The migrated local database already has an Admin; use the existing login ID and 
 | Controller | No access | Control | View |
 | Wall device | No access | No access | View |
 
-Staff sessions expire after 8 hours; optional wall account sessions after 30 days. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes require the current password and revoke other sessions. The UI then signs out the current session. OnSign players use the private link described below instead of an interactive account login.
+Admin and Controller sessions have no application timeout. They remain in PostgreSQL until sign-out or revocation; authenticated API use renews a protected, host-only browser cookie with a 400-day maximum age. Browsers may impose shorter retention, and clearing cookies or switching hosts requires another sign-in. Still-valid older sessions upgrade on use; expired/revoked sessions are never revived. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes still require the current password and revoke other sessions, without requiring a fresh login solely because the session is old. The UI then signs out the current session. OnSign players use the private link described below instead of an interactive account login. This policy is intended for the team's trusted computers.
 
 ## Private monitor link for OnSign
 

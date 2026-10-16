@@ -154,7 +154,20 @@ try {
   }
   check(checkedScreen?.status === "unsupported", "background checker discovers saved screens and distinguishes unsupported links");
   const durations = (await db.prepare("SELECT u.role, EXTRACT(EPOCH FROM (s.expires_at - s.created_at)) * 1000 AS duration FROM auth_session s JOIN auth_user u ON s.user_id = u.id").all()).results;
-  check(durations.every((s) => Math.abs(s.duration - (8 * 3600) * 1000) < 5000), "staff sessions have the intended lifetimes");
+  check(durations.length > 0 && durations.every((s) => s.duration > 100 * 365 * 24 * 3600 * 1000), "staff sessions have no practical application expiry");
+  check(admin.response.headers.getSetCookie().some(value => /session_token=/.test(value) && /Max-Age=34560000/i.test(value)), "login issues a persistent browser cookie within the 400-day browser limit");
+  await pool.query("UPDATE auth_session SET created_at=now()-interval '10 days',updated_at=now()-interval '10 days'");
+  for (const [role, loginSession] of [["Admin",admin],["Controller",controller]]) {
+    const response = await request("/api/session",undefined,loginSession.cookie);
+    const renewed = response.headers.getSetCookie().find(value => /session_token=/.test(value));
+    check(response.status===200, `${role} remains signed in beyond the old eight-hour limit`);
+    check(!!renewed && /Max-Age=34560000/i.test(renewed) && /HttpOnly/i.test(renewed) && /SameSite=Lax/i.test(renewed) && !/;\s*Domain=/i.test(renewed), `${role} API use renews a protected host-only persistent cookie`);
+    check(!!renewed && (await request("/api/session",undefined,renewed.split(";")[0])).status===200, `${role} renewed cookie retains a valid signed session`);
+  }
+  await pool.query("UPDATE auth_session SET expires_at=now()+interval '2 hours' WHERE user_id=(SELECT id FROM auth_user WHERE email='admin@example.test')");
+  check((await request("/api/session",undefined,admin.cookie)).status===200 && Number((await pool.query("SELECT count(*) FROM auth_session WHERE user_id=(SELECT id FROM auth_user WHERE email='admin@example.test') AND expires_at='9999-12-31T23:59:59Z'")).rows[0].count)>0, "a still-valid legacy session upgrades without signing out");
+  const tampered = await request("/api/session",undefined,admin.cookie.replace(/(session_token=)[^;]+/,"$1tampered"));
+  check(tampered.status===401 && !tampered.headers.getSetCookie().some(value=>/Max-Age=34560000/i.test(value)), "invalid cookies are rejected without issuing a persistent session");
   check((await request("/account", undefined, controller.cookie)).status === 200, "Controller can manage own password");
   check((await request("/admin/screens", undefined, controller.cookie)).status === 307, "Controller cannot open Admin pages");
   check((await request("/controller", undefined, viewer.cookie)).status === 200, "Controller can open Controller");
@@ -267,6 +280,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   check(restarted && (await monitorRead(persistentKey)).status === 200 && (await monitorRead(key)).status === 401, "server restart preserves the active link and keeps old links revoked");
+  check((await request("/api/session",undefined,admin.cookie)).status===200 && (await request("/api/session",undefined,controller.cookie)).status===200, "server restart preserves Admin and Controller sessions");
   if (process.env.TEST_MONITOR_UI === "true") {
     const fixture = path.join(root, ".server-runtime", "monitor-ui-fixture.json");
     const resume = path.join(root, ".server-runtime", "monitor-ui-resume");
@@ -313,6 +327,8 @@ try {
   check((await request("/api/auth/sign-out", {}, newWall.cookie)).status === 200 && (await request("/api/state", undefined, newWall.cookie)).status === 401, "sign-out invalidates the server session");
   const passwordChange = await login(w.email, replacement, "192.0.2.16"); const nextPassword = crypto.randomBytes(24).toString("base64url");
   const otherWallSession = await login(w.email, replacement, "192.0.2.22");
+  await pool.query("UPDATE auth_session SET created_at=now()-interval '10 days' WHERE user_id=$1",[w.id]);
+  check((await request("/api/auth/change-password",{currentPassword:"incorrect-password",newPassword:nextPassword},passwordChange.cookie)).status!==200, "a long-lived session must still supply the correct current password");
   check((await request("/api/auth/change-password", { currentPassword: "wrong-password", newPassword: nextPassword, revokeOtherSessions: true }, passwordChange.cookie)).status === 400, "self password changes require the current password");
   check((await request("/api/auth/change-password", { currentPassword: replacement, newPassword: nextPassword, revokeOtherSessions: false }, passwordChange.cookie)).status === 200, "Controller can change its own password");
   check((await request("/api/state", undefined, otherWallSession.cookie)).status === 401, "password changes revoke other sessions even if a client requests otherwise");

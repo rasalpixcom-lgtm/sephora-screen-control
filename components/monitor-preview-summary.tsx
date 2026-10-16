@@ -3,15 +3,15 @@ import "./monitor-preview-summary.css";
 
 function Counts({ counts }: { counts: PreviewCounts }) {
   return <>
-    <span className="monitor-preview-count monitor-preview-count-live"><b>{counts.previewing}</b> previewing</span>
-    <span className="monitor-preview-count monitor-preview-count-unavailable"><b>{counts.unavailable}</b> unavailable</span>
-    {!!counts.checking && <span className="monitor-preview-count monitor-preview-count-checking"><b>{counts.checking}</b> checking</span>}
-    {!!counts.unsupported && <span className="monitor-preview-count monitor-preview-count-other" title="These preview providers cannot be checked automatically."><b>{counts.unsupported}</b> unverified</span>}
+    <span className="monitor-preview-count monitor-preview-count-live" role="img" aria-label={`${counts.previewing} previewing`} title={`${counts.previewing} previewing`}><b>{counts.previewing}</b></span>
+    <span className="monitor-preview-count monitor-preview-count-unavailable" role="img" aria-label={`${counts.unavailable} unavailable`} title={`${counts.unavailable} unavailable`}><b>{counts.unavailable}</b></span>
+    {!!counts.checking && <span className="monitor-preview-count monitor-preview-count-checking" role="img" aria-label={`${counts.checking} checking`} title={`${counts.checking} checking`}><b>{counts.checking}</b></span>}
+    {!!counts.unsupported && <span className="monitor-preview-count monitor-preview-count-other" role="img" aria-label={`${counts.unsupported} unverified`} title={`${counts.unsupported} unverified. These preview providers cannot be checked automatically.`}><b>{counts.unsupported}</b></span>}
   </>;
 }
 
 export default function MonitorPreviewStatus({ summary, byCountry }: { summary?: MonitorPreviewSummary; byCountry: boolean }) {
-  if (!summary) return <div className="monitor-preview-summary"><span className="monitor-preview-count monitor-preview-count-checking">Checking previews…</span></div>;
+  if (!summary) return <div className="monitor-preview-summary"><span className="monitor-preview-count monitor-preview-count-checking" role="img" aria-label="Checking previews" title="Checking previews"/></div>;
   return <div className="monitor-preview-summary" aria-label="Selected screens preview status">
     {byCountry && summary.countries.length ? summary.countries.map(country => <div className="monitor-preview-country" key={country.id} aria-label={`${country.name}: ${country.counts.total} ${country.counts.total === 1 ? "screen" : "screens"}`}>
       <strong className="monitor-preview-country-name" title={country.name}>{country.shortName || country.name}</strong><Counts counts={country.counts}/>
