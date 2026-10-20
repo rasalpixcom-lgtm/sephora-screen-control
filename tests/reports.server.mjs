@@ -32,7 +32,7 @@ const liveUrl=id=>"https://app.onsign.tv/embed/"+tokenFor(id);
 async function addEntity(id,type,name,parentId=null,url=null){await pool.query("INSERT INTO entities (id,type,name,parent_id,live_url,is_demo,created_at) VALUES ($1,$2,$3,$4,$5,0,$6)",[id,type,name,parentId,url,new Date(now).toISOString()]);}
 let server,logs="";
 try {
-  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===9,"migration is idempotent and records the preview and country short-name schemas");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===11,"migration is idempotent and records all schemas including OnSign player links and screen photos");
   const shortNameMigration = fs.readFileSync("db/postgres-migrations/0005_country_short_names.sql","utf8").replace(/\r\n/g,"\n");
   const migrationHash = content => crypto.createHash("sha256").update(content).digest("hex");
   await pool.query("UPDATE server_migrations SET checksum=$1 WHERE name='0005_country_short_names.sql'",[migrationHash(shortNameMigration.replace(/\n/g,"\r\n"))]);

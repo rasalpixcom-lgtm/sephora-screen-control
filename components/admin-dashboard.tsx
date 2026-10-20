@@ -7,7 +7,7 @@ import { clientFetch } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowUpRight, ClipboardList, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -30,6 +30,9 @@ import PreviewReportsPanel from "@/components/preview-reports-panel";
 import EmailAlertPanel from "@/components/email-alert-panel";
 import WhatsAppAlertPanel from "@/components/whatsapp-alert-panel";
 import SettingsTabs from "@/components/settings-tabs";
+import { ScreenPhotoInput, ScreenPhotoView, type PhotoDraft } from "@/components/screen-photo";
+import OnSignPlayerPicker from "@/components/onsign-player-picker";
+import OnSignScreenDetails from "@/components/onsign-screen-details";
 
 
 
@@ -79,7 +82,7 @@ function parentNames(item: Entity, entities: Entity[]) {
 
 
 
-export default function AdminDashboard({ section, accountEmail }: { section: Section; accountEmail: string | null }) {
+export default function AdminDashboard({ section, accountEmail, screenDetails }: { section: Section; accountEmail: string | null; screenDetails?: { screen: Entity; location: string } }) {
 
   const [state, setState] = useState<State>(empty);
   const [usersRefreshKey, setUsersRefreshKey] = useState(0);
@@ -99,7 +102,8 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   const [editor, setEditor] = useState<{ type: EntityType; item?: Entity } | null>(null);
 
-  const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "" });
+  const [photoDraft, setPhotoDraft] = useState<PhotoDraft>({ file: null, remove: false });
+  const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "", onsignPlayerId: "" });
 
   const [groupId, setGroupId] = useState<string | null>(null);
 
@@ -139,11 +143,11 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   }, []);
 
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  useEffect(() => { if (!screenDetails) void Promise.resolve().then(load); }, [load, screenDetails]);
 
 
 
-  async function mutate(body: Record<string, unknown>) {
+  async function mutate(body: Record<string, unknown>, photo?: PhotoDraft) {
     if (saving.current) return false;
     saving.current = true;
     revision.current++;
@@ -152,7 +156,9 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
     try {
 
-      const response = await clientFetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const form = photo?.file ? new FormData() : null;
+      if (form && photo?.file) { form.set("metadata", JSON.stringify(body)); form.set("photo", photo.file); }
+      const response = await clientFetch("/api/state", { method: "POST", ...(form ? { body: form } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
 
       if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
@@ -167,11 +173,14 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   }
 
+  function closeEditor() { setEditor(null); setPhotoDraft({ file: null, remove: false }); }
+
   function openEditor(type: EntityType, item?: Entity) {
 
     setError("");
 
-    setDraft({ name: item?.name || "", shortName: item?.shortName || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "" });
+    setPhotoDraft({ file: null, remove: false });
+    setDraft({ name: item?.name || "", shortName: item?.shortName || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "", onsignPlayerId: item?.onsignPlayerId || "" });
 
     const store = entities.find(entity => entity.id === item?.parentId && entity.type === "store");
     const region = entities.find(entity => entity.id === store?.parentId && entity.type === "region");
@@ -189,7 +198,9 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
       setError("Choose a country, region, and location for this screen."); return;
     }
 
-    if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...draft })) setEditor(null);
+    if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...draft,
+      ...(editor.type === "screen" && (photoDraft.file || photoDraft.remove) ? { photoAction: photoDraft.file ? "replace" : "remove", photoExpectedKey: editor.item?.photoKey || null } : {}),
+    }, editor.type === "screen" ? photoDraft : undefined)) closeEditor();
 
   }
 
@@ -221,7 +232,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
     const list = type === "screen" ? visibleScreens : searchable.filter((item) => item.type === type);
 
-    return <div className="adm-table-wrap"><table className={`adm-table${type === "country" ? " adm-country-table" : (type === "region" || type === "store") ? " adm-region-table" : type === "screen" ? " adm-screen-table" : ""}`}><thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th><th>{type === "screen" ? "Preview link" : "Screens"}</th><th>Actions</th></tr></thead><tbody>{list.map((item) => <tr key={item.id}><td><div className="adm-name-cell"><span className="adm-list-icon">{type === "screen" ? <Monitor size={17}/> : type === "country" ? <Globe2 size={17}/> : <MapPin size={17}/>}</span><div><strong>{item.name}</strong>{type === "country" && item.shortName && <small>Abbreviation: {item.shortName}</small>}{item.isDemo ? <small>Sample data</small> : null}</div></div></td><td>{type === "country" ? byType("region").filter((child) => child.parentId === item.id).length : parentNames(item, entities)}</td><td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td><td><div className="adm-row-actions"><button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td></tr>)}</tbody></table>{!list.length && <div className="adm-empty">{(search.trim() || (type === "screen" && hasScreenFilters)) ? `No ${metricLabels[type].toLowerCase()} match your filters.` : `No ${metricLabels[type].toLowerCase()} yet. Add your first ${typeNames[type].toLowerCase()} to get started.`}</div>}</div>;
+    return <div className="adm-table-wrap"><table className={`adm-table${type === "country" ? " adm-country-table" : (type === "region" || type === "store") ? " adm-region-table" : type === "screen" ? " adm-screen-table" : ""}`}><thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th>{type === "screen" && <th>Details</th>}<th>{type === "screen" ? "Preview link" : "Screens"}</th><th>Actions</th></tr></thead><tbody>{list.map((item) => <tr key={item.id}><td><div className="adm-name-cell"><span className="adm-list-icon">{type === "screen" ? <Monitor size={17}/> : type === "country" ? <Globe2 size={17}/> : <MapPin size={17}/>}</span><div><strong>{item.name}</strong>{type === "country" && item.shortName && <small>Abbreviation: {item.shortName}</small>}{item.isDemo ? <small>Sample data</small> : null}</div></div></td><td>{type === "country" ? byType("region").filter((child) => child.parentId === item.id).length : parentNames(item, entities)}</td>{type === "screen" && <td><Link href={`/admin/screens/${encodeURIComponent(item.id)}`} prefetch={false} className="adm-secondary-btn onsign-details-button" aria-label={`Details for ${item.name}`}>Details</Link></td>}<td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td><td><div className="adm-row-actions"><button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td></tr>)}</tbody></table>{!list.length && <div className="adm-empty">{(search.trim() || (type === "screen" && hasScreenFilters)) ? `No ${metricLabels[type].toLowerCase()} match your filters.` : `No ${metricLabels[type].toLowerCase()} yet. Add your first ${typeNames[type].toLowerCase()} to get started.`}</div>}</div>;
 
   }
 
@@ -229,7 +240,7 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
   const sections: Partial<Record<Section, EntityType>> = { screens: "screen", countries: "country", regions: "region", locations: "store" };
 
-  const currentType = sections[section];
+  const currentType = screenDetails ? undefined : sections[section];
 
   const sectionDescription: Record<Section, string> = {
 
@@ -255,11 +266,14 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
     <SidebarInset className="adm-inset">
 
-      <div className="adm-content"><header className="adm-page-head"><div className="adm-page-heading"><div className="adm-title-row"><SidebarTrigger className="adm-menu-trigger" aria-label="Toggle menu"><Menu size={19}/></SidebarTrigger><h1>{sectionNames[section]}</h1></div><p>{sectionDescription[section]}</p></div><div className="adm-head-actions"><ThemeToggle/><button className="adm-icon-btn" onClick={() => void load()} aria-label="Refresh data"><RefreshCw size={17}/></button>{currentType && <button className="adm-primary-btn" onClick={() => openEditor(currentType)}><Plus size={17}/> Add {typeNames[currentType].toLowerCase()}</button>}{section === "groups" && <button className="adm-primary-btn" onClick={() => openEditor("group")}><Plus size={17}/> Add group</button>}</div></header>
+      <div className="adm-content">{screenDetails ? <OnSignScreenDetails key={`${screenDetails.screen.id}:${screenDetails.screen.onsignPlayerId || ""}`} screen={screenDetails.screen} header={connection => <>
+        <Link className="onsign-back-link" href="/admin/screens"><ArrowLeft size={16}/>Back to screens</Link>
+        <header className="adm-page-head onsign-page-head"><div className="adm-page-heading"><div className="adm-title-row"><SidebarTrigger className="adm-menu-trigger" aria-label="Toggle menu"><Menu size={19}/></SidebarTrigger><h1>Screen details</h1></div><p>{[screenDetails.screen.name, screenDetails.location].filter(Boolean).join(" · ")}</p></div><div className="adm-head-actions">{connection}<ScreenPhotoView key={`${screenDetails.screen.id}:${screenDetails.screen.photoKey || "none"}`} screenId={screenDetails.screen.id} photoKey={screenDetails.screen.photoKey} name={screenDetails.screen.name}/><ThemeToggle/></div></header>
+      </>}/> : <header className="adm-page-head"><div className="adm-page-heading"><div className="adm-title-row"><SidebarTrigger className="adm-menu-trigger" aria-label="Toggle menu"><Menu size={19}/></SidebarTrigger><h1>{sectionNames[section]}</h1></div><p>{sectionDescription[section]}</p></div><div className="adm-head-actions"><ThemeToggle/><button className="adm-icon-btn" onClick={() => void load()} aria-label="Refresh data"><RefreshCw size={17}/></button>{currentType && <button className="adm-primary-btn" onClick={() => openEditor(currentType)}><Plus size={17}/> Add {typeNames[currentType].toLowerCase()}</button>}{section === "groups" && <button className="adm-primary-btn" onClick={() => openEditor("group")}><Plus size={17}/> Add group</button>}</div></header>}
 
-      {error && !editor && !groupId && !deleteTarget && <div role="alert" className="adm-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16}/></button></div>}
+      {!screenDetails && error && !editor && !groupId && !deleteTarget && <div role="alert" className="adm-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16}/></button></div>}
 
-      {loading ? <div className="adm-loading">Loading network…</div> : <>
+      {screenDetails ? null : loading ? <div className="adm-loading">Loading network…</div> : <>
 
         {section === "dashboard" && <>
 
@@ -295,12 +309,41 @@ export default function AdminDashboard({ section, accountEmail }: { section: Sec
 
 
 
-    <Dialog open={!!editor} onOpenChange={(open) => !open && !busy && setEditor(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{editor?.item ? `Edit ${typeNames[editor.type]}` : editor ? `Add ${typeNames[editor.type]}` : "Edit"}</DialogTitle><DialogDescription>{editor?.type === "screen" ? "Add the screen to a location and save its OnSign preview URL." : "Keep the name clear for everyone using the network."}</DialogDescription></DialogHeader>{dialogError}<form onSubmit={saveEditor} className="adm-form"><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}{editor?.type === "screen" && <>
+    <Dialog open={!!editor} onOpenChange={(open) => !open && !busy && closeEditor()}>
+      <DialogContent className={`adm-dialog${editor?.type === "screen" ? " adm-screen-editor" : ""}`}>
+        <DialogHeader>
+          <DialogTitle>{editor?.item ? `Edit ${typeNames[editor.type]}` : editor ? `Add ${typeNames[editor.type]}` : "Edit"}</DialogTitle>
+          <DialogDescription>{editor?.type === "screen" ? "Choose the screen location, preview connection and optional installation photo." : "Keep the name clear for everyone using the network."}</DialogDescription>
+        </DialogHeader>
+        {editor?.type !== "screen" && dialogError}
+        <form onSubmit={saveEditor} className="adm-form">
+          {editor?.type === "screen" ? <div className="adm-screen-editor-fields">
+            {dialogError}
+            <div className="adm-screen-editor-columns">
+              <section className="adm-screen-editor-column" aria-label="Screen and location">
+                <h3>Screen & location</h3>
+                <label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>
       <LocationPicker label="Country" value={screenPath.countryId} placeholder="Select country" disabled={busy} options={sortedOptions("country")} onChange={countryId=>{setScreenPath({countryId,regionId:""});setDraft({...draft,parentId:""});}}/>
       <LocationPicker label="Region" value={screenPath.regionId} placeholder="Select region" disabled={busy || !screenPath.countryId} options={sortedOptions("region",screenPath.countryId)} onChange={regionId=>{setScreenPath({...screenPath,regionId});setDraft({...draft,parentId:""});}}/>
       <LocationPicker label="Location" value={draft.parentId} placeholder="Select location" disabled={busy || !screenPath.regionId} options={sortedOptions("store",screenPath.regionId)} onChange={parentId=>setDraft({...draft,parentId})}/>
       {!byType("store").length && <p className="adm-picker-hint">Add a country, region, and location before creating a screen.</p>}
-      </>}{editor?.type === "screen" && <label>OnSign live URL <small>Optional until the link is ready</small><input type="url" value={draft.liveUrl} onChange={(event) => setDraft({ ...draft, liveUrl: event.target.value })} placeholder="https://…"/></label>}<div className="adm-form-actions"><button type="button" className="adm-secondary-btn" disabled={busy} onClick={() => setEditor(null)}>Cancel</button><button type="submit" className="adm-primary-btn" disabled={busy || (editor?.type === "screen" && !draft.parentId)}>{busy ? "Saving..." : `Save ${editor ? typeNames[editor.type].toLowerCase() : ""}`}</button></div></form></DialogContent></Dialog>
+
+              </section>
+              <section className="adm-screen-editor-column" aria-label="OnSign connection">
+                <h3>OnSign connection</h3>
+                <OnSignPlayerPicker value={draft.onsignPlayerId} onChange={onsignPlayerId => setDraft({...draft,onsignPlayerId})} disabled={busy}/>
+                <label>OnSign live URL <small>Optional until the link is ready</small><input type="url" value={draft.liveUrl} onChange={(event) => setDraft({ ...draft, liveUrl: event.target.value })} placeholder="https://…"/></label>
+              </section>
+            </div>
+            <ScreenPhotoInput key={editor.item?.id || "new"} screenId={editor.item?.id} photoKey={editor.item?.photoKey} value={photoDraft} onChange={setPhotoDraft} disabled={busy}/>
+          </div> : <><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}</>}
+          <div className="adm-form-actions">
+            <button type="button" className="adm-secondary-btn" disabled={busy} onClick={() => closeEditor()}>Cancel</button>
+            <button type="submit" className="adm-primary-btn" disabled={busy || (editor?.type === "screen" && !draft.parentId)}>{busy ? "Saving..." : `Save ${editor ? typeNames[editor.type].toLowerCase() : ""}`}</button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <Dialog open={!!groupId} onOpenChange={(open) => !open && !busy && setGroupId(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{entities.find((item) => item.id === groupId)?.name}</DialogTitle><DialogDescription>Choose screens from any location. Changes save automatically.</DialogDescription></DialogHeader>{dialogError}<div className="adm-search"><Search size={17}/><input aria-label="Search group screens" placeholder="Search screens or locations" value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)}/></div><span className="adm-assignment-count">{state.members.filter((member) => member.groupId === groupId).length} {state.members.filter((member) => member.groupId === groupId).length === 1 ? "screen" : "screens"} assigned{busy ? " - Saving..." : ""}</span><div className="adm-assignment-list">{assignmentScreens.map((screen) => { const checked = state.members.some((member) => member.groupId === groupId && member.screenId === screen.id); return <label key={screen.id}><input type="checkbox" checked={checked} disabled={busy} onChange={(event) => void mutate({ action: "member", groupId, screenId: screen.id, enabled: event.target.checked })}/><span><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></label>; })}{!assignmentScreens.length && <div className="adm-empty">{byType("screen").length ? "No screens match your search." : "Add screens before assigning them to a group."}</div>}</div><button className="adm-primary-btn" disabled={busy} onClick={() => setGroupId(null)}>Done</button></DialogContent></Dialog>
 

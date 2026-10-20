@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { database, readState, type EntityType, type Selection } from "@/lib/store";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { canMutate } from "@/lib/auth-policy";
-import { readObject, requestFailure } from "@/lib/request";
+import { requestFailure } from "@/lib/request";
 import { wallActivityDescription } from "@/lib/activity-description";
+import { OnSignApiError, onSignApi } from "@/lib/onsign-api";
+import { validOnSignPlayerId } from "@/lib/onsign-api-shared";
+import { prepareScreenPhoto, readScreenMutation, removeScreenPhoto } from "@/lib/screen-photo";
 
 export const runtime = "nodejs";
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
@@ -22,12 +25,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return bad("Invalid request origin.", 403);
+  let preparedPhoto: string | null = null, committed = false;
+  const obsoletePhotos: string[] = [];
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
-  const body = await readObject(request);
+  if (user.role !== "admin" && request.headers.get("content-type")?.startsWith("multipart/form-data")) return bad("Admin access required.", 403);
+  const { body, file } = await readScreenMutation(request);
   if (!canMutate(user.role, body.action)) return bad("You do not have permission for this action.", 403);
-  return await database().transaction(async (db) => {
+  const photoAction = body.photoAction ?? "keep";
+  if (typeof photoAction !== "string" || !["keep", "replace", "remove"].includes(photoAction) || (photoAction !== "keep" && (body.type !== "screen" || !["create", "update"].includes(String(body.action)))) || (photoAction === "replace") !== !!file) return bad("Choose a valid screen photo change.");
+  let verifiedPlayerId: string | null = null;
+  if ((body.action === "create" || body.action === "update") && body.onsignPlayerId !== undefined && body.onsignPlayerId !== null && body.onsignPlayerId !== "") {
+    if (body.type !== "screen" || !validOnSignPlayerId(body.onsignPlayerId)) return bad("Choose a valid OnSign player for this screen.");
+    const previous = body.action === "update" && typeof body.id === "string" ? await database().prepare("SELECT onsign_player_id AS \"playerId\" FROM entities WHERE id = ? AND type = 'screen'").bind(body.id).first<{ playerId: string | null }>() : null;
+    // Do not hold the inventory transaction lock during a network request.
+    // Existing links remain editable if OnSign is temporarily unavailable.
+    if (previous?.playerId !== body.onsignPlayerId) {
+      await onSignApi.details(body.onsignPlayerId);
+      verifiedPlayerId = body.onsignPlayerId;
+    }
+  }
+  if (file) preparedPhoto = await prepareScreenPhoto(file);
+  const result = await database().transaction(async (db) => {
     // Validation and writes share the lock across every Node process.
     // This prevents duplicate names and children being created during parent deletion.
     await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
@@ -58,17 +78,23 @@ export async function POST(request: NextRequest) {
         if (parsed.protocol !== "https:" || parsed.username || parsed.password) return bad("Live links must use HTTPS.");
       }
       if (type !== "screen" && liveUrl) return bad("Only screens can have live links.");
+      const onsignPlayerId = body.onsignPlayerId === undefined ? existing?.onsignPlayerId || null : body.onsignPlayerId || null;
+      if (onsignPlayerId !== null && (!validOnSignPlayerId(onsignPlayerId) || type !== "screen")) return bad("Choose a valid OnSign player for this screen.");
+      if (onsignPlayerId && onsignPlayerId !== existing?.onsignPlayerId && onsignPlayerId !== verifiedPlayerId) return bad("The player link changed. Please try saving again.", 409);
       const duplicate = state.entities.some((item) => item.type === type && item.parentId === parentId && item.name.toLowerCase() === name.toLowerCase() && (body.action === "create" || item.id !== body.id));
       if (duplicate) return bad("An item with this name already exists here.");
+      if (photoAction !== "keep" && body.photoExpectedKey !== (existing?.photoKey || null)) return bad("This screen photo changed. Reopen Edit screen and try again.", 409);
+      const photoKey = photoAction === "replace" ? preparedPhoto : photoAction === "remove" ? null : existing?.photoKey || null;
       if (body.action === "create") {
         const id = crypto.randomUUID();
-        await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)")
-          .bind(id, type, name, shortName, parentId, liveUrl, now).run();
+        await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, onsign_player_id, photo_key, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)")
+          .bind(id, type, name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, now).run();
         audit = { action: "created", type, id, name };
       } else {
         if (!existing || existing.type !== type) return bad("Item not found.", 404);
-        await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, is_demo = 0 WHERE id = ?")
-          .bind(name, shortName, parentId, liveUrl, existing.id).run();
+        await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, onsign_player_id = ?, photo_key = ?, is_demo = 0 WHERE id = ?")
+          .bind(name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, existing.id).run();
+        if (existing.photoKey && existing.photoKey !== photoKey) obsoletePhotos.push(existing.photoKey);
         audit = { action: "updated", type, id: existing.id, name };
       }
     } else if (body.action === "delete") {
@@ -78,6 +104,8 @@ export async function POST(request: NextRequest) {
       let changed = true;
       while (changed) { changed = false; for (const item of state.entities) if (item.parentId && ids.has(item.parentId) && !ids.has(item.id)) { ids.add(item.id); changed = true; } }
       for (const id of ids) {
+        const photoKey = entity(id)?.photoKey;
+        if (photoKey) obsoletePhotos.push(photoKey);
         await db.prepare("DELETE FROM group_members WHERE group_id = ? OR screen_id = ?").bind(id, id).run();
         await db.prepare("DELETE FROM entities WHERE id = ?").bind(id).run();
       }
@@ -128,5 +156,13 @@ export async function POST(request: NextRequest) {
     const updated = await readState(db, user.role === "admin");
     return NextResponse.json({ ...updated, activity: user.role === "admin" ? updated.activity : [] }, { headers: { "Cache-Control": "no-store" } });
   });
-  } catch (error) { return requestFailure(error); }
+  committed = result.ok;
+  return result;
+  } catch (error) {
+    if (error instanceof OnSignApiError) return bad(error.message, error.status);
+    return requestFailure(error);
+  } finally {
+    if (preparedPhoto && !committed) await removeScreenPhoto(preparedPhoto);
+    if (committed) for (const key of obsoletePhotos) await removeScreenPhoto(key);
+  }
 }

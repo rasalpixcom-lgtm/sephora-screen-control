@@ -449,9 +449,10 @@ html.dark .adm-activity-filters input[type="date"],html.dark .adm-activity-filte
 .adm-country-table { table-layout:fixed; width:100%; min-width:720px; }
 .adm-screen-table { table-layout:fixed; width:100%; min-width:860px; }
 .adm-screen-table th:first-child { width:36%; }
-.adm-screen-table th:nth-child(2) { width:calc(64% - 280px); }
-.adm-screen-table th:nth-child(3),.adm-screen-table th:last-child { width:140px; text-align:center; }
-.adm-screen-table td:nth-child(3) { text-align:center; }
+.adm-screen-table th:nth-child(2) { width:calc(64% - 380px); }
+.adm-screen-table th:nth-child(3) { width:100px; text-align:center; }
+.adm-screen-table th:nth-child(4),.adm-screen-table th:last-child { width:140px; text-align:center; }
+.adm-screen-table td:nth-child(3),.adm-screen-table td:nth-child(4) { text-align:center; }
 .adm-screen-table .adm-name-cell>div { min-width:0; }
 .adm-screen-table .adm-name-cell strong,.adm-screen-table td:nth-child(2) { overflow-wrap:anywhere; white-space:normal; line-height:1.5; }
 .adm-screen-table .adm-row-actions { justify-content:center; }

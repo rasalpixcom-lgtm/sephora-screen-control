@@ -29,7 +29,7 @@ const origin = "http://" + testHost + ":" + port;
 const aliasOrigin = "http://localhost:" + port;
 const token = crypto.randomBytes(32).toString("hex");
 const password = crypto.randomBytes(24).toString("base64url");
-const serverEnv = {...process.env, PORT:String(port), HOSTNAME:"0.0.0.0", ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:aliasOrigin, AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"};
+const serverEnv = {...process.env, PORT:String(port), HOSTNAME:"0.0.0.0", ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:aliasOrigin, ONSIGN_API_TOKEN:"", AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"};
 let server = spawn(process.execPath, [path.join(root, ".next/standalone/server.js")], { cwd:root, env:serverEnv, stdio:["ignore","pipe","pipe"] });
 let logs = "";
 server.stdout.on("data", data => { logs += data; }); server.stderr.on("data", data => { logs += data; });
@@ -45,6 +45,7 @@ function check(condition, name) { assert.ok(condition, name); checks++; console.
 async function request(route, body, cookie = "", extra = {}) { return fetch(origin + route, { method: body === undefined ? "GET" : "POST", headers: { Origin: origin, "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "manual" }); }
 async function login(email, pw = password, ip = "192.0.2.10") { const response = await request("/api/auth/sign-in/email", { email, password: pw }, "", { "x-forwarded-for": ip }); const cookie = response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; "); return { response, cookie }; }
 try {
+  check((await request("/api/onsign")).status === 401, "anonymous OnSign details are blocked");
   check((await request("/api/state")).status === 401, "anonymous inventory is blocked");
   check((await request("/api/preview-health")).status === 401, "anonymous preview health is blocked");
   check((await request("/admin")).status === 307, "anonymous Admin redirects to login");
@@ -103,6 +104,18 @@ try {
   const region = await createEntity("region", "Test region", country.id);
   const location = await createEntity("store", "Test mall", region.id);
   const screen = await createEntity("screen", "Test screen", location.id, "https://example.test/preview");
+  const onSignConfig = await request("/api/onsign", undefined, admin.cookie);
+  check(onSignConfig.status === 200 && (await onSignConfig.json()).configured === false, "OnSign remains optional without a token");
+  check((await request("/api/onsign?screenId="+screen.id, undefined, admin.cookie)).status === 409, "unlinked screens give clear guidance");
+  check((await request("/api/onsign?screenId=missing", undefined, admin.cookie)).status === 404, "missing screens do not return device data");
+  const editScreen = extra => request("/api/state", {action:"update",type:"screen",id:screen.id,name:screen.name,parentId:location.id,liveUrl:screen.liveUrl,...extra},admin.cookie);
+  for (const onsignPlayerId of [false,42,"bad id","x".repeat(257)]) check((await editScreen({onsignPlayerId})).status === 400,"invalid OnSign mappings are rejected");
+  check((await editScreen({onsignPlayerId:"player-1"})).status === 503,"new links require configured OnSign access");
+  await db.prepare("UPDATE entities SET onsign_player_id = ? WHERE id = ?").bind("saved-player",screen.id).run();
+  const preserved = await editScreen({});
+  check(preserved.status === 200 && (await preserved.json()).entities.find(item=>item.id===screen.id).onsignPlayerId === "saved-player","older clients preserve existing player links without API access");
+  check((await editScreen({onsignPlayerId:"saved-player"})).status === 200,"unchanged links remain editable during an OnSign outage");
+  check((await editScreen({onsignPlayerId:""})).status === 200,"Admin can unlink a player without API access");
   check(country.shortName === null, "existing country creation remains compatible without a short name");
   const shortCountryResponse = await request("/api/state",{action:"create",type:"country",name:"Short named country",shortName:"  KSA  "},admin.cookie);
   const shortCountry = (await shortCountryResponse.json()).entities.find(item=>item.name==="Short named country");
@@ -172,6 +185,7 @@ try {
   check((await request("/admin/screens", undefined, controller.cookie)).status === 307, "Controller cannot open Admin pages");
   check((await request("/controller", undefined, viewer.cookie)).status === 200, "Controller can open Controller");
   check((await request("/monitor", undefined, viewer.cookie)).status === 200, "Controller can open Monitor");
+  check((await request("/api/onsign", undefined, controller.cookie)).status === 403, "Controller cannot access device network details");
   check((await request("/api/users", undefined, controller.cookie)).status === 403, "Controller cannot read user accounts");
   check((await request("/api/users", { action: "create", name: "Forbidden", email: "forbidden@example.test", role: "admin", password }, viewer.cookie)).status === 403, "Controller cannot create accounts");
   check((await request("/api/state", { action: "create", type: "country", name: "Forbidden" }, controller.cookie)).status === 403, "Controller cannot modify inventory");

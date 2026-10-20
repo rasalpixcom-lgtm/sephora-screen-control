@@ -2,7 +2,7 @@ import { database, type ServerDatabase } from "@/lib/database";
 export { database } from "@/lib/database";
 
 export type EntityType = "country" | "region" | "store" | "screen" | "group";
-export type Entity = { id: string; type: EntityType; name: string; shortName?: string | null; parentId: string | null; liveUrl: string | null; isDemo: number; createdAt: string };
+export type Entity = { id: string; type: EntityType; name: string; shortName?: string | null; onsignPlayerId?: string | null; photoKey?: string | null; parentId: string | null; liveUrl: string | null; isDemo: number; createdAt: string };
 export type Member = { groupId: string; screenId: string };
 export type Selection = { countryId?: string; regionId?: string; storeId?: string; groupId?: string; screenIds?: string[] };
 export type Display = { selection: Selection; autoAdvance: boolean; intervalSeconds: number; updatedAt: string };
@@ -10,7 +10,7 @@ export type Activity = { id: string; action: string; entityType: string | null; 
 
 export async function readState(db: ServerDatabase = database(), includeActivity = true) {
   const [entitiesResult, membersResult, displayResult, activityResult] = await Promise.all([
-    db.prepare("SELECT id, type, name, short_name AS \"shortName\", parent_id AS \"parentId\", live_url AS \"liveUrl\", is_demo AS \"isDemo\", created_at AS \"createdAt\" FROM entities ORDER BY created_at, name").all<Entity>(),
+    db.prepare("SELECT id, type, name, short_name AS \"shortName\", onsign_player_id AS \"onsignPlayerId\", photo_key AS \"photoKey\", parent_id AS \"parentId\", live_url AS \"liveUrl\", is_demo AS \"isDemo\", created_at AS \"createdAt\" FROM entities ORDER BY created_at, name").all<Entity>(),
     db.prepare("SELECT group_id AS \"groupId\", screen_id AS \"screenId\" FROM group_members").all<Member>(),
     db.prepare("SELECT selection, auto_advance AS \"autoAdvance\", interval_seconds AS \"intervalSeconds\", updated_at AS \"updatedAt\" FROM display_state WHERE id = 'main'").first<{selection:string;autoAdvance:number;intervalSeconds:number;updatedAt:string}>(),
     includeActivity ? db.prepare("SELECT id, action, entity_type AS \"entityType\", entity_id AS \"entityId\", entity_name AS \"entityName\", actor, created_at AS \"createdAt\" FROM activity_log ORDER BY created_at DESC LIMIT 60").all<Activity>() : Promise.resolve({ results: [] as Activity[] }),

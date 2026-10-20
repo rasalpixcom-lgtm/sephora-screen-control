@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { build } from "esbuild";
+import sharp from "sharp";
+
+const root = process.cwd(), runtime = path.resolve(".server-runtime");
+await fs.mkdir(runtime, { recursive: true });
+const output = path.join(runtime, "screen-photo-test.cjs");
+await build({ entryPoints: ["lib/screen-photo.ts"], outfile: output, bundle: true, platform: "node", format: "cjs", external: ["sharp"] });
+const { prepareScreenPhoto, readScreenMutation, readScreenPhoto, removeScreenPhoto } = createRequire(import.meta.url)(output);
+let checks = 0;
+const check = (value, label) => { assert.ok(value, label); checks++; };
+const rejects = async (work, status) => { await assert.rejects(async () => work(), error => error.status === status); checks++; };
+const directory = await fs.mkdtemp(path.join(runtime, "photo-unit-"));
+const priorDirectory = process.env.SCREEN_PHOTO_DIR;
+try {
+  process.env.SCREEN_PHOTO_DIR = directory;
+  const bytes = await sharp({ create: { width: 600, height: 400, channels: 3, background: "#206e57" } }).png().toBuffer();
+  const file = new File([bytes], "../../private.png", { type: "image/png" });
+  const key = await prepareScreenPhoto(file);
+  check(/^[a-f0-9-]{36}$/.test(key), "storage references are generated independently of uploaded filenames");
+  check((await fs.readdir(directory)).length === 2, "each saved photo has a normalized image and thumbnail");
+  check((await sharp(await readScreenPhoto(key, true)).metadata()).width === 320, "thumbnail is limited to 320 pixels wide");
+  await rejects(() => readScreenPhoto("../../secret", true), 400);
+  await rejects(() => prepareScreenPhoto(new File([], "empty.png", { type: "image/png" })), 413);
+  await rejects(() => prepareScreenPhoto(new File([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])], "broken.png", { type: "image/png" })), 400);
+  await removeScreenPhoto(key); await removeScreenPhoto(key);
+  check((await fs.readdir(directory)).length === 0, "removal deletes both images and is repeatable");
+  const form = new FormData(); form.set("metadata", JSON.stringify({ action: "create", type: "screen" })); form.set("photo", file);
+  const parsed = await readScreenMutation(new Request("http://localhost", { method: "POST", body: form }));
+  check(parsed.file.size === file.size && parsed.body.type === "screen", "bounded multipart request retains metadata and a single image");
+  form.append("photo", file);
+  await rejects(() => readScreenMutation(new Request("http://localhost", { method: "POST", body: form })), 400);
+  const oversized = new Uint8Array(6 * 1024 * 1024);
+  await rejects(() => readScreenMutation(new Request("http://localhost", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=oversized" }, body: oversized })), 413);
+  const malformed = new Request("http://localhost", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=bad" }, body: "not multipart" });
+  await rejects(() => readScreenMutation(malformed), 400);
+  const ordinary = await readScreenMutation(new Request("http://localhost", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"display"}' }));
+  check(ordinary.file === null && ordinary.body.action === "display", "ordinary JSON actions retain the existing request path");
+  delete process.env.SCREEN_PHOTO_DIR;
+  const standalone = path.join(directory, ".next", "standalone"); await fs.mkdir(standalone, { recursive: true }); process.chdir(standalone);
+  const durableKey = await prepareScreenPhoto(file);
+  check((await fs.stat(path.join(directory, "uploads/screen-photos", durableKey + ".webp"))).isFile(), "standalone default storage is outside the replaceable build folder");
+  await removeScreenPhoto(durableKey);
+  console.log(`${checks} screen photo storage/upload checks passed.`);
+} finally {
+  process.chdir(root);
+  if (priorDirectory === undefined) delete process.env.SCREEN_PHOTO_DIR; else process.env.SCREEN_PHOTO_DIR = priorDirectory;
+  const resolved = path.resolve(directory);
+  if (!resolved.startsWith(runtime + path.sep) || !path.basename(resolved).startsWith("photo-unit-")) throw new Error("Unsafe test cleanup path");
+  await fs.rm(resolved, { recursive: true, force: true });
+}

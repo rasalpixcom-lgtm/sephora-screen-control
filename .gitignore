@@ -47,3 +47,6 @@ next-env.d.ts
 /outputs/
 /work/
 /.server-runtime/
+
+# Private physical screen images; back up separately from source.
+/uploads/

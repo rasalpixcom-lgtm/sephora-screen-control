@@ -31,6 +31,42 @@ npm start
 
 The build includes a standalone Node server and its static assets. Run db:migrate before starting a new release. Set HOSTNAME and PORT in .env.local; production defaults are documented in deploy/server.env.example.
 
+## OnSign device details
+
+This optional, read-only integration links an existing screen to an OnSign player. It does not modify OnSign devices or change preview monitoring or alert rules.
+
+1. Create a read-only API access key in OnSign with `player:read` permission and confirm API access is enabled for your organization.
+2. Add `ONSIGN_API_TOKEN="your-token"` to the server's private `.env.local`. Never use a `NEXT_PUBLIC_` name or commit the token.
+   The server finds the unique organization named **Sephora** (matching the whole name, ignoring letter case and outer spaces) across the token's organizations. It uses that organization's ID for every player-list and device-detail request, never the account's default organization. Missing, ambiguous or inaccessible organizations produce an error, without falling back to another brand.
+   Optionally set `ONSIGN_ORGANIZATION_ID="sephora-organization-id"` in `.env.local` to pin the selection to its stable ID. This takes precedence over name discovery and continues working after a rename. Use only the intended Sephora organization's ID, then restart the server. Organization discovery is cached for five minutes; changes to credentials or the configured ID invalidate cached data.
+3. Apply the new database migration with `npm run db:migrate`, build, and restart the server.
+4. In Admin → Screens → Add/Edit, search for and select the matching OnSign player. The link is optional; existing screens continue working without it.
+5. Select **Details** beside Preview link to open the screen's dedicated Admin page. Overview shows connection, last contact, downloads and diagnostics. Expand the device/software, network, schedule, location and management/license cards for all documented player fields, including serial number, MAC address, tags, custom attributes and notes when reported. Use **Back to screens** to return to the list. The page can be bookmarked or opened in a new tab. Refresh reloads the view; shared results are cached for up to one minute. The player selection list is cached for five minutes.
+
+Alerts, existing screen captures, player groups and published playback loops load only when opened. Lists fetch 20 records per page; use **Load more** for additional records. Group content is available inside its group entry, with membership checked against the linked player. Published content requires `content:read` in addition to `player:read`; a section permission error does not hide the basic device information. The six playback loops include read-only trigger/action metadata. Content and trigger URLs are displayed as text and never executed. Saved captures have an explicit HTTPS download link; the page does not request new captures or load their images automatically. Published assignments do not prove current playback, and nested playlists are shown as assignments rather than recursively expanding the media library.
+
+The token stays on the server. Only Admins can fetch device details. Missing information is shown as not reported, zero and false values are preserved, and API failures show unknown connection status rather than marking the device disconnected. Schedule times use the player's local time zone; other timestamps are labelled GST. Empty working-exception ranges mean no working hours on that date. One player can be linked to multiple screens when it drives multiple displays. Select **No player linked** to remove an association.
+
+The Details page shows reported download progress and the last completed download in Overview. Content & downloads shows the last content or settings change and elapsed download timing. Published loop items offer HTTPS media links when OnSign supplies them. These open OnSign server copies, not files retrieved from the player; the browser may display or download the media. Campaigns, playlists and items without a download URL have no file link. Published assignments and 100% progress do not prove the current playback or an exact device cache inventory. Expired links can be refreshed through Refresh section (API results are cached for up to one minute).
+
+Connection status describes communication with OnSign, not physical TV power or correct playback. The existing preview link and preview alerts remain separate. No scheduled OnSign polling or new alert behavior is added.
+
+Official API references: [requests and authentication](https://app.onsign.tv/developer/guides/calls/), [player schema](https://app.onsign.tv/developer/reference/query/).
+
+Verification: `npm run test:onsign` exercises the API client and production server using mocked OnSign responses and a disposable PostgreSQL database. `npm run test:auth` also covers absent credentials, permissions, mapping validation, and older-client compatibility. A real account check is still needed after configuring the token.
+
+## Physical screen photos
+
+Admin → Screens → Add/Edit supports one optional JPG, PNG or WebP photo up to 5 MiB and 50 megapixels. Choose a file to add/replace it, or use Remove photo. Save commits the photo together with the screen; Cancel leaves the saved photo unchanged. Undo photo change restores the saved selection. An older client that omits photo fields preserves the existing image. Concurrent photo changes return a conflict rather than silently overwriting a newer upload.
+
+The Details page shows a small thumbnail and opens the larger image only when clicked. Images retain their proportions, support Escape/Close and keyboard focus restoration, and work without an OnSign player link. Viewing and uploading photos require Admin access. Photos are not public URLs or part of the monitoring wall.
+
+Run `npm run db:migrate` before starting this version (migration `0010_screen_photos.sql`). The application re-encodes images as WebP, applies camera rotation, strips metadata, limits the larger image to 2400 × 2400 and generates a thumbnail within 320 × 240. It does not keep the original upload.
+
+`SCREEN_PHOTO_DIR` optionally sets an **absolute private storage folder**, writable by the server account. The default is `uploads/screen-photos` under the project/server root, including when Next runs from `.next/standalone`; photos stay outside the replaceable build folder and Git. For production, prefer an explicit folder such as `C:/Apps/SephoraData/screen-photos`. Do not serve this folder publicly. Back up the photo folder **together with PostgreSQL** while the application is stopped, and preserve it when updating or moving the application. Database-only backups do not include photos. Replacement/removal and screen/parent deletion clean up obsolete photo files after successful database commits.
+
+Verification: `npm run test:screen-photo` covers storage, image conversion and bounded upload parsing; `npm run test:onsign` includes authenticated photo upload, private serving, replacement/removal, validation failures and compatibility with ordinary edits.
+
 ## Authentication and data
 
 See AUTHENTICATION.md for roles and first Admin setup. The local accounts and inventory have been migrated to PostgreSQL with their existing password hashes. Sign in again with the same credentials. The original SQLite data remains unchanged.

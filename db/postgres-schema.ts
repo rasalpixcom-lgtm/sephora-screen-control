@@ -1,7 +1,10 @@
 import { pgTable, text, integer, boolean, timestamp, bigint, jsonb, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
+export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), onsignPlayerId: text("onsign_player_id"), photoKey: text("photo_key"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
+  check("entities_photo_screen", sql`${table.photoKey} IS NULL OR (${table.type} = 'screen' AND ${table.photoKey} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$')`),
+  uniqueIndex("entities_photo_key_idx").on(table.photoKey).where(sql`${table.photoKey} IS NOT NULL`),
+  check("entities_onsign_player_screen", sql`${table.onsignPlayerId} IS NULL OR (${table.type} = 'screen' AND length(${table.onsignPlayerId}) BETWEEN 1 AND 256 AND ${table.onsignPlayerId} !~ '[[:space:][:cntrl:]]')`),
   check("entities_country_short_name_check", sql`${table.shortName} IS NULL OR (${table.type} = 'country' AND ${table.shortName} = btrim(${table.shortName}) AND char_length(${table.shortName}) BETWEEN 1 AND 12)`),
   uniqueIndex("entities_country_short_name_idx").on(sql`lower(${table.shortName})`).where(sql`${table.type} = 'country' AND ${table.shortName} IS NOT NULL`),
 ]);
