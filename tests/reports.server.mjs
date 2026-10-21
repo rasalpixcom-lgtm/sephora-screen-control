@@ -86,6 +86,12 @@ try {
   check((await request("/api/users",{action:"create",name:"Controller",email:"controller@example.test",role:"controller",password},admin.cookie)).status===200,"Controller fixture is created");
   const controller=await login("controller@example.test");
   check((await request("/api/reports/preview/pdf",undefined,controller.cookie)).status===403&&(await request("/api/reports/preview/pdf")).status===401,"PDF export enforces Admin access");
+  check((await request("/api/reports/screens/pdf",undefined,controller.cookie)).status===403&&(await request("/api/reports/screens/pdf")).status===401,"Screens PDF export enforces Admin access");
+  const inventoryPdf=await request("/api/reports/screens/pdf?countryId=country&regionId=region&storeId=location&search=Window",undefined,admin.cookie);
+  const inventoryBytes=Buffer.from(await inventoryPdf.arrayBuffer());
+  check(inventoryPdf.status===200&&inventoryPdf.headers.get("content-type")==="application/pdf"&&inventoryPdf.headers.get("cache-control")==="no-store"&&inventoryBytes.subarray(0,5).toString()==="%PDF-","Screens PDF exports filtered inventory as an uncached download");
+  check(!inventoryBytes.includes(Buffer.from(tokenFor(ids.old))),"Screens PDF does not contain private preview tokens");
+  check((await request("/api/reports/screens/pdf?search="+"x".repeat(201),undefined,admin.cookie)).status===400,"Screens PDF rejects oversized search text");
   check((await request("/api/reports/preview?threshold=20",undefined,controller.cookie)).status===403,"Controller cannot read Admin reports");
   const response=await request("/api/reports/preview?threshold=20",undefined,admin.cookie), report=await response.json();
   check(response.status===200&&response.headers.get("cache-control")==="no-store"&&report.total===2&&report.entries[0].screenId===ids.older,"20 minute report is uncached and sorted longest first");

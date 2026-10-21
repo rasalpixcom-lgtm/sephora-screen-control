@@ -7,7 +7,7 @@ import { clientFetch } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Download, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -33,6 +33,7 @@ import SettingsTabs from "@/components/settings-tabs";
 import { ScreenPhotoInput, ScreenPhotoView, type PhotoDraft } from "@/components/screen-photo";
 import OnSignPlayerPicker from "@/components/onsign-player-picker";
 import OnSignScreenDetails from "@/components/onsign-screen-details";
+import { screenInventoryRows } from "@/lib/screen-inventory-report";
 
 
 
@@ -92,6 +93,8 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
   const [error, setError] = useState("");
 
   const [busy, setBusy] = useState(false);
+  const [downloadingScreens, setDownloadingScreens] = useState(false);
+  const [screenReportError, setScreenReportError] = useState("");
   const saving = useRef(false);
   const reading = useRef(false);
   const revision = useRef(0);
@@ -204,17 +207,28 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
   }
 
+  const sections: Partial<Record<Section, EntityType>> = { screens: "screen", countries: "country", regions: "region", locations: "store" };
+  const currentType = screenDetails ? undefined : sections[section];
   const searchable = useMemo(() => entities.filter((item) => `${item.name} ${item.shortName || ""} ${parentNames(item, entities)}`.toLowerCase().includes(search.trim().toLowerCase())), [entities, search]);
 
-  function matchesScreenFilters(item: Entity) {
-    const store = entities.find(entity => entity.id === item.parentId);
-    const region = entities.find(entity => entity.id === store?.parentId);
-    return (!screenFilters.storeId || item.parentId === screenFilters.storeId)
-      && (!screenFilters.regionId || store?.parentId === screenFilters.regionId)
-      && (!screenFilters.countryId || region?.parentId === screenFilters.countryId);
-  }
   const hasScreenFilters = Object.values(screenFilters).some(Boolean);
-  const visibleScreens = searchable.filter(item => item.type === "screen" && matchesScreenFilters(item));
+  const visibleScreens = useMemo(() => currentType === "screen" ? screenInventoryRows(entities, { ...screenFilters, search }).map(row => row.screen) : [], [currentType, entities, screenFilters, search]);
+  async function downloadScreenReport() {
+    setDownloadingScreens(true); setScreenReportError("");
+    try {
+      const params = new URLSearchParams({ ...screenFilters, search });
+      const response = await fetch(`/api/reports/screens/pdf?${params}`, { cache: "no-store", signal: AbortSignal.timeout(60000) });
+      if (response.status === 401) { window.location.replace("/login?next=/admin/screens"); return; }
+      if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.error || "Could not create the screens PDF."); }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] || "screens-report.pdf";
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) { setScreenReportError(cause instanceof Error ? cause.message : "Could not create the screens PDF."); }
+    finally { setDownloadingScreens(false); }
+  }
   const sortedOptions = (type: EntityType, parentId?: string) => byType(type).filter(item => parentId === undefined || item.parentId === parentId).sort((a,b)=>a.name.localeCompare(b.name));
   const missingLinks = byType("screen").filter((item) => !item.liveUrl);
 
@@ -237,10 +251,6 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
   }
 
 
-
-  const sections: Partial<Record<Section, EntityType>> = { screens: "screen", countries: "country", regions: "region", locations: "store" };
-
-  const currentType = screenDetails ? undefined : sections[section];
 
   const sectionDescription: Record<Section, string> = {
 
@@ -287,7 +297,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
         </>}
 
-        {currentType && <section className="adm-panel adm-list-panel"><div className="adm-list-toolbar"><div className="adm-search"><Search size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${sectionNames[section].toLowerCase()}`} aria-label={`Search ${sectionNames[section].toLowerCase()}`}/></div><span aria-live="polite">{search.trim() || (currentType === "screen" && hasScreenFilters) ? `${currentType === "screen" ? visibleScreens.length : searchable.filter((item) => item.type === currentType).length} of ${byType(currentType).length}` : `${byType(currentType).length} total`}</span></div>{currentType === "screen" && <div className="adm-screen-filters">
+        {currentType && <section className="adm-panel adm-list-panel"><div className="adm-list-toolbar"><div className="adm-search"><Search size={17}/><input value={search} maxLength={currentType === "screen" ? 200 : undefined} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${sectionNames[section].toLowerCase()}`} aria-label={`Search ${sectionNames[section].toLowerCase()}`}/></div><div className="adm-list-toolbar-actions"><span aria-live="polite">{search.trim() || (currentType === "screen" && hasScreenFilters) ? `${currentType === "screen" ? visibleScreens.length : searchable.filter((item) => item.type === currentType).length} of ${byType(currentType).length}` : `${byType(currentType).length} total`}</span>{currentType === "screen" && <button type="button" className="adm-secondary-btn" disabled={downloadingScreens || !visibleScreens.length} onClick={() => void downloadScreenReport()}><Download size={16}/>{downloadingScreens ? "Creating PDF..." : "Download PDF"}</button>}</div></div>{currentType === "screen" && screenReportError && <div className="adm-error adm-screen-report-error" role="alert"><span>{screenReportError}</span><button type="button" onClick={() => setScreenReportError("")} aria-label="Dismiss report error"><X size={16}/></button></div>}{currentType === "screen" && <div className="adm-screen-filters">
           <LocationPicker label="Country" value={screenFilters.countryId} placeholder="All countries" options={[{id:"",name:"All countries"},...sortedOptions("country")]} onChange={countryId=>setScreenFilters({countryId,regionId:"",storeId:""})}/>
           <LocationPicker label="Region" value={screenFilters.regionId} placeholder="All regions" disabled={!screenFilters.countryId} options={[{id:"",name:"All regions"},...sortedOptions("region",screenFilters.countryId)]} onChange={regionId=>setScreenFilters({...screenFilters,regionId,storeId:""})}/>
           <LocationPicker label="Location" value={screenFilters.storeId} placeholder="All locations" disabled={!screenFilters.regionId} options={[{id:"",name:"All locations"},...sortedOptions("store",screenFilters.regionId)]} onChange={storeId=>setScreenFilters({...screenFilters,storeId})}/>

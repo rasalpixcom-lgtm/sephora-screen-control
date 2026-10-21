@@ -17,7 +17,7 @@
     "test:onsign": "node tests/onsign-api.mjs && node tests/onsign-content.mjs && node tests/screen-photo.mjs && node --env-file=.env.local tests/onsign.server.mjs",
     "test:auth": "node --env-file=.env.local tests/auth.server.mjs",
     "test:activity": "node --experimental-strip-types tests/activity-query.mjs && node --env-file=.env.local tests/activity.server.mjs",
-    "test:reports": "node --env-file=.env.local tests/reports.server.mjs",
+    "test:reports": "node tests/screen-inventory-report.mjs && node --env-file=.env.local tests/reports.server.mjs",
     "test:whatsapp-pdf": "node tests/whatsapp-pdf.mjs",
     "test:whatsapp-alerts": "node --env-file=.env.local tests/whatsapp-alerts.server.mjs",
     "test:email-alerts": "node --env-file=.env.local tests/email-alerts.server.mjs",

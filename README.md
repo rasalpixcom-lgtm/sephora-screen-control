@@ -55,6 +55,10 @@ Official API references: [requests and authentication](https://app.onsign.tv/dev
 
 Verification: `npm run test:onsign` exercises the API client and production server using mocked OnSign responses and a disposable PostgreSQL database. `npm run test:auth` also covers absent credentials, permissions, mapping validation, and older-client compatibility. A real account check is still needed after configuring the token.
 
+## Screens PDF report
+
+Admin → Screens has **Download PDF** beside the result count. It exports every screen matching the current search and country, region, and location filters. The report lists saved inventory details, preview-link status, linked OnSign player ID, and whether a photo is saved. When one country is selected, its name appears in the heading instead of repeating in every row. It does not include photos, preview URLs, API credentials, or live device status. Only Admins can download it.
+
 ## Physical screen photos
 
 Admin → Screens → Add/Edit supports one optional JPG, PNG or WebP photo up to 5 MiB and 50 megapixels. Choose a file to add/replace it, or use Remove photo. Save commits the photo together with the screen; Cancel leaves the saved photo unchanged. Undo photo change restores the saved selection. An older client that omits photo fields preserves the existing image. Concurrent photo changes return a conflict rather than silently overwriting a newer upload.
