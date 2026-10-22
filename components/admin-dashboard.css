@@ -468,6 +468,12 @@ html.dark .adm-screen-table .adm-row-actions .adm-delete:hover,html.dark .adm-sc
 .adm-region-table td:nth-child(3),.adm-region-table th:nth-child(3) { text-align:center; font-variant-numeric:tabular-nums; }
 .adm-region-table td:nth-child(2),.adm-region-table .adm-name-cell strong { overflow-wrap:anywhere; white-space:normal; line-height:1.5; }
 .adm-region-table .adm-name-cell>div { min-width:0; }
+.adm-region-table.adm-location-table { min-width:900px; }
+.adm-location-table th:first-child { width:36%; }
+.adm-location-table th:nth-child(2) { width:calc(64% - 384px); }
+.adm-location-table th:nth-child(3) { width:84px; }
+.adm-location-table th:nth-child(4) { width:160px; }
+.adm-location-table th:nth-child(4),.adm-location-table td:nth-child(4) { text-align:center; }
 .adm-region-table .adm-row-actions .adm-delete { width:40px; border-radius:10px; }
 .adm-region-table .adm-row-actions .adm-delete:hover,.adm-region-table .adm-row-actions .adm-delete:focus-visible { background:rgba(200,65,80,.14); color:#cf5263; }
 html.dark .adm-region-table .adm-row-actions .adm-delete:hover,html.dark .adm-region-table .adm-row-actions .adm-delete:focus-visible { color:#ffabb5; }

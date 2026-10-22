@@ -1,0 +1,11 @@
+.screen-notes-card { padding:22px 24px; min-width:0; }
+.screen-notes-head { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:18px; }
+.screen-notes-head h2 { margin:0; font-size:17px; }
+.screen-notes-card form { display:grid; gap:10px; }
+.screen-notes-card label { font-size:13px; font-weight:650; }
+.screen-notes-card textarea { display:block; width:100%; min-width:0; min-height:88px; max-height:260px; overflow-y:auto; resize:vertical; padding:12px; border:1px solid var(--work-line); border-radius:10px; background:var(--work-surface); color:var(--work-text); font:inherit; line-height:1.5; }
+.screen-notes-card textarea:focus-visible { outline:2px solid var(--work-focus,var(--work-action)); outline-offset:2px; }
+.screen-notes-card textarea:disabled { opacity:.65; }
+.screen-notes-text { margin:0 0 12px; color:var(--work-text); font-size:14px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.screen-notes-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:10px; }
+@media(max-width:700px) { .screen-notes-card { padding:20px; } }

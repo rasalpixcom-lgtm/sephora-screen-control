@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const authorization = request.headers.get("authorization");
     const allowed = authorization !== null ? await validMonitorKey(authorization) : !!await currentUser(request.headers);
     if (!allowed) return Response.json({ error: "This monitor link is missing or inactive. Ask an Admin for the current link." }, { status: 401, headers });
-    const state = await readState(undefined, false);
+    const state = await readState(undefined, false, false);
     // Expose only the current screens and their labels, without audit or accounts.
     const selected = screensFor(state, state.display.selection);
     const health = startPreviewHealthChecks();

@@ -1,0 +1,40 @@
+.location-photo-input { display:grid; gap:8px; padding-top:12px; border-top:1px solid var(--work-line); }
+.location-photo-heading { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+.location-photo-heading strong { display:block; font-size:14px; margin-bottom:3px; }
+.location-photo-heading small,.location-photo-input>small { display:block; color:var(--work-muted); font-size:12px; line-height:1.5; }
+.location-photo-heading>span { flex:none; color:var(--work-muted); font-size:12px; }
+.location-photo-drafts { display:flex; gap:10px; overflow-x:auto; padding:3px 3px 8px; }
+.location-photo-draft { flex:none; display:grid; gap:5px; width:80px; padding:3px; border:2px solid transparent; border-radius:11px; background:transparent; color:var(--work-muted); text-align:center; font:inherit; font-size:11px; cursor:pointer; }
+.location-photo-draft[aria-pressed="true"] { border-color:var(--work-focus); color:var(--work-text); }
+.location-photo-draft-preview { width:70px; height:58px; display:grid; place-items:center; border-radius:7px; background:var(--work-soft); overflow:hidden; }
+.location-photo-draft-preview img { width:100%; height:100%; object-fit:cover; }
+.location-photo-selected { display:flex; align-items:end; gap:12px; }
+.location-photo-selected label { flex:1; min-width:0; margin:0; }
+.location-photo-selected label input { width:100%; }
+.location-photo-draft-actions { display:flex; gap:4px; }
+.location-photo-draft-actions button { width:34px; min-width:34px; height:34px; padding:0; display:grid; place-items:center; }
+.location-photo-file { display:none; }
+.location-photo-input>.adm-secondary-btn { align-self:flex-start; justify-self:start; }
+.location-photo-view { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--work-line); border-radius:9px; background:var(--work-soft); color:var(--work-text); padding:4px 10px 4px 4px; font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
+.location-photo-view img { width:42px; height:32px; object-fit:cover; border-radius:5px; }
+.location-photo-view small,.location-photo-empty { color:var(--work-muted); }
+.location-photo-gallery { width:min(680px,calc(100vw - 32px)); max-width:680px; }
+.location-photo-large { height:clamp(180px,50dvh,480px); display:grid; place-items:center; background:var(--work-soft); border-radius:12px; overflow:hidden; }
+.location-photo-large img { width:100%; height:100%; object-fit:contain; }
+.location-photo-large p { color:var(--work-muted); }
+.location-photo-caption { margin:0; height:40px; overflow-y:auto; font-size:13px; overflow-wrap:anywhere; }
+.location-photo-thumbs { display:flex; gap:8px; overflow-x:auto; padding:3px; }
+.location-photo-thumbs button { flex:none; width:72px; height:58px; padding:2px; border:2px solid transparent; border-radius:8px; background:var(--work-soft); cursor:pointer; }
+.location-photo-thumbs button[aria-current="true"] { border-color:var(--work-focus); }
+.location-photo-thumbs img { width:100%; height:100%; object-fit:cover; border-radius:4px; }
+.adm-location-editor { max-width:650px; }
+.adm-standard-editor-fields { display:grid; gap:16px; }
+.adm-dialog.adm-location-editor { display:flex; flex-direction:column; max-height:min(760px,calc(100dvh - 64px)); overflow:hidden; }
+.adm-location-editor .adm-form { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.adm-location-editor .adm-form :is(input,select,button):focus-visible { outline-offset:-2px; }
+.adm-location-editor-fields { display:flex; flex:1; flex-direction:column; gap:16px; min-height:0; overflow:hidden; }
+.adm-location-editor-fields>label { flex:none; }
+.adm-location-editor .location-photo-input { display:flex; flex:1; flex-direction:column; min-height:0; overflow-y:auto; }
+.adm-location-editor .location-photo-drafts { flex:none; }
+.adm-location-editor .adm-form-actions { flex:none; margin-top:0; padding-top:14px; border-top:1px solid var(--work-line); }
+@media(max-width:600px) { .location-photo-selected { align-items:stretch; flex-direction:column; } .location-photo-draft-actions { justify-content:flex-end; } }

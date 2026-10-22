@@ -24,7 +24,7 @@ export async function removeScreenPhoto(key: string) {
 }
 export const readScreenPhoto = (key: string, thumbnail: boolean) => readFile(photoPath(key, thumbnail));
 
-export async function prepareScreenPhoto(file: File): Promise<string> {
+export async function normalizePrivatePhoto(file: File): Promise<{ full: Buffer; thumbnail: Buffer }> {
   if (!file.size || file.size > screenPhotoLimit) throw new RequestError("Choose a photo up to 5 MB.", 413);
   if (!screenPhotoTypes.includes(file.type)) throw new RequestError("Choose a JPG, PNG or WebP photo.", 415);
   const input = Buffer.from(await file.arrayBuffer());
@@ -41,6 +41,11 @@ export async function prepareScreenPhoto(file: File): Promise<string> {
     full = await image.rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
     thumbnail = await sharp(full).resize({ width: 320, height: 240, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
   } catch { throw new RequestError("This photo could not be read. Use a valid, non-animated JPG, PNG or WebP image up to 50 megapixels."); }
+  return { full, thumbnail };
+}
+
+export async function prepareScreenPhoto(file: File): Promise<string> {
+  const { full, thumbnail } = await normalizePrivatePhoto(file);
   const key = randomUUID(), fullPath = photoPath(key, false);
   try {
     await mkdir(path.dirname(fullPath), { recursive: true, mode: 0o700 });

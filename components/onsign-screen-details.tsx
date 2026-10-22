@@ -44,10 +44,9 @@ export default function OnSignScreenDetails({ screen, header }: { screen: Entity
     <button type="button" className="adm-icon-btn onsign-header-refresh" aria-label="Refresh OnSign details" title="Refresh OnSign details · results may be cached for up to 1 minute" disabled={loading} onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={17} className={loading ? "animate-spin" : ""}/></button>
   </div> : null;
   return <>{header(connection)}<div className="onsign-details-page">
-    {!screen.onsignPlayerId ? <section className="adm-panel onsign-detail-card"><h2>No OnSign player linked</h2><p className="onsign-hint">Return to Screens and select Edit to link the matching OnSign player.</p></section> : <>
-      {error && <div className="adm-error" role="alert">{error}{snapshot && " Previous information is shown below; it may be out of date."}</div>}
-      {player && <OnSignExpandedDetails key={`${screen.id}:${revision}`} screenId={screen.id} player={player}/>}
-      <p className="onsign-note">Connection shows communication with OnSign. It does not confirm that the physical screen is powered on or displaying correctly. Preview availability is measured separately.</p>
-    </>}
+    {!screen.onsignPlayerId && <p className="onsign-hint">No OnSign player linked. You can still record hardware details below; link a player from Screens to see live data.</p>}
+    {error && <div className="adm-error" role="alert">{error}{snapshot && " Previous information is shown below; it may be out of date."}</div>}
+    <OnSignExpandedDetails key={screen.id} screenId={screen.id} player={player || null} linked={!!screen.onsignPlayerId} onsignLoading={loading}/>
+    {screen.onsignPlayerId && <p className="onsign-note">Connection shows communication with OnSign. It does not confirm that the physical screen is powered on or displaying correctly. Preview availability is measured separately.</p>}
   </div></>;
 }

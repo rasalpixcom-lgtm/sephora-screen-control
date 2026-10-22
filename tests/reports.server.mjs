@@ -32,7 +32,7 @@ const liveUrl=id=>"https://app.onsign.tv/embed/"+tokenFor(id);
 async function addEntity(id,type,name,parentId=null,url=null){await pool.query("INSERT INTO entities (id,type,name,parent_id,live_url,is_demo,created_at) VALUES ($1,$2,$3,$4,$5,0,$6)",[id,type,name,parentId,url,new Date(now).toISOString()]);}
 let server,logs="";
 try {
-  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===11,"migration is idempotent and records all schemas including OnSign player links and screen photos");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM server_migrations")).rows[0].count===15,"migration is idempotent and records all schemas including screen remote access");
   const shortNameMigration = fs.readFileSync("db/postgres-migrations/0005_country_short_names.sql","utf8").replace(/\r\n/g,"\n");
   const migrationHash = content => crypto.createHash("sha256").update(content).digest("hex");
   await pool.query("UPDATE server_migrations SET checksum=$1 WHERE name='0005_country_short_names.sql'",[migrationHash(shortNameMigration.replace(/\n/g,"\r\n"))]);
@@ -79,12 +79,65 @@ try {
   let ready=false; for(let attempt=0;attempt<60;attempt++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{} if(server.exitCode!==null)break; await new Promise(resolve=>setTimeout(resolve,500));}
   if(!ready)throw new Error("Test server failed to start: "+logs.slice(-2000));
   async function request(route,body,cookie=""){return fetch(origin+route,{method:body===undefined?"GET":"POST",headers:{Origin:origin,"Content-Type":"application/json",...(cookie?{Cookie:cookie}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:"manual"});}
+  async function put(route,body,cookie=""){return fetch(origin+route,{method:"PUT",headers:{Origin:origin,"Content-Type":"application/json",...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body),redirect:"manual"});}
   async function login(email){const response=await request("/api/auth/sign-in/email",{email,password});return {response,cookie:response.headers.getSetCookie().map(value=>value.split(";")[0]).join("; ")};}
   check((await request("/api/reports/preview?threshold=20")).status===401,"anonymous report access is blocked");
   check((await request("/api/activate",{token:bootstrap,password})).status===200,"test Admin activates");
   const admin=await login("admin@example.test"); check(admin.response.status===200,"Admin signs in");
   check((await request("/api/users",{action:"create",name:"Controller",email:"controller@example.test",role:"controller",password},admin.cookie)).status===200,"Controller fixture is created");
   const controller=await login("controller@example.test");
+  const noteScreenId="note-screen";
+  await addEntity(noteScreenId,"screen","Note test screen",ids.location);
+  const noteRoute="/api/screen-notes?screenId="+noteScreenId;
+  check((await request(noteRoute)).status===401&&(await request(noteRoute,undefined,controller.cookie)).status===403,"screen notes require Admin access");
+  const initialNote=await request(noteRoute,undefined,admin.cookie);
+  check(initialNote.status===200&&(await initialNote.json()).note.text==="","a new screen has an empty note");
+  check((await put("/api/screen-notes",{screenId:noteScreenId,note:"x".repeat(4001),version:null},admin.cookie)).status===400,"screen notes reject oversized text");
+  const createdNote=await put("/api/screen-notes",{screenId:noteScreenId,note:" First line\r\nSecond line ",version:null},admin.cookie);
+  const createdNoteData=(await createdNote.json()).note;
+  check(createdNote.status===200&&createdNoteData.text==="First line\nSecond line"&&createdNoteData.version,"Admin can save a multiline note");
+  const savedNote=(await (await request(noteRoute,undefined,admin.cookie)).json()).note;
+  check(savedNote.text===createdNoteData.text&&savedNote.version===createdNoteData.version,"saved note loads independently");
+  check((await put("/api/screen-notes",{screenId:noteScreenId,note:"Stale create",version:null},admin.cookie)).status===409,"a second create cannot overwrite an existing note");
+  const updatedNote=await put("/api/screen-notes",{screenId:noteScreenId,note:"Updated",version:savedNote.version},admin.cookie);
+  const updatedNoteData=(await updatedNote.json()).note;
+  check(updatedNote.status===200&&updatedNoteData.text==="Updated"&&updatedNoteData.version!==savedNote.version,"Admin can edit a note");
+  check((await put("/api/screen-notes",{screenId:noteScreenId,note:"Stale edit",version:savedNote.version},admin.cookie)).status===409,"stale edits cannot overwrite newer notes");
+  check((await put("/api/screen-notes",{screenId:noteScreenId,note:"Not allowed",version:updatedNoteData.version},controller.cookie)).status===403,"Controller cannot edit notes");
+  const remoteRoute="/api/screen-remote-access?screenId="+noteScreenId;
+  const remoteBody={screenId:noteScreenId,fields:{teamViewerId:"123 456 789",anyDeskId:"store-screen@ad"},version:null};
+  check((await request(remoteRoute)).status===401&&(await request(remoteRoute,undefined,controller.cookie)).status===403,"remote IDs require Admin access");
+  check((await put("/api/screen-remote-access",remoteBody)).status===401&&(await put("/api/screen-remote-access",remoteBody,controller.cookie)).status===403,"remote ID writes require Admin access");
+  const initialRemote=(await (await request(remoteRoute,undefined,admin.cookie)).json()).record;
+  check(initialRemote.version===null&&initialRemote.teamViewerId===""&&initialRemote.anyDeskId==="","new screens have empty remote IDs");
+  check((await request("/api/screen-remote-access?screenId="+ids.location,undefined,admin.cookie)).status===404,"locations cannot expose screen remote IDs");
+  check((await put("/api/screen-remote-access",{...remoteBody,fields:{teamViewerId:"bad",anyDeskId:""}},admin.cookie)).status===400,"invalid remote IDs are rejected");
+  const remoteSaved=await put("/api/screen-remote-access",remoteBody,admin.cookie),remoteRecord=(await remoteSaved.json()).record;
+  check(remoteSaved.status===200&&remoteRecord.teamViewerId==="123456789"&&remoteRecord.anyDeskId==="store-screen@ad"&&remoteRecord.updatedAt,"Admin can save normalized remote IDs and aliases");
+  const remoteLoaded=(await (await request(remoteRoute,undefined,admin.cookie)).json()).record;
+  check(remoteLoaded.version===remoteRecord.version&&remoteLoaded.anyDeskId===remoteRecord.anyDeskId,"remote IDs persist independently of Notes");
+  check((await put("/api/screen-remote-access",remoteBody,admin.cookie)).status===409,"a stale create cannot overwrite remote IDs");
+  const clearedRemote=await put("/api/screen-remote-access",{...remoteBody,fields:{teamViewerId:"",anyDeskId:""},version:remoteRecord.version},admin.cookie);
+  check(clearedRemote.status===200&&(await clearedRemote.json()).record.teamViewerId==="","Admin can clear optional remote IDs");
+  check((await put("/api/screen-remote-access",{...remoteBody,version:remoteRecord.version},admin.cookie)).status===409,"stale edits cannot overwrite remote IDs");
+  check((await fetch(origin+"/api/screen-remote-access",{method:"PUT",headers:{Origin:"https://attacker.test","Content-Type":"application/json",Cookie:admin.cookie},body:JSON.stringify(remoteBody)})).status===403,"cross-origin remote ID writes are blocked");
+  check(!(await (await request("/api/state",undefined,controller.cookie)).text()).includes("teamViewerId"),"Controller state does not expose remote IDs");
+  const hardwareRoute="/api/screen-hardware?screenId="+noteScreenId;
+  check((await request(hardwareRoute)).status===401&&(await request(hardwareRoute,undefined,controller.cookie)).status===403,"screen hardware requires Admin access");
+  const initialHardware=await request(hardwareRoute,undefined,admin.cookie);
+  check(initialHardware.status===200&&(await initialHardware.json()).sections.ledDisplay.version===null,"a new screen has empty hardware details");
+  const ledFields={resolution:"2300 x 800",pixelPitch:"2.5",dimensions:"999",totalSqm:"999"};
+  const savedHardware=await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:null},admin.cookie);
+  const savedHardwareRecord=(await savedHardware.json()).record;
+  check(savedHardware.status===200&&savedHardwareRecord.fields.dimensions==="5.75 × 2"&&savedHardwareRecord.fields.totalSqm==="11.5","server calculates LED dimensions and area from resolution and pitch");
+  const loadedHardware=(await (await request(hardwareRoute,undefined,admin.cookie)).json()).sections.ledDisplay;
+  check(loadedHardware.version===savedHardwareRecord.version&&loadedHardware.fields.totalSqm==="11.5","saved hardware details load independently");
+  check((await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:null},admin.cookie)).status===409,"stale hardware edits cannot overwrite saved details");
+  check((await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:savedHardwareRecord.version},controller.cookie)).status===403,"Controller cannot edit hardware details");
+  await pool.query("DELETE FROM entities WHERE id=$1",[noteScreenId]);
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_notes WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes its note");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_remote_access WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes remote IDs");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_hardware_sections WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes its hardware details");
   check((await request("/api/reports/preview/pdf",undefined,controller.cookie)).status===403&&(await request("/api/reports/preview/pdf")).status===401,"PDF export enforces Admin access");
   check((await request("/api/reports/screens/pdf",undefined,controller.cookie)).status===403&&(await request("/api/reports/screens/pdf")).status===401,"Screens PDF export enforces Admin access");
   const inventoryPdf=await request("/api/reports/screens/pdf?countryId=country&regionId=region&storeId=location&search=Window",undefined,admin.cookie);
@@ -142,7 +195,7 @@ try {
   check((pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)||[]).length>=3,"PDF export paginates a long report");
   check(!pdf.includes(Buffer.from(tokenFor(ids.old)))&&!pdf.includes(Buffer.from("https://")),"PDF does not expose preview URLs or tokens");
   fs.writeFileSync(path.join(root,".server-runtime","preview-report-sample.pdf"),pdf);
-  for(const table of ["preview_screen_state","preview_incident"]) {
+  for(const table of ["preview_screen_state","preview_incident","screen_hardware_sections","screen_notes","location_photos","screen_remote_access"]) {
     await pool.query(`ALTER TABLE ${table} RENAME TO ${table}_health_fixture`);
     try {check((await request("/api/health")).status===503,`health check detects missing ${table} migration`);}
     finally {await pool.query(`ALTER TABLE ${table}_health_fixture RENAME TO ${table}`);}

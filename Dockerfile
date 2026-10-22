@@ -11,6 +11,7 @@ ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/db/postgres-migrations ./db/postgres-migrations
 COPY --from=builder --chown=node:node /app/scripts/migrate-postgres.mjs ./scripts/migrate-postgres.mjs
+RUN mkdir -p /app/uploads && chown node:node /app/uploads && chmod 700 /app/uploads
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

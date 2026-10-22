@@ -59,6 +59,16 @@ Verification: `npm run test:onsign` exercises the API client and production serv
 
 Admin → Screens has **Download PDF** beside the result count. It exports every screen matching the current search and country, region, and location filters. The report lists saved inventory details, preview-link status, linked OnSign player ID, and whether a photo is saved. When one country is selected, its name appears in the heading instead of repeating in every row. It does not include photos, preview URLs, API credentials, or live device status. Only Admins can download it.
 
+## Screen hardware inventory
+
+Admin → Screens → Details has a **Hardware inventory** tab for LED display, LED controller, media player, and power/network installation records. It works even without a linked OnSign player. Each section opens in view mode and has its own Add details/Edit, Save, and Cancel controls. Unsaved edits prompt before switching tabs or sections. These manually recorded details are separate from the live OnSign device data. The **Maintenance** tab is an empty placeholder for future work. One record per hardware section is supported for each screen.
+
+Apply migration `0011_screen_hardware.sql` with `npm run db:migrate` before starting this version. Hardware records are stored in PostgreSQL, removed when the screen is deleted, and editable only by Admins. Concurrent edits to the same section return a conflict instead of overwriting newer information.
+
+The **Notes** tab holds one shared, multiline note per screen. It opens in view mode, has Add note/Edit, Save, and Cancel controls, and shows when a saved note was last edited. Notes save independently of hardware and OnSign data. Apply migration `0012_screen_notes.sql` with `npm run db:migrate` before starting this version. Only Admins can view or edit notes; concurrent edits return a conflict instead of overwriting newer text.
+
+The **Remote access** tab stores an optional TeamViewer ID and AnyDesk ID or alias per screen. Admins can view, copy, edit, or clear these values using Edit, Save, and Cancel. Unsaved changes prompt before leaving, and concurrent edits return a conflict. Apply migration `0014_screen_remote_access.sql` with `npm run db:migrate` before starting this version. IDs are stored separately from Notes and OnSign data and removed when the screen is deleted. Passwords are not stored and remote sessions are not launched.
+
 ## Physical screen photos
 
 Admin → Screens → Add/Edit supports one optional JPG, PNG or WebP photo up to 5 MiB and 50 megapixels. Choose a file to add/replace it, or use Remove photo. Save commits the photo together with the screen; Cancel leaves the saved photo unchanged. Undo photo change restores the saved selection. An older client that omits photo fields preserves the existing image. Concurrent photo changes return a conflict rather than silently overwriting a newer upload.
@@ -68,6 +78,8 @@ The Details page shows a small thumbnail and opens the larger image only when cl
 Run `npm run db:migrate` before starting this version (migration `0010_screen_photos.sql`). The application re-encodes images as WebP, applies camera rotation, strips metadata, limits the larger image to 2400 × 2400 and generates a thumbnail within 320 × 240. It does not keep the original upload.
 
 `SCREEN_PHOTO_DIR` optionally sets an **absolute private storage folder**, writable by the server account. The default is `uploads/screen-photos` under the project/server root, including when Next runs from `.next/standalone`; photos stay outside the replaceable build folder and Git. For production, prefer an explicit folder such as `C:/Apps/SephoraData/screen-photos`. Do not serve this folder publicly. Back up the photo folder **together with PostgreSQL** while the application is stopped, and preserve it when updating or moving the application. Database-only backups do not include photos. Replacement/removal and screen/parent deletion clean up obsolete photo files after successful database commits.
+
+Locations can hold up to five labelled reference photos. Add, remove, label or reorder them in **Add/Edit Location**, and open the gallery from the **Locations** list. Images use the same private JPG/PNG/WebP conversion and 5 MB per-file limit as screen photos. `LOCATION_PHOTO_DIR` can set an absolute private storage folder; otherwise files live in `uploads/location-photos` outside `.next/standalone`. Back up this folder together with PostgreSQL. Deleting a location or its parent removes its gallery files after the database change succeeds.
 
 Verification: `npm run test:screen-photo` covers storage, image conversion and bounded upload parsing; `npm run test:onsign` includes authenticated photo upload, private serving, replacement/removal, validation failures and compatibility with ordinary edits.
 
@@ -148,6 +160,7 @@ See CODE-REVIEW.md for the latest review, test results, browser checks and backu
 The current development regression commands are:
 ```powershell
 npm run lint
+npm run test:client-fetch
 npm run build
 node --experimental-strip-types tests/network-origin.mjs
 node --experimental-strip-types tests/screens.logic.mjs

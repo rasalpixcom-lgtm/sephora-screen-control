@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { clientFetch } from "@/lib/client-fetch";
 import { onSignLoops, type OnSignPlayer, type OnSignValue, type OnSignSection, type OnSignSectionResult, type OnSignLoop } from "@/lib/onsign-api-shared";
 
 import { onSignMediaLinks, safeOnSignDownload } from "@/lib/onsign-content";
+import ScreenHardwareInventory from "./screen-hardware-inventory";
+import ScreenNotes from "./screen-notes";
+import ScreenRemoteAccess from "./screen-remote-access";
 
 type Values = Record<string, OnSignValue>;
 const labels: Record<string, string> = {
   name: "Name", lastSeen: "Last contact", lastSync: "Last completed download", isInMaintenance: "Maintenance mode",
   isDetached: "Detached from physical device", syncProgress: "Download progress", errorCount: "Errors (last 24 hours)", warningCount: "Warnings (last 24 hours)",
   osVersion: "Operating system", version: "Player version", signalStrength: "Wi-Fi signal (%)",
-  id: "ID", legacyId: "Legacy ID", activeAlertCount: "Active alerts", lastSeenAgo: "Seconds since last contact",
-  lastSyncAgo: "Seconds since completed download", lastUpdate: "Last content or settings change", lastUpdateAgo: "Seconds since content or settings change",
+  id: "ID", legacyId: "Legacy ID", activeAlertCount: "Active alerts", lastSeenAgo: "Last contact",
+  lastSyncAgo: "Download completed", lastUpdate: "Last content or settings change", lastUpdateAgo: "Content or settings changed",
   utcOffset: "UTC offset (reported)", workingHoursStatus: "Working schedule status", estimatedLocalTime: "Estimated player local time",
   attrs: "Custom attributes", associationDate: "Organization association date", isUpdateLocked: "Version updates locked",
   updateRequested: "Version update requested", updateReady: "Applied update SHA", batteryLevel: "Battery (%)", serialNumber: "Serial number",
@@ -26,6 +29,22 @@ const labels: Record<string, string> = {
   playLink: "Trigger URL (text only)", isEndStrict: "Strict end", parentId: "Parent folder ID", ancestorIds: "Ancestor folder IDs",
 };
 const dates = new Set(["lastUpdate", "associationDate", "createdAt", "lastNotification", "capturedAt", "lastModified"]);
+const elapsedFields = new Set(["lastSeenAgo", "lastSyncAgo", "lastUpdateAgo"]);
+export function onSignElapsed(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "Not reported";
+  const whole = Math.floor(seconds);
+  const units = [{ name: "day", seconds: 86400 }, { name: "hour", seconds: 3600 }, { name: "minute", seconds: 60 }, { name: "second", seconds: 1 }];
+  const first = units.findIndex(unit => whole >= unit.seconds);
+  if (first === -1) return "0 seconds ago";
+  let remaining = whole;
+  const parts: string[] = [];
+  for (const unit of units.slice(first, first + 2)) {
+    const amount = Math.floor(remaining / unit.seconds);
+    remaining %= unit.seconds;
+    if (amount) parts.push(`${amount} ${unit.name}${amount === 1 ? "" : "s"}`);
+  }
+  return `${parts.join(", ")} ago`;
+}
 export function onSignDate(value: string | null) {
   if (!value) return "Not reported";
   const parsed = new Date(value);
@@ -41,7 +60,7 @@ function Value({ value, name = "" }: { value: OnSignValue | undefined; name?: st
     // URLs remain text unless explicitly offered as a safe media or capture link below.
     return <>{name === "workingHoursStatus" ? enums[value] || value : value}</>;
   }
-  if (typeof value === "number") return <>{value}</>;
+  if (typeof value === "number") return <>{elapsedFields.has(name) ? onSignElapsed(value) : value}</>;
   if (Array.isArray(value)) {
     if (!value.length) return <>{name === "ranges" ? "Outside working hours" : "None reported"}</>;
     if (name === "weekDays") return <>{value.map(day => typeof day === "number" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day] || String(day) : String(day)).join(", ")}</>;
@@ -74,7 +93,7 @@ function RelatedList({ screenId, section, loop, groupId }: { screenId: string; s
   const [loading, setLoading] = useState(true), [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    void load(screenId, section, controller.signal, null, loop, groupId).then(result => { setData(result); setError(""); }, reason => {
+    void load(screenId, section, controller.signal, null, loop, groupId).then(result => { if (!controller.signal.aborted) { setData(result); setError(""); } }, reason => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load this section.");
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -91,11 +110,12 @@ function RelatedList({ screenId, section, loop, groupId }: { screenId: string; s
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load more information."); }
     finally { setLoading(false); }
   }
+  const noActiveAlerts = section === "alerts" && data && !data.nodes.length && !data.pageInfo.hasNextPage && (data.totalCount === 0 || data.totalCount === null);
   return <div className="onsign-related-list">
     {error && <div className="adm-error" role="alert">{error}{data && " Previously loaded records are shown; they may be out of date."}</div>}
-    <div className="onsign-list-toolbar"><p className="onsign-hint" role="status">{data ? `${data.nodes.length}${data.totalCount === null ? "" : ` of ${data.totalCount}`} records loaded · ${onSignDate(data.fetchedAt)}` : loading ? "Loading…" : "Information unavailable."}</p><button type="button" className="adm-secondary-btn" disabled={loading} onClick={() => { setLoading(true); setAttempt(value => value + 1); }}>Refresh section</button></div>
+    <div className="onsign-list-toolbar"><p className="onsign-hint" role="status">{data ? `${noActiveAlerts ? "No active alerts." : `${data.nodes.length}${data.totalCount === null ? "" : ` of ${data.totalCount}`} records loaded`} · ${onSignDate(data.fetchedAt)}` : loading ? "Loading…" : "Information unavailable."}</p><button type="button" className="adm-secondary-btn" disabled={loading} onClick={() => { setLoading(true); setAttempt(value => value + 1); }}>Refresh section</button></div>
     {data?.values && (section === "content" ? <details className="onsign-content-more"><summary>Loop information</summary><div className="onsign-disclosure-body"><DataFields values={data.values}/></div></details> : <DataFields values={data.values}/>)}
-    {data && !data.nodes.length && <p className="onsign-hint">No records returned for this {section === "content" ? "loop" : "section"}.</p>}
+    {data && !data.nodes.length && !noActiveAlerts && <p className="onsign-hint">No records returned for this {section === "content" ? "loop" : "section"}.</p>}
     <div className={section === "content" ? "onsign-content-grid" : "onsign-record-list"}>{data?.nodes.map((item, index) => section === "content" ? <ContentCard item={item} key={typeof item.id === "string" ? item.id : index}/> : <article className="onsign-record" key={typeof item.id === "string" ? item.id : index}>
       <DataFields values={item}/>
       {section === "captures" && safeOnSignDownload(item.downloadURL) && <a className="onsign-download" href={safeOnSignDownload(item.downloadURL)!} target="_blank" rel="noopener noreferrer">Open saved capture</a>}
@@ -136,32 +156,48 @@ const detailTabs = [
   { id: "device", label: "Device & network" },
   { id: "content", label: "Content" },
   { id: "alerts", label: "Alerts & captures" },
+  { id: "hardware", label: "Hardware inventory" },
+  { id: "notes", label: "Notes" },
+  { id: "remote", label: "Remote access" },
+  { id: "maintenance", label: "Maintenance" },
 ] as const;
 type DetailTab = typeof detailTabs[number]["id"];
 
-export default function OnSignExpandedDetails({ screenId, player }: { screenId: string; player: OnSignPlayer }) {
-  const [extra, setExtra] = useState<Values>({}), [error, setError] = useState(""), [loading, setLoading] = useState(true);
+export default function OnSignExpandedDetails({ screenId, player, linked, onsignLoading }: { screenId: string; player: OnSignPlayer | null; linked: boolean; onsignLoading: boolean }) {
+  const [extra, setExtra] = useState<Values>({}), [error, setError] = useState(""), [loading, setLoading] = useState(!!player);
   const [attempt, setAttempt] = useState(0);
-  const [activeTab, setActiveTab] = useState<DetailTab>("content");
-  const [visitedTabs, setVisitedTabs] = useState<DetailTab[]>(["content"]);
+  const [activeTab, setActiveTab] = useState<DetailTab>(linked ? "content" : "hardware");
+  const [visitedTabs, setVisitedTabs] = useState<DetailTab[]>([linked ? "content" : "hardware"]);
   const tabId = useId();
   const tabButtons = useRef<Array<HTMLButtonElement | null>>([]);
+  const leaveHardware = useRef<(() => boolean) | null>(null);
+  const leaveNotes = useRef<(() => boolean) | null>(null);
+  const leaveRemote = useRef<(() => boolean) | null>(null);
+  const registerLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveHardware.current = guard; }, []);
+  const registerNotesLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveNotes.current = guard; }, []);
+  const registerRemoteLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveRemote.current = guard; }, []);
   function selectTab(id: DetailTab) {
+    if (id === activeTab) return true;
+    if (activeTab === "hardware" && leaveHardware.current && !leaveHardware.current()) return false;
+    if (activeTab === "notes" && leaveNotes.current && !leaveNotes.current()) return false;
+    if (activeTab === "remote" && leaveRemote.current && !leaveRemote.current()) return false;
     setActiveTab(id);
     setVisitedTabs(previous => previous.includes(id) ? previous : [...previous, id]);
+    return true;
   }
   useEffect(() => {
+    if (!player) return;
     const controller = new AbortController();
-    void load(screenId, "extended", controller.signal).then(data => { setExtra(data.values || {}); setError(""); }, reason => {
+    void load(screenId, "extended", controller.signal).then(data => { if (!controller.signal.aborted) { setExtra(data.values || {}); setError(""); } }, reason => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Additional details unavailable.");
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [screenId, attempt]);
+  }, [screenId, player, attempt]);
   const p = player;
-  const base: Values = { model: p.model, osVersion: p.osVersion, version: p.version, timezone: p.timezone, signalStrength: p.signalStrength, ...extra };
+  const base: Values = { model: p?.model ?? null, osVersion: p?.osVersion ?? null, version: p?.version ?? null, timezone: p?.timezone ?? null, signalStrength: p?.signalStrength ?? null, ...extra };
   return <>
-    <section className="adm-panel onsign-detail-card onsign-overview"><h2>Overview</h2><DataFields values={{ name: p.name, id: p.id, lastSeen: onSignDate(p.lastSeen), isInMaintenance: p.isInMaintenance, isDetached: p.isDetached, activeAlertCount: extra.activeAlertCount ?? null, syncProgress: p.syncProgress === null ? null : `${p.syncProgress}%`, lastSync: onSignDate(p.lastSync), errorCount: p.errorCount, warningCount: p.warningCount }}/></section>
-    {(loading || error) && <div className="onsign-hint" role="status">{loading ? "Loading additional device information…" : <><div className="adm-error">{error} Basic information remains available.</div><button type="button" className="adm-secondary-btn" onClick={() => { setLoading(true); setAttempt(value => value + 1); }}>Retry additional details</button></>}</div>}
+    {p && <section className="adm-panel onsign-detail-card onsign-overview"><h2>Overview</h2><DataFields values={{ name: p.name, id: p.id, lastSeen: onSignDate(p.lastSeen), isInMaintenance: p.isInMaintenance, isDetached: p.isDetached, activeAlertCount: extra.activeAlertCount ?? null, syncProgress: p.syncProgress === null ? null : `${p.syncProgress}%`, lastSync: onSignDate(p.lastSync), errorCount: p.errorCount, warningCount: p.warningCount }}/></section>}
+    {p && (loading || error) && <div className="onsign-hint" role="status">{loading ? "Loading additional device information…" : <><div className="adm-error">{error} Basic information remains available.</div><button type="button" className="adm-secondary-btn" onClick={() => { setLoading(true); setAttempt(value => value + 1); }}>Retry additional details</button></>}</div>}
     <div className="onsign-tabs" role="tablist" aria-label="Screen details sections">
       {detailTabs.map((tab, index) => <button key={tab.id} ref={node => { tabButtons.current[index] = node; }}
         type="button" role="tab" id={`${tabId}-${tab.id}-tab`} aria-controls={`${tabId}-${tab.id}-panel`}
@@ -171,14 +207,14 @@ export default function OnSignExpandedDetails({ screenId, player }: { screenId: 
             : event.key === "ArrowLeft" ? (index + detailTabs.length - 1) % detailTabs.length
             : event.key === "Home" ? 0 : event.key === "End" ? detailTabs.length - 1 : null;
           if (target === null) return;
-          event.preventDefault(); selectTab(detailTabs[target].id); tabButtons.current[target]?.focus();
+          event.preventDefault(); if (selectTab(detailTabs[target].id)) tabButtons.current[target]?.focus();
         }}>{tab.label}</button>)}
     </div>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-device-panel`} aria-labelledby={`${tabId}-device-tab`} hidden={activeTab !== "device"} tabIndex={0}>
-      {visitedTabs.includes("device") && <div className="onsign-tab-columns">
+      {!p ? <p className="onsign-hint">{linked ? onsignLoading ? "Loading OnSign device information…" : "OnSign device information is unavailable." : "Link an OnSign player to see live device and network information."}</p> : visitedTabs.includes("device") && <div className="onsign-tab-columns">
         <div className="onsign-tab-column">
           <Section title="Device & software" open><DataFields values={base} keys={["model", "serialNumber", "osVersion", "version", "webviewVersion", "spmVersion", "batteryLevel", "isUpdateLocked", "updateRequested", "updateReady"]}/></Section>
-          <Section title="Working schedule & time"><p className="onsign-hint">Schedule times use the player’s local time zone. Other timestamps are labelled GST. Elapsed seconds are measured when fetched.</p><DataFields values={base} keys={["timezone", "utcOffset", "estimatedLocalTime", "workingHoursStatus", "workingHours", "workingExceptions"]}/></Section>
+          <Section title="Working schedule & time"><p className="onsign-hint">Schedule times use the player’s local time zone. Other timestamps are labelled GST. Elapsed times are measured when fetched.</p><DataFields values={base} keys={["timezone", "utcOffset", "estimatedLocalTime", "workingHoursStatus", "workingHours", "workingExceptions"]}/></Section>
           <Section title="Management & license"><DataFields values={base} keys={["legacyId", "associationDate", "tags", "attrs", "pinnedNote", "subscription"]}/></Section>
         </div>
         <div className="onsign-tab-column">
@@ -188,17 +224,29 @@ export default function OnSignExpandedDetails({ screenId, player }: { screenId: 
       </div>}
     </div>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-content-panel`} aria-labelledby={`${tabId}-content-tab`} hidden={activeTab !== "content"} tabIndex={0}>
-      <div className="onsign-tab-stack">
+      {!p ? <p className="onsign-hint">{linked ? onsignLoading ? "Loading OnSign content information…" : "OnSign content information is unavailable." : "Link an OnSign player to see published content and downloads."}</p> : <div className="onsign-tab-stack">
         <Section title="Content & downloads" open><p className="onsign-hint">{p.isConnected === false ? "This player is disconnected; values reflect its last report. " : ""}A completed download does not confirm current playback or the exact files on the device. Published content shows OnSign library names; local device filenames are not available here.</p><DataFields values={extra} keys={["lastUpdate", "lastUpdateAgo", "lastSyncAgo"]}/></Section>
         <ContentSection screenId={screenId}/>
         <LazySection title="Player groups"><RelatedList screenId={screenId} section="groups"/></LazySection>
-      </div>
+      </div>}
     </div>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-alerts-panel`} aria-labelledby={`${tabId}-alerts-tab`} hidden={activeTab !== "alerts"} tabIndex={0}>
-      {visitedTabs.includes("alerts") && <div className="onsign-tab-stack">
+      {!p ? <p className="onsign-hint">{linked ? onsignLoading ? "Loading OnSign alerts…" : "OnSign alerts and captures are unavailable." : "Link an OnSign player to see alerts and captures."}</p> : visitedTabs.includes("alerts") && <div className="onsign-tab-stack">
         <LazySection title="Active alert details" open><RelatedList screenId={screenId} section="alerts"/></LazySection>
         <LazySection title="Saved screen captures"><p className="onsign-hint">Existing captures only. Opening this section does not request a new capture. Download links may expire.</p><RelatedList screenId={screenId} section="captures"/></LazySection>
       </div>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-hardware-panel`} aria-labelledby={`${tabId}-hardware-tab`} hidden={activeTab !== "hardware"} tabIndex={0}>
+      {visitedTabs.includes("hardware") && <ScreenHardwareInventory screenId={screenId} onLeaveGuard={registerLeaveGuard}/>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-notes-panel`} aria-labelledby={`${tabId}-notes-tab`} hidden={activeTab !== "notes"} tabIndex={0}>
+      {visitedTabs.includes("notes") && <ScreenNotes screenId={screenId} onLeaveGuard={registerNotesLeaveGuard}/>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-remote-panel`} aria-labelledby={`${tabId}-remote-tab`} hidden={activeTab !== "remote"} tabIndex={0}>
+      {visitedTabs.includes("remote") && <ScreenRemoteAccess screenId={screenId} onLeaveGuard={registerRemoteLeaveGuard}/>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-maintenance-panel`} aria-labelledby={`${tabId}-maintenance-tab`} hidden={activeTab !== "maintenance"} tabIndex={0}>
+      <section className="adm-panel onsign-detail-card"><h2>Maintenance</h2><p className="onsign-hint">No maintenance information yet.</p></section>
     </div>
   </>;
 }

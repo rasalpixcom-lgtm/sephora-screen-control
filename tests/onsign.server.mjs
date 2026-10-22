@@ -17,6 +17,7 @@ const pool = new pg.Pool({ connectionString: testUrl.toString() });
 let server, logs = "", created = false, checks = 0;
 const uiFinished = path.resolve(".server-runtime/onsign-ui-finished");
 const photoDirectory = path.resolve(".server-runtime", databaseName + "-photos");
+const locationPhotoDirectory = path.resolve(".server-runtime", databaseName + "-location-photos");
 const check = (value, message) => { assert.ok(value, message); checks++; console.log("PASS " + message); };
 try {
   await adminPool.query(`CREATE DATABASE "${databaseName}"`); created = true;
@@ -31,6 +32,7 @@ try {
       AUTH_BOOTSTRAP_HASH: crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES: String(Date.now() + 600000),
       ONSIGN_API_TOKEN: "onsign-test-token", ONSIGN_ORGANIZATION_ID: "", ALERT_EMAIL_USER: "", ALERT_EMAIL_APP_PASSWORD: "", ULTRAMSG_TOKEN: "",
       SCREEN_PHOTO_DIR: photoDirectory,
+      LOCATION_PHOTO_DIR: locationPhotoDirectory,
     }, stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", chunk => { logs += chunk; }); server.stderr.on("data", chunk => { logs += chunk; });
@@ -101,6 +103,37 @@ try {
   const photoOnlyPage = await request(`/admin/screens/${photoOnly.id}`, undefined, cookie);
   check(photoOnlyPage.ok && (await photoOnlyPage.text()).includes("Physical screen photo"), "unlinked screens still display the physical photo card");
   check((await request("/api/state", { action: "delete", id: photoOnly.id }, cookie)).ok && !fs.existsSync(path.join(photoDirectory, photoOnly.photoKey + ".webp")), "screen deletion removes physical photo files");
+  const locationUpload = (metadata, count = 1, session = cookie, originHeader = origin, bytes = photoBytes, type = "image/png") => {
+    const form = new FormData(); form.set("metadata", JSON.stringify(metadata));
+    for (let index = 0; index < count; index++) form.set(`locationPhoto${index}`, new Blob([bytes], { type }), `location-${index}.png`);
+    return fetch(origin + "/api/state", { method: "POST", headers: { Cookie: session, Origin: originHeader, "X-Location-Photos": "1" }, body: form });
+  };
+  const initialGallery = [{ uploadIndex: 0, label: "Building exterior" }, { uploadIndex: 1, label: "Network room" }];
+  const photoLocationCreate = { action: "create", type: "store", name: "Photo location", parentId: region.id, locationPhotos: initialGallery, locationPhotoExpected: [] };
+  check((await locationUpload(photoLocationCreate, 2, "")).status === 401, "location photo upload requires authentication");
+  check((await locationUpload(photoLocationCreate, 2, cookie, "https://attacker.test")).status === 403, "cross-origin location photo upload is blocked");
+  check((await locationUpload(photoLocationCreate, 2, cookie, origin, Buffer.from("<svg/>"))).status === 400, "disguised location images are rejected");
+  const galleryCreated = await locationUpload(photoLocationCreate, 2), galleryCreatedState = await galleryCreated.json();
+  const photoLocation = galleryCreatedState.entities?.find(item => item.name === "Photo location");
+  let gallery = galleryCreatedState.locationPhotos?.filter(item => item.locationId === photoLocation?.id);
+  check(galleryCreated.ok && photoLocation && gallery.length === 2 && gallery[0].label === "Building exterior", "Add Location saves labelled gallery images in order");
+  const locationPhotoUrl = (id, size = "thumbnail", locationId = photoLocation.id) => `/api/location-photo?${new URLSearchParams({ locationId, id, size })}`;
+  const firstThumb = await request(locationPhotoUrl(gallery[0].id), undefined, cookie), firstFull = await request(locationPhotoUrl(gallery[0].id, "full"), undefined, cookie);
+  check(firstThumb.ok && firstFull.ok && (await sharp(Buffer.from(await firstThumb.arrayBuffer())).metadata()).width <= 320 && firstFull.headers.get("cache-control") === "private, no-store", "location gallery serves private optimized thumbnails and full photos");
+  check((await request(locationPhotoUrl(gallery[0].id))).status === 401 && (await request(locationPhotoUrl(gallery[0].id, "full", location.id), undefined, cookie)).status === 404, "location images cannot be read anonymously or through another location");
+  const locationUpdate = (entries, expected = gallery.map(({ id, label }) => ({ id, label }))) => ({ action: "update", type: "store", id: photoLocation.id, name: photoLocation.name, parentId: region.id, locationPhotos: entries, locationPhotoExpected: expected });
+  check((await locationUpload(locationUpdate([...gallery.map(({ id, label }) => ({ id, label })), ...[0,1,2].map(index => ({ uploadIndex: index, label: `Extra ${index}` }))]), 3)).ok, "Edit Location adds photos up to the five-image limit");
+  gallery = (await (await request("/api/state", undefined, cookie)).json()).locationPhotos.filter(item => item.locationId === photoLocation.id);
+  check(gallery.length === 5, "location gallery contains exactly five images");
+  check((await request("/api/state", locationUpdate([...gallery.map(({ id, label }) => ({ id, label })), { id: gallery[0].id, label: "Sixth" }]), cookie)).status === 400, "server rejects a sixth location photo");
+  const beforeRejectedLocationSave = fs.readdirSync(locationPhotoDirectory).length;
+  check((await locationUpload(locationUpdate([{ uploadIndex: 0, label: "New" }], []))).status === 409 && fs.readdirSync(locationPhotoDirectory).length === beforeRejectedLocationSave, "stale location gallery saves are rejected and staged files removed");
+  check((await locationUpload(locationUpdate([{ uploadIndex: 0, label: "Bad" }]), 1, cookie, origin, photoBytes, "image/gif")).status === 415, "unsupported location photo formats are rejected");
+  const removedLocationPhoto = gallery[0].id;
+  const remainingGallery = gallery.slice(1).reverse().map(({ id, label }) => ({ id, label }));
+  const galleryReorder = await request("/api/state", locationUpdate(remainingGallery), cookie);
+  gallery = (await galleryReorder.json()).locationPhotos.filter(item => item.locationId === photoLocation.id);
+  check(galleryReorder.ok && gallery.length === 4 && gallery[0].id === remainingGallery[0].id && !fs.existsSync(path.join(locationPhotoDirectory, removedLocationPhoto + ".webp")), "reordering and removing location photos persists and cleans obsolete files");
   check(screen.onsignPlayerId === "player-1", "creating a screen validates and saves its player link");
   const detailsResponse = await request("/api/onsign?screenId=" + screen.id, undefined, cookie), details = await detailsResponse.json();
   check(detailsResponse.ok && details.player.isConnected && details.player.name === "Dubai Player", "screen details resolve the saved player ID");
@@ -157,6 +190,9 @@ try {
   check((await fetch(origin + detailsPage, { headers: { Cookie: controllerCookie }, redirect: "manual" })).status === 307, "Controller accounts cannot open Admin details pages");
   check((await section("extended", "", controllerCookie)).status === 403 && (await section("content", "", controllerCookie)).status === 403, "Controller accounts cannot read expanded information or content");
   check((await request(photoUrl(), undefined, controllerCookie)).status === 403 && (await upload({ ...photoUpdate, photoExpectedKey: key }, photoBytes, "image/png", controllerCookie)).status === 403, "Controller accounts cannot view or upload private screen photos");
+  check((await request(locationPhotoUrl(gallery[0].id), undefined, controllerCookie)).status === 403 && (await locationUpload(locationUpdate([{ uploadIndex: 0, label: "Blocked" }]), 1, controllerCookie)).status === 403, "Controller accounts cannot view or upload private location photos");
+  check((await request("/api/state", undefined, controllerCookie).then(response => response.json())).locationPhotos.length === 0, "Controller state omits private location photo metadata");
+  check((await request("/api/state", { action: "delete", id: photoLocation.id }, cookie)).ok && !fs.existsSync(path.join(locationPhotoDirectory, gallery[0].id + ".webp")), "deleting a location removes its gallery files");
   check((await request("/api/onsign?screenId=" + location.id, undefined, cookie)).status === 404, "locations cannot expose device information");
   await assert.rejects(() => pool.query("UPDATE entities SET onsign_player_id = 'bad id' WHERE id = $1", [screen.id])); checks++;
   check(true, "database enforces player ID constraints");
@@ -186,4 +222,6 @@ try {
   const runtimeRoot = path.resolve(".server-runtime") + path.sep;
   if (!photoDirectory.startsWith(runtimeRoot) || !path.basename(photoDirectory).startsWith(databaseName)) throw new Error("Unsafe test cleanup path");
   fs.rmSync(photoDirectory, { recursive: true, force: true });
+  if (!locationPhotoDirectory.startsWith(runtimeRoot) || !path.basename(locationPhotoDirectory).startsWith(databaseName)) throw new Error("Unsafe location photo test cleanup path");
+  fs.rmSync(locationPhotoDirectory, { recursive: true, force: true });
 }

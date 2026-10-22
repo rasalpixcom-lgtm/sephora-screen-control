@@ -21,7 +21,8 @@ assert.deepEqual(onSignMediaLinks({ node: null, actions: [null, false, { content
 assert.deepEqual(onSignMediaLinks({ actions: [{ content: { ...media, name: null } }] }), [{ name: "Media file", url: media.downloadURL }]);
 const componentOutput = new URL("../.server-runtime/onsign-content-ui-test.cjs", import.meta.url);
 await build({ entryPoints: ["components/onsign-expanded-details.tsx"], outfile: fileURLToPath(componentOutput), platform: "node", format: "cjs", bundle: true, packages: "external", jsx: "automatic" });
-const Details = createRequire(import.meta.url)(fileURLToPath(componentOutput)).default;
+const { default: Details, onSignElapsed } = createRequire(import.meta.url)(fileURLToPath(componentOutput));
+for (const [seconds, expected] of [[0, "0 seconds ago"], [1, "1 second ago"], [59, "59 seconds ago"], [60, "1 minute ago"], [61, "1 minute, 1 second ago"], [3600, "1 hour ago"], [3661, "1 hour, 1 minute ago"], [86400, "1 day ago"], [93192, "1 day, 1 hour ago"], [172800, "2 days ago"], [-1, "Not reported"], [NaN, "Not reported"], [Infinity, "Not reported"]]) assert.equal(onSignElapsed(seconds), expected);
 const player = { id: "test", name: "Test player", isConnected: false, lastSync: null, lastSeen: null, syncProgress: 0, errorCount: 0, warningCount: 0, network: [] };
 const html = renderToStaticMarkup(React.createElement(Details, { screenId: "test", player }));
 assert.match(html, /Content &amp; downloads/);

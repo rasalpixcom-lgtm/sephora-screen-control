@@ -1,5 +1,41 @@
 # Code review and local verification
 
+## Full pre-push review — 22 October 2026
+
+Reviewed the maintained Next.js application and pending work: page/API entry points, authentication and roles, origin/body validation, inventory hierarchy and transactions, screen hardware/Notes/Remote access, private screen/location photos, OnSign query scoping and rendering, preview streaming/checking/incidents, Controller/Monitor selection, Activity, reports/PDFs, alert settings/queues/transports, PostgreSQL schemas/migrations/import, paths, standalone packaging and deployment instructions. Generated dependencies and inactive Sites/D1 artifacts were not audited line by line. This review does not guarantee the absence of every defect.
+
+Confirmed issues corrected:
+
+- `clientFetch` previously replaced callers' cancellation signals with its timeout. It now combines both signals, preserves intentional cancellation and Request signal overrides, and reports actual deadline expiry separately. Additional-detail responses are ignored after their effect is cancelled. New regression checks cover cancellation, pre-aborted signals, Request signals/overrides, timeouts, network failures and successful requests.
+- `/api/health` now checks the Hardware and Notes schemas. Regression cases verify unavailable responses for missing Hardware, Notes, Location photos and Remote access tables, followed by recovery after restoration.
+- The SQLite import test cleanup now includes the new foreign-key tables. The import, occupied-destination protection and rollback checks pass against the current schema.
+- Docker excludes private uploads from its build context and creates a private writable upload directory for its non-root runtime user. Deployment instructions cover persistent photo volumes, coordinated database/photo backups, the location-photo setting and the current persistent-session policy.
+
+Fresh local verification:
+
+| Area | Result |
+| --- | --- |
+| Native production build, TypeScript, ESLint, whitespace | Passed |
+| Clean Linux Docker install/build and non-root storage/assets check | Passed |
+| Authentication, authorization, inventory and monitor access | 213 integration checks passed |
+| Activity | 16 query and 46 integration checks passed |
+| OnSign | 497 mocked API checks, content checks and 83 server checks passed |
+| Hardware, Notes, Remote access and fetch cancellation | Validation/regression suites passed |
+| Private screen/location photo endpoints | Photo unit suite (13) and authenticated OnSign server scenarios passed |
+| Reports, feature persistence, conflicts, cascades and schema health | 89 integration checks plus screen-report/PDF suite passed |
+| Email and WhatsApp | 92 email, 140 WhatsApp and 25 PDF checks passed |
+| Legacy SQLite import | 10 checks passed |
+| Preview health/streaming/summary, selections, locations and origins | All six regression suites passed |
+| PostgreSQL backup/restore | All 24 public tables matched in disposable databases, including populated new feature tables |
+| Configured-secret checks | No matches in 306 source files, 74 browser assets or 166 server artifacts; no packaged environment files |
+| Runtime dependency audit | Zero reported vulnerabilities |
+
+The full dependency audit still reports **five high affected entries in the existing development-only ESLint dependency chain**, through the braces stack-exhaustion advisory GHSA-vfj7-8cjw-p6xm. npm proposes downgrading `eslint-config-next` to 14.2.35; that incompatible downgrade was not applied. This remains an unresolved tooling finding, so the full dependency audit is not clean.
+
+Tests used an isolated source copy, disposable local PostgreSQL databases, mocked OnSign data, loopback SMTP and a local WhatsApp provider. No real alerts were sent. Historical browser checks are recorded below; this review did not repeat a full browser/device matrix. The Linux image was built and its non-root storage/assets checked; actual company-server IIS/HTTPS, service recovery and live provider operation still require release verification. Backup restoration here verifies database rows; actual photo-volume and off-server backup restoration remains an operator check. Apply all migrations through `0014_screen_remote_access.sql` and preserve both private image folders before releasing.
+
+Detailed test/audit logs are ignored under `.server-runtime/full-review-20261022`. No commit, GitHub push or production deployment was performed.
+
 ## Pre-push project review — 20 October 2026
 
 Reviewed the pending OnSign and physical-photo changes alongside the active application entry points: authentication and role checks, inventory mutation and transaction paths, private photo storage/serving, fixed OnSign queries and organization scoping, screen details rendering, preview/report/alert routes, PostgreSQL migrations, standalone packaging and configuration. This review covers the maintained application paths, not generated dependencies or inactive legacy connector artifacts; passing checks cannot prove the absence of every defect.

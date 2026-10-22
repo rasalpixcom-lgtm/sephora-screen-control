@@ -15,7 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
-import type { Activity, Display, Entity, EntityType, Member } from "@/lib/store";
+import type { Activity, Display, Entity, EntityType, LocationPhoto, Member } from "@/lib/store";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -31,17 +31,18 @@ import EmailAlertPanel from "@/components/email-alert-panel";
 import WhatsAppAlertPanel from "@/components/whatsapp-alert-panel";
 import SettingsTabs from "@/components/settings-tabs";
 import { ScreenPhotoInput, ScreenPhotoView, type PhotoDraft } from "@/components/screen-photo";
+import { LocationPhotosInput, LocationPhotosView, type LocationPhotoDraft } from "@/components/location-photos";
 import OnSignPlayerPicker from "@/components/onsign-player-picker";
 import OnSignScreenDetails from "@/components/onsign-screen-details";
 import { screenInventoryRows } from "@/lib/screen-inventory-report";
 
 
 
-type State = { entities: Entity[]; members: Member[]; display: Display; activity: Activity[] };
+type State = { entities: Entity[]; members: Member[]; locationPhotos: LocationPhoto[]; display: Display; activity: Activity[] };
 
 export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "reports" | "settings" | "users";
 
-const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
+const empty: State = { entities: [], members: [], locationPhotos: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
 const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", reports: "Reports", settings: "Settings", users: "Users" };
 
@@ -106,6 +107,8 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
   const [editor, setEditor] = useState<{ type: EntityType; item?: Entity } | null>(null);
 
   const [photoDraft, setPhotoDraft] = useState<PhotoDraft>({ file: null, remove: false });
+  const [locationPhotoDraft, setLocationPhotoDraft] = useState<LocationPhotoDraft[]>([]);
+  const [locationPhotoInitial, setLocationPhotoInitial] = useState<LocationPhoto[]>([]);
   const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "", onsignPlayerId: "" });
 
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -150,7 +153,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
 
 
-  async function mutate(body: Record<string, unknown>, photo?: PhotoDraft) {
+  async function mutate(body: Record<string, unknown>, photo?: PhotoDraft, locationPhotos?: LocationPhotoDraft[]) {
     if (saving.current) return false;
     saving.current = true;
     revision.current++;
@@ -159,9 +162,13 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
     try {
 
-      const form = photo?.file ? new FormData() : null;
+      const form = photo?.file || locationPhotos?.some(item => item.file) ? new FormData() : null;
       if (form && photo?.file) { form.set("metadata", JSON.stringify(body)); form.set("photo", photo.file); }
-      const response = await clientFetch("/api/state", { method: "POST", ...(form ? { body: form } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+      if (form && locationPhotos) {
+        form.set("metadata", JSON.stringify(body));
+        locationPhotos.forEach((item, index) => { if (item.file) form.set(`locationPhoto${index}`, item.file); });
+      }
+      const response = await clientFetch("/api/state", { method: "POST", ...(form ? { headers: locationPhotos ? { "X-Location-Photos": "1" } : undefined, body: form } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
 
       if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
       const next = await response.json() as State & { error?: string };
@@ -176,13 +183,16 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
   }
 
-  function closeEditor() { setEditor(null); setPhotoDraft({ file: null, remove: false }); }
+  function closeEditor() { setEditor(null); setPhotoDraft({ file: null, remove: false }); setLocationPhotoDraft([]); setLocationPhotoInitial([]); }
 
   function openEditor(type: EntityType, item?: Entity) {
 
     setError("");
 
     setPhotoDraft({ file: null, remove: false });
+    const savedLocationPhotos = item?.type === "store" ? state.locationPhotos.filter(photo => photo.locationId === item.id) : [];
+    setLocationPhotoInitial(savedLocationPhotos);
+    setLocationPhotoDraft(savedLocationPhotos.map(({ id, label }) => ({ id, label })));
     setDraft({ name: item?.name || "", shortName: item?.shortName || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "", onsignPlayerId: item?.onsignPlayerId || "" });
 
     const store = entities.find(entity => entity.id === item?.parentId && entity.type === "store");
@@ -203,7 +213,8 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
     if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...draft,
       ...(editor.type === "screen" && (photoDraft.file || photoDraft.remove) ? { photoAction: photoDraft.file ? "replace" : "remove", photoExpectedKey: editor.item?.photoKey || null } : {}),
-    }, editor.type === "screen" ? photoDraft : undefined)) closeEditor();
+      ...(editor.type === "store" ? { locationPhotos: locationPhotoDraft.map((item, index) => item.id ? { id: item.id, label: item.label } : { uploadIndex: index, label: item.label }), locationPhotoExpected: locationPhotoInitial.map(({ id, label }) => ({ id, label })) } : {}),
+    }, editor.type === "screen" ? photoDraft : undefined, editor.type === "store" ? locationPhotoDraft : undefined)) closeEditor();
 
   }
 
@@ -246,7 +257,17 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
     const list = type === "screen" ? visibleScreens : searchable.filter((item) => item.type === type);
 
-    return <div className="adm-table-wrap"><table className={`adm-table${type === "country" ? " adm-country-table" : (type === "region" || type === "store") ? " adm-region-table" : type === "screen" ? " adm-screen-table" : ""}`}><thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th>{type === "screen" && <th>Details</th>}<th>{type === "screen" ? "Preview link" : "Screens"}</th><th>Actions</th></tr></thead><tbody>{list.map((item) => <tr key={item.id}><td><div className="adm-name-cell"><span className="adm-list-icon">{type === "screen" ? <Monitor size={17}/> : type === "country" ? <Globe2 size={17}/> : <MapPin size={17}/>}</span><div><strong>{item.name}</strong>{type === "country" && item.shortName && <small>Abbreviation: {item.shortName}</small>}{item.isDemo ? <small>Sample data</small> : null}</div></div></td><td>{type === "country" ? byType("region").filter((child) => child.parentId === item.id).length : parentNames(item, entities)}</td>{type === "screen" && <td><Link href={`/admin/screens/${encodeURIComponent(item.id)}`} prefetch={false} className="adm-secondary-btn onsign-details-button" aria-label={`Details for ${item.name}`}>Details</Link></td>}<td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td><td><div className="adm-row-actions"><button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td></tr>)}</tbody></table>{!list.length && <div className="adm-empty">{(search.trim() || (type === "screen" && hasScreenFilters)) ? `No ${metricLabels[type].toLowerCase()} match your filters.` : `No ${metricLabels[type].toLowerCase()} yet. Add your first ${typeNames[type].toLowerCase()} to get started.`}</div>}</div>;
+    return <div className="adm-table-wrap"><table className={`adm-table${type === "country" ? " adm-country-table" : (type === "region" || type === "store") ? ` adm-region-table${type === "store" ? " adm-location-table" : ""}` : type === "screen" ? " adm-screen-table" : ""}`}>
+      <thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th>{type === "screen" && <th>Details</th>}<th>{type === "screen" ? "Preview link" : "Screens"}</th>{type === "store" && <th>Photos</th>}<th>Actions</th></tr></thead>
+      <tbody>{list.map((item) => <tr key={item.id}>
+        <td><div className="adm-name-cell"><span className="adm-list-icon">{type === "screen" ? <Monitor size={17}/> : type === "country" ? <Globe2 size={17}/> : <MapPin size={17}/>}</span><div><strong>{item.name}</strong>{type === "country" && item.shortName && <small>Abbreviation: {item.shortName}</small>}{item.isDemo ? <small>Sample data</small> : null}</div></div></td>
+        <td>{type === "country" ? byType("region").filter((child) => child.parentId === item.id).length : parentNames(item, entities)}</td>
+        {type === "screen" && <td><Link href={`/admin/screens/${encodeURIComponent(item.id)}`} prefetch={false} className="adm-secondary-btn onsign-details-button" aria-label={`Details for ${item.name}`}>Details</Link></td>}
+        <td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td>
+        {type === "store" && <td><LocationPhotosView locationId={item.id} name={item.name} photos={state.locationPhotos.filter(photo => photo.locationId === item.id)}/></td>}
+        <td><div className="adm-row-actions"><button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td>
+      </tr>)}</tbody>
+    </table>{!list.length && <div className="adm-empty">{(search.trim() || (type === "screen" && hasScreenFilters)) ? `No ${metricLabels[type].toLowerCase()} match your filters.` : `No ${metricLabels[type].toLowerCase()} yet. Add your first ${typeNames[type].toLowerCase()} to get started.`}</div>}</div>;
 
   }
 
@@ -320,10 +341,10 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
 
     <Dialog open={!!editor} onOpenChange={(open) => !open && !busy && closeEditor()}>
-      <DialogContent className={`adm-dialog${editor?.type === "screen" ? " adm-screen-editor" : ""}`}>
+      <DialogContent className={`adm-dialog${editor?.type === "screen" ? " adm-screen-editor" : editor?.type === "store" ? " adm-location-editor" : ""}`}>
         <DialogHeader>
           <DialogTitle>{editor?.item ? `Edit ${typeNames[editor.type]}` : editor ? `Add ${typeNames[editor.type]}` : "Edit"}</DialogTitle>
-          <DialogDescription>{editor?.type === "screen" ? "Choose the screen location, preview connection and optional installation photo." : "Keep the name clear for everyone using the network."}</DialogDescription>
+          <DialogDescription>{editor?.type === "screen" ? "Choose the screen location, preview connection and optional installation photo." : editor?.type === "store" ? "Set the location and add up to five reference photos." : "Keep the name clear for everyone using the network."}</DialogDescription>
         </DialogHeader>
         {editor?.type !== "screen" && dialogError}
         <form onSubmit={saveEditor} className="adm-form">
@@ -346,7 +367,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
               </section>
             </div>
             <ScreenPhotoInput key={editor.item?.id || "new"} screenId={editor.item?.id} photoKey={editor.item?.photoKey} value={photoDraft} onChange={setPhotoDraft} disabled={busy}/>
-          </div> : <><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}</>}
+          </div> : <div className={editor?.type === "store" ? "adm-location-editor-fields" : "adm-standard-editor-fields"}><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}{editor?.type === "store" && <LocationPhotosInput locationId={editor.item?.id} value={locationPhotoDraft} onChange={setLocationPhotoDraft} disabled={busy}/>}</div>}
           <div className="adm-form-actions">
             <button type="button" className="adm-secondary-btn" disabled={busy} onClick={() => closeEditor()}>Cancel</button>
             <button type="submit" className="adm-primary-btn" disabled={busy || (editor?.type === "screen" && !draft.parentId)}>{busy ? "Saving..." : `Save ${editor ? typeNames[editor.type].toLowerCase() : ""}`}</button>

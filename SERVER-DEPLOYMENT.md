@@ -64,7 +64,7 @@ node scripts/create-bootstrap.mjs admin@company.com https://screens.company.com
 
 This writes private configuration and a setup URL under `.server-runtime`. Copy its AUTH settings into `.env.local`, restart the app, open the private URL, and choose your password. The link expires after 24 hours and works once. No real mailbox or email verification is needed. After setup, remove AUTH_BOOTSTRAP_HASH and AUTH_BOOTSTRAP_EXPIRES and delete the private setup files. Do not regenerate AUTH_SECRET casually; it signs out sessions.
 
-Admin creates Admin and Controller accounts in Users. Staff sessions last 8 hours. OnSign uses the private monitor link from Settings without a login. The role retirement migration disables legacy wall accounts and revokes their sessions, preserving account records and history.
+Admin creates Admin and Controller accounts in Users. Staff sessions have no application timeout on trusted team computers; sign-out, account changes, password resets and revocation invalidate them. Browser cookie retention can still require signing in again. See AUTHENTICATION.md for the session policy. OnSign uses the private monitor link from Settings without a login. The role retirement migration disables legacy wall accounts and revokes their sessions, preserving account records and history.
 
 ## Backups and verification
 
@@ -77,7 +77,9 @@ pg_restore --host=127.0.0.1 --username=sephora --dbname=sephora_restore_test --n
 
 Use a protected PostgreSQL password file or enter the password interactively. Restore only into a separate empty database when testing; check accounts and inventory there. Schedule daily backups, keep an off-server copy, and test restoration regularly. Apply database migrations before starting each new app release. Keep the previous build and a database backup for rollback.
 
-`/api/health` returns 200 when the app can reach its database, otherwise 503; it exposes no credentials or inventory. Monitor it and the Windows service logs.
+Keep private screen and location images in durable folders writable only by the service account and authorized administrators. Set absolute `SCREEN_PHOTO_DIR` and `LOCATION_PHOTO_DIR` paths outside the replaceable application directory. Stop the application while backing up these folders together with PostgreSQL; a database backup alone does not contain photo bytes. Restore both the database and photo folders together.
+
+`/api/health` verifies authentication configuration, database access and required feature tables, including Hardware, Notes, Location photos and Remote access. It returns 503 when these checks fail and exposes no credentials or inventory. Monitor it and the Windows service logs.
 
 After `npm run build`, run `npm run test:auth` on a development PostgreSQL cluster. The suite creates and drops its own random test database and runs the actual standalone Node server. It does not mutate the real Sephora database. Production HTTPS/IIS and Windows service startup must still be verified on the actual company server; they cannot be verified without its domain and access.
 
@@ -88,6 +90,8 @@ For OnSign playback without login, apply the new monitor_access migration before
 ## Other hosting
 
 The same source works on Linux Node.js servers and hosts that support Node.js plus PostgreSQL. The Dockerfile builds a standalone container without embedding environment secrets. Supply runtime environment variables and a reachable PostgreSQL database, run migrations, and put HTTPS in front. Static-only web hosting is insufficient. The Docker image and Windows IIS/service configuration are supplied deployment options; the local verification uses native Node.js and a PostgreSQL container.
+
+For Docker deployments, mount a persistent volume at `/app/uploads` (owned by the container's `node` user), or configure and mount both absolute photo folders. Private uploads are excluded from the build context. Container replacement without persistent storage loses photo files. Back up the volume together with PostgreSQL.
 
 ## Verification record — 8 October 2026
 

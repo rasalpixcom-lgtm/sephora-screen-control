@@ -9,6 +9,43 @@ export const entities = pgTable("entities", { id: text("id").primaryKey(), type:
   uniqueIndex("entities_country_short_name_idx").on(sql`lower(${table.shortName})`).where(sql`${table.type} = 'country' AND ${table.shortName} IS NOT NULL`),
 ]);
 export const groupMembers = pgTable("group_members", { groupId: text("group_id").notNull(), screenId: text("screen_id").notNull() }, (table) => [primaryKey({ columns: [table.groupId, table.screenId] })]);
+export const screenHardwareSections = pgTable("screen_hardware_sections", {
+  screenId: text("screen_id").notNull().references(() => entities.id, { onDelete: "cascade" }),
+  section: text("section").notNull(),
+  fields: jsonb("fields").$type<Record<string, string>>().notNull(),
+  version: text("version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, table => [
+  primaryKey({ columns: [table.screenId, table.section] }),
+  check("screen_hardware_section_check", sql`${table.section} IN ('ledDisplay', 'ledController', 'mediaPlayer', 'powerNetwork')`),
+  check("screen_hardware_fields_check", sql`jsonb_typeof(${table.fields}) = 'object'`),
+]);
+export const screenNotes = pgTable("screen_notes", {
+  screenId: text("screen_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
+  note: text("note").notNull(),
+  version: text("version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, table => [check("screen_notes_length_check", sql`char_length(${table.note}) <= 4000`)]);
+export const screenRemoteAccess = pgTable("screen_remote_access", {
+  screenId: text("screen_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
+  teamViewerId: text("teamviewer_id").notNull(), anyDeskId: text("anydesk_id").notNull(),
+  version: text("version").notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, table => [
+  check("screen_remote_access_teamviewer_id_check", sql`${table.teamViewerId} = '' OR ${table.teamViewerId} ~ '^[0-9]{1,32}$'`),
+  check("screen_remote_access_anydesk_id_check", sql`${table.anyDeskId} = '' OR ${table.anyDeskId} ~ '^[A-Za-z0-9][A-Za-z0-9._@-]{0,99}$'`),
+]);
+export const locationPhotos = pgTable("location_photos", {
+  id: text("id").primaryKey(),
+  locationId: text("location_id").notNull().references(() => entities.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  label: text("label").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("location_photos_location_position_idx").on(table.locationId, table.position),
+  check("location_photos_id_check", sql`${table.id} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$'`),
+  check("location_photos_position_check", sql`${table.position} BETWEEN 0 AND 4`),
+  check("location_photos_label_check", sql`char_length(${table.label}) <= 80`),
+]);
 export const displayState = pgTable("display_state", { id: text("id").primaryKey(), selection: text("selection").notNull(), autoAdvance: integer("auto_advance").notNull().default(1), intervalSeconds: integer("interval_seconds").notNull().default(10), updatedAt: text("updated_at").notNull() });
 export const activityLog = pgTable("activity_log", { id: text("id").primaryKey(), action: text("action").notNull(), entityType: text("entity_type"), entityId: text("entity_id"), entityName: text("entity_name"), actor: text("actor").notNull(), createdAt: text("created_at").notNull() });
 export const user = pgTable("auth_user", {

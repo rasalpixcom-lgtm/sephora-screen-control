@@ -7,6 +7,7 @@ import { wallActivityDescription } from "@/lib/activity-description";
 import { OnSignApiError, onSignApi } from "@/lib/onsign-api";
 import { validOnSignPlayerId } from "@/lib/onsign-api-shared";
 import { prepareScreenPhoto, readScreenMutation, removeScreenPhoto } from "@/lib/screen-photo";
+import { parseLocationPhotos, prepareLocationPhoto, readLocationMutation, removeLocationPhoto } from "@/lib/location-photo";
 
 export const runtime = "nodejs";
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
-  const state = await readState(database(), user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none");
+  const state = await readState(database(), user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none", user.role === "admin");
   return NextResponse.json(state, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
@@ -26,13 +27,24 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return bad("Invalid request origin.", 403);
   let preparedPhoto: string | null = null, committed = false;
-  const obsoletePhotos: string[] = [];
+  const preparedLocationPhotos = new Map<number, string>();
+  const obsoletePhotos: string[] = [], obsoleteLocationPhotos: string[] = [];
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
   if (user.role !== "admin" && request.headers.get("content-type")?.startsWith("multipart/form-data")) return bad("Admin access required.", 403);
-  const { body, file } = await readScreenMutation(request);
+  const locationUpload = request.headers.get("x-location-photos") === "1";
+  const parsed = locationUpload ? await readLocationMutation(request) : await readScreenMutation(request);
+  const body = parsed.body;
+  const file = locationUpload ? null : (parsed as Awaited<ReturnType<typeof readScreenMutation>>).file;
+  const locationFiles = locationUpload ? (parsed as Awaited<ReturnType<typeof readLocationMutation>>).files : new Map<number, File>();
   if (!canMutate(user.role, body.action)) return bad("You do not have permission for this action.", 403);
+  if (locationUpload && (body.type !== "store" || !["create", "update"].includes(String(body.action)))) return bad("Choose a valid location photo change.");
+  if (body.locationPhotos !== undefined && (body.type !== "store" || !["create", "update"].includes(String(body.action)))) return bad("Choose a valid location photo change.");
+  if (locationFiles.size && body.locationPhotos === undefined) return bad("Choose location photos before uploading.");
+  const locationPhotos = body.locationPhotos === undefined ? null : parseLocationPhotos(body.locationPhotos, locationFiles);
+  const expectedLocationPhotos = locationPhotos ? parseLocationPhotos(body.locationPhotoExpected ?? [], new Map()) : null;
+  if (expectedLocationPhotos?.some(photo => !photo.id)) return bad("Invalid location photo version.");
   const photoAction = body.photoAction ?? "keep";
   if (typeof photoAction !== "string" || !["keep", "replace", "remove"].includes(photoAction) || (photoAction !== "keep" && (body.type !== "screen" || !["create", "update"].includes(String(body.action)))) || (photoAction === "replace") !== !!file) return bad("Choose a valid screen photo change.");
   let verifiedPlayerId: string | null = null;
@@ -47,11 +59,12 @@ export async function POST(request: NextRequest) {
     }
   }
   if (file) preparedPhoto = await prepareScreenPhoto(file);
+  for (const [index, upload] of locationFiles) preparedLocationPhotos.set(index, await prepareLocationPhoto(upload));
   const result = await database().transaction(async (db) => {
     // Validation and writes share the lock across every Node process.
     // This prevents duplicate names and children being created during parent deletion.
     await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
-    const state = await readState(db, false);
+    const state = await readState(db, false, user.role === "admin");
     const entity = (id: unknown) => state.entities.find((item) => item.id === id);
     const now = new Date().toISOString();
     let audit: { action: string; type: string | null; id: string | null; name: string | null } | null = null;
@@ -84,18 +97,35 @@ export async function POST(request: NextRequest) {
       const duplicate = state.entities.some((item) => item.type === type && item.parentId === parentId && item.name.toLowerCase() === name.toLowerCase() && (body.action === "create" || item.id !== body.id));
       if (duplicate) return bad("An item with this name already exists here.");
       if (photoAction !== "keep" && body.photoExpectedKey !== (existing?.photoKey || null)) return bad("This screen photo changed. Reopen Edit screen and try again.", 409);
+      const currentLocationPhotos = type === "store" && existing ? state.locationPhotos.filter(photo => photo.locationId === existing.id) : [];
+      if (locationPhotos) {
+        if (JSON.stringify(currentLocationPhotos.map(({ id, label }) => ({ id, label }))) !== JSON.stringify(expectedLocationPhotos)) return bad("This location gallery changed. Reopen Edit location and try again.", 409);
+        if (locationPhotos.some(photo => photo.id && !currentLocationPhotos.some(current => current.id === photo.id))) return bad("A location photo no longer belongs to this location.", 409);
+      }
       const photoKey = photoAction === "replace" ? preparedPhoto : photoAction === "remove" ? null : existing?.photoKey || null;
+      let savedId: string;
       if (body.action === "create") {
         const id = crypto.randomUUID();
         await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, onsign_player_id, photo_key, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)")
           .bind(id, type, name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, now).run();
         audit = { action: "created", type, id, name };
+        savedId = id;
       } else {
         if (!existing || existing.type !== type) return bad("Item not found.", 404);
         await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, onsign_player_id = ?, photo_key = ?, is_demo = 0 WHERE id = ?")
           .bind(name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, existing.id).run();
         if (existing.photoKey && existing.photoKey !== photoKey) obsoletePhotos.push(existing.photoKey);
         audit = { action: "updated", type, id: existing.id, name };
+        savedId = existing.id;
+      }
+      if (locationPhotos) {
+        for (const photo of currentLocationPhotos) if (!locationPhotos.some(next => next.id === photo.id)) obsoleteLocationPhotos.push(photo.id);
+        await db.prepare("DELETE FROM location_photos WHERE location_id = ?").bind(savedId).run();
+        for (const [position, photo] of locationPhotos.entries()) {
+          const id = photo.id || preparedLocationPhotos.get(photo.uploadIndex!);
+          if (!id) throw new Error("Missing prepared location photo");
+          await db.prepare("INSERT INTO location_photos (id, location_id, position, label) VALUES (?, ?, ?, ?)").bind(id, savedId, position, photo.label).run();
+        }
       }
     } else if (body.action === "delete") {
       const existing = entity(body.id);
@@ -106,6 +136,7 @@ export async function POST(request: NextRequest) {
       for (const id of ids) {
         const photoKey = entity(id)?.photoKey;
         if (photoKey) obsoletePhotos.push(photoKey);
+        for (const photo of state.locationPhotos) if (photo.locationId === id) obsoleteLocationPhotos.push(photo.id);
         await db.prepare("DELETE FROM group_members WHERE group_id = ? OR screen_id = ?").bind(id, id).run();
         await db.prepare("DELETE FROM entities WHERE id = ?").bind(id).run();
       }
@@ -153,7 +184,7 @@ export async function POST(request: NextRequest) {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, user.email, now).run();
     }
-    const updated = await readState(db, user.role === "admin");
+    const updated = await readState(db, user.role === "admin", user.role === "admin");
     return NextResponse.json({ ...updated, activity: user.role === "admin" ? updated.activity : [] }, { headers: { "Cache-Control": "no-store" } });
   });
   committed = result.ok;
@@ -164,5 +195,7 @@ export async function POST(request: NextRequest) {
   } finally {
     if (preparedPhoto && !committed) await removeScreenPhoto(preparedPhoto);
     if (committed) for (const key of obsoletePhotos) await removeScreenPhoto(key);
+    if (!committed) for (const key of preparedLocationPhotos.values()) await removeLocationPhoto(key);
+    if (committed) for (const key of obsoleteLocationPhotos) await removeLocationPhoto(key);
   }
 }
