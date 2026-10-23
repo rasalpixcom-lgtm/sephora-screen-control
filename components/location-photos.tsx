@@ -30,6 +30,7 @@ function DraftThumbnail({ photo, locationId }: { photo: LocationPhotoDraft; loca
 
 export function LocationPhotosInput({ locationId, value, onChange, disabled }: { locationId?: string; value: LocationPhotoDraft[]; onChange: (value: LocationPhotoDraft[]) => void; disabled: boolean }) {
   const id = useId(), input = useRef<HTMLInputElement>(null);
+  const nextDraftId = useRef(0);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const selectedIndex = Math.max(0, value.findIndex(photo => (photo.id || photo.clientId) === selectedId));
@@ -58,7 +59,8 @@ export function LocationPhotosInput({ locationId, value, onChange, disabled }: {
       if (!files.length) return;
       if (files.length > locationPhotoMax - value.length) { setError(`Choose no more than ${locationPhotoMax - value.length} additional photo${locationPhotoMax - value.length === 1 ? "" : "s"}.`); return; }
       if (files.some(file => !screenPhotoTypes.includes(file.type) || !file.size || file.size > screenPhotoLimit)) { setError("Choose JPG, PNG or WebP images up to 5 MB each."); return; }
-      const added = files.map(file => ({ clientId: crypto.randomUUID(), file, label: "" }));
+      // Draft keys stay in this editor; secure-context-only UUIDs break HTTP LAN use.
+      const added = files.map(file => ({ clientId: `${id}-draft-${++nextDraftId.current}`, file, label: "" }));
       setError(""); onChange([...value, ...added]); setSelectedId(added[0].clientId);
     }}/><button type="button" className="adm-secondary-btn" disabled={disabled} onClick={() => input.current?.click()}><Plus size={16}/> Add photos</button></>}
     {error && <p className="adm-error" role="alert">{error}</p>}

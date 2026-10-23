@@ -1,5 +1,33 @@
 # Code review and local verification
 
+## Full project review before pushing — 23 October 2026
+
+Re-reviewed the maintained application paths against `83c24a2`: authenticated pages/API routes, role and origin checks, inventory and gallery transactions, validation and private file paths, screen hardware/Notes/Remote access persistence and conflicts, OnSign organization scoping, client cancellation, preview transport and incident freshness, Controller/Monitor selection, Activity, reports/PDFs, alert queues/transports, migrations/import and standalone/Docker packaging. The only pending application-source change is the HTTP photo-selection correction below. Generated dependencies and inactive legacy Sites/D1 artifacts were not audited line by line; these checks cannot prove the absence of every possible defect.
+
+The new dependency audit flagged the installed Next.js 16.3.8 against newly indexed Next.js advisories: [image optimization](https://github.com/advisories/GHSA-2464-fhr4-w9xw), [Server Action denial of service](https://github.com/advisories/GHSA-p3m5-59mp-jv5r), and [typed-array cache responses](https://github.com/advisories/GHSA-673q-mjm6-r5xr). The advisories were added to the public database on 22 October. Exploitability is conditional: this app has no authored Server Actions or `use cache` functions, and already uses sharp 0.35.5; this finding is not evidence of exploitation. Next.js and its ESLint configuration are now pinned to 16.4.2 in the manifest and lockfile. Only the corresponding Next.js packages changed versions. No forced downgrade or unrelated dependency update was applied.
+
+Fresh verification against the updated dependency set passed:
+
+- Production build and TypeScript, ESLint, whitespace checks, and all six preview/stream/selection/origin/location regression suites.
+- Authentication/inventory/monitor access: 213 integration checks; Activity: 16 query and 46 integration checks; Reports and feature persistence/conflicts/cascades/schema health: 89 integration checks plus inventory PDF checks.
+- OnSign: 497 mocked API checks, content checks, 13 photo storage/upload checks and 83 server checks. Hardware, Notes, Remote access and fetch-cancellation validation suites passed.
+- Email: 92 checks; WhatsApp: 140 checks; PDF layout/content: 25 checks; SQLite import: 10 checks. All sends used mock/local transports and tests used disposable PostgreSQL databases.
+- Browser smoke check on the full Next.js 16.4.2 application: sign-in, location editor selection/preview, label/save, page reload and persisted gallery image loading, with no captured browser errors. The separate missing-UUID regression is recorded below. A true company-network/HTTPS browser matrix was not repeated.
+- Clean Linux Docker build, non-root runtime, writable private image folders, packaged report font, all 15 migrations and no bundled environment files.
+- Configured-secret checks found no matches in 306 source files, 74 browser assets or 173 server artifacts; no packaged environment files were found.
+
+The updated lockfile's runtime audit reports **zero vulnerabilities**. The full audit still reports **five high affected development-only ESLint dependency entries** through the existing braces advisory; that tooling item remains open. Browser clipboard availability on HTTP remains browser-dependent, with the existing manual-copy guidance; the photo fix does not alter authentication, permissions or browser security settings.
+
+No additional application-logic defect was confirmed. No new migration, data import, credential or image-folder change is required. Verification ran in an isolated copy with a separate dependency installation; the source checkout and company PC need `npm ci` and a rebuild/restart to run the updated dependency versions. Existing backup/restore verification from 22 October remains applicable because no schema or storage format changed. Review logs are ignored under `.server-runtime/full-review-20261023`. Following the completed local review, the user authorized committing and pushing to `main`, then updating `production` to the same verified commit. The company PC still requires a separate pull, dependency installation, rebuild and restart.
+
+## Location photo selection on HTTP LAN addresses — 23 October 2026
+
+The location photo editor called the browser's secure-context-only `crypto.randomUUID()` for temporary draft keys. On plain HTTP private-IP addresses, selecting files could throw before updating editor state, leaving no previews. Folder permissions and the server upload route are not involved at that point.
+
+Draft keys now use a React editor ID plus a monotonically increasing local counter. They are only used for draft selection/React keys and are not submitted as storage IDs; server-generated UUIDs, private file paths, validation and upload handling are unchanged.
+
+An isolated browser fixture deliberately removed `crypto.randomUUID` to reproduce this condition. The prior committed component failed with `TypeError: crypto.randomUUID is not a function` and stayed at 0/5. The corrected component displayed five decoded previews with unique IDs and no browser errors. Label editing, reordering, removal/re-addition and the five-photo limit were checked. Production build/TypeScript, ESLint and all 83 isolated OnSign/photo server integration checks passed. The company's browser still needs a post-update check on its actual HTTP address. No database migration or image-folder change is required for this fix.
+
 ## Full pre-push review — 22 October 2026
 
 Reviewed the maintained Next.js application and pending work: page/API entry points, authentication and roles, origin/body validation, inventory hierarchy and transactions, screen hardware/Notes/Remote access, private screen/location photos, OnSign query scoping and rendering, preview streaming/checking/incidents, Controller/Monitor selection, Activity, reports/PDFs, alert settings/queues/transports, PostgreSQL schemas/migrations/import, paths, standalone packaging and deployment instructions. Generated dependencies and inactive Sites/D1 artifacts were not audited line by line. This review does not guarantee the absence of every defect.
