@@ -1,0 +1,43 @@
+.cms-support{display:grid;gap:20px;min-width:0}.cms-support h2{font-size:18px;font-weight:700;margin:0 0 16px}.cms-support .adm-panel{padding:24px;margin:0}.cms-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.cms-toolbar h2{margin:0}.cms-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.cms-filters,.cms-fields,.cms-view-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin:18px 0}.cms-fields,.cms-view-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.cms-support label{display:grid;gap:7px;font-size:13px;font-weight:600;min-width:0}.cms-support input:not([type=checkbox]),.cms-support select{width:100%;min-width:0;min-height:42px;border:1px solid #bccbc6;border-radius:9px;background:#fff;color:#19252b;padding:9px 11px;font:inherit;font-weight:400}.cms-support input:focus-visible,.cms-support select:focus-visible{outline:2px solid #299c7c;outline-offset:2px}.cms-support button:disabled{opacity:.5;cursor:not-allowed}.cms-support input[type=checkbox]{width:17px;height:17px;accent-color:#218268}.cms-support .cms-fieldset{min-width:0;margin-inline:0}.cms-image{display:block;max-width:300px;width:100%;max-height:200px;object-fit:contain;object-position:left center;margin:14px 0;border-radius:10px}.cms-picker{height:280px;overflow:auto;scrollbar-gutter:stable;padding:8px 4px;margin-top:12px}.cms-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px;align-items:stretch}.cms-picker label{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #d7e1dc;border-radius:8px}.cms-support small{display:block;font-size:12px;color:#687c72;margin-top:4px}.cms-table{overflow:auto;max-width:100%}.cms-table table{border-collapse:collapse;width:100%;font-size:13px;min-width:850px}.cms-table th,.cms-table td{text-align:left;padding:13px 10px;border-bottom:1px solid #dce4e0;vertical-align:middle;overflow-wrap:anywhere}.cms-table th{font-size:12px;color:#52685e}.cms-results table{min-width:1350px}.cms-results th:first-child{width:68px}.cms-support .cms-select-all{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}.cms-results td:nth-child(2){min-width:210px}.cms-results td:nth-child(6){min-width:210px}.cms-results td:nth-child(7){min-width:190px}.cms-bulk{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:14px 0}.cms-bulk label{flex:1;min-width:130px}.cms-save{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:10px;padding:16px;background:#f6f7f7;border-top:1px solid #dce4e0;z-index:5}.cms-view-fields span{display:block;font-size:12px;color:#687c72;margin-bottom:5px}.cms-view-fields strong{font-size:14px;font-weight:500;overflow-wrap:anywhere}.cms-hint{font-size:12px;color:#687c72;margin:8px 0 14px}.cms-status{font-size:12px;font-weight:600}.cms-status[data-status=Online],.cms-status[data-status=Scheduled],.cms-status[data-status=Verified]{color:#257449}.cms-status[data-status=Offline],.cms-status[data-status=Failed],.cms-status[data-status=Issue]{color:#be3838}.cms-status[data-status=Unstable]{color:#986319}.dark .cms-support input:not([type=checkbox]),.dark .cms-support select{background:#1b2727;border-color:#344840;color:#e5efeb}.dark .cms-support th,.dark .cms-support td,.dark .cms-picker label,.dark .cms-save{border-color:#2c4038}.dark .cms-save{background:#0c1212}.dark .cms-support th,.dark .cms-support small,.dark .cms-hint,.dark .cms-view-fields span{color:#a6bab0}.dark .cms-status[data-status=Online],.dark .cms-status[data-status=Scheduled],.dark .cms-status[data-status=Verified]{color:#60c693}.dark .cms-status[data-status=Unstable]{color:#e5b46c}.dark .cms-status[data-status=Offline],.dark .cms-status[data-status=Failed],.dark .cms-status[data-status=Issue]{color:#f19393}@media(max-width:650px){.cms-fields,.cms-view-fields{grid-template-columns:1fr}.cms-actions{width:100%}.cms-picker-grid{grid-template-columns:1fr}.cms-support .adm-panel{padding:18px}}
+.cms-support>*,.cms-support form,.cms-support .adm-panel{min-width:0;max-width:100%}
+
+/* Keep spacing and sizing local to CMS Support. */
+.cms-support form{display:grid;gap:20px}
+.cms-support .cms-list-card{display:grid;gap:24px}
+.cms-list-card .cms-filters{margin:0;align-items:end}
+.cms-clear-filters{justify-self:start;align-self:end}
+.cms-pagination{padding-top:4px}
+.cms-pagination .cms-actions{width:auto;gap:12px}
+.cms-update-table th:last-child,.cms-update-table td:last-child{text-align:right;width:110px}
+.cms-update-table th:nth-child(5),.cms-update-table td:nth-child(5){text-align:center;width:90px}
+.cms-update-table td:nth-child(3){white-space:nowrap}
+.cms-support .cms-picker label{display:flex;align-items:flex-start;min-height:88px;height:auto;gap:10px;line-height:1.45}.cms-picker strong{display:block;font-weight:600}.cms-picker small{font-weight:400;line-height:1.45}
+.cms-picker input[type=checkbox]{flex:0 0 17px;margin-top:3px}
+.cms-picker span{min-width:0;overflow-wrap:anywhere}
+.cms-picker label:has(input:checked){border-color:#299c7c;background:#299c7c0d}
+.cms-support input[type=file]{height:auto}
+.cms-table{scrollbar-gutter:stable}
+.cms-results select{min-width:125px}
+.cms-support .cms-save{padding:16px 0;flex-wrap:wrap}
+.cms-support .cms-view-fields{row-gap:24px}
+.cms-support .adm-panel>p{overflow-wrap:anywhere}
+.cms-support .adm-panel>.cms-toolbar+.cms-toolbar{margin-top:12px}
+@media(max-width:900px){.cms-list-card .cms-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){
+  .cms-support .cms-list-card{gap:20px}
+  .cms-filters,.cms-list-card .cms-filters{grid-template-columns:1fr}
+  .cms-pagination{align-items:flex-start}
+  .cms-pagination .cms-actions{flex-wrap:wrap}
+  .cms-bulk label{flex-basis:100%;min-width:0}
+  .cms-support .cms-save{padding:12px 0}
+}
+
+/* Filtering updates content without inserting new layout rows. */
+.cms-list-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cms-loading-status{display:inline-block;min-height:18px;min-width:110px;font-size:12px;color:#687c72}
+.cms-loading-status[data-loading=false]{visibility:hidden}
+.dark .cms-loading-status{color:#a6bab0}
+.cms-update-table{min-height:140px}
+.cms-update-table .cms-list-empty{text-align:center;height:88px;color:#687c72}
+.dark .cms-update-table .cms-list-empty{color:#a6bab0}
+.cms-picker-empty{grid-column:1/-1}

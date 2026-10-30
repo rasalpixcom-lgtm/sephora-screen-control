@@ -24,9 +24,9 @@ try {
   docker("cp", "sephora-server-postgres:" + remoteFile, backupFile);
   await admin.query('CREATE DATABASE "' + destination + '"'); created = true;
   docker("exec", "sephora-server-postgres", "pg_restore", "--username=sephora", "--dbname=" + destination, "--no-owner", "--exit-on-error", remoteFile);
-  const tables = ["entities", "group_members", "display_state", "activity_log", "auth_user", "auth_account", "auth_session", "auth_verification", "auth_rate_limit", "auth_bootstrap", "monitor_access", "server_migrations"];
+  const tables = (await source.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")).rows.map(row => row.tablename);
   for (const table of tables) {
-    const rows = async (pool) => (await pool.query('SELECT * FROM "' + table + '"')).rows.map(row => JSON.stringify(row)).sort();
+    const rows = async (pool) => (await pool.query('SELECT * FROM "' + table.replaceAll('"', '""') + '"')).rows.map(row => JSON.stringify(row)).sort();
     const originalRows = await rows(source);
     // Only emit table names/counts, never account credentials or password hashes.
     assert.ok(JSON.stringify(originalRows) === JSON.stringify(await rows(restored)), "Restored rows differ in " + table);

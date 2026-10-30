@@ -468,6 +468,9 @@ html.dark .adm-screen-table .adm-row-actions .adm-delete:hover,html.dark .adm-sc
 .adm-region-table td:nth-child(3),.adm-region-table th:nth-child(3) { text-align:center; font-variant-numeric:tabular-nums; }
 .adm-region-table td:nth-child(2),.adm-region-table .adm-name-cell strong { overflow-wrap:anywhere; white-space:normal; line-height:1.5; }
 .adm-region-table .adm-name-cell>div { min-width:0; }
+.adm-region-table:not(.adm-location-table) th:first-child { width:calc(46% - 140px); }
+.adm-region-table:not(.adm-location-table) th:nth-child(4) { width:12%; }
+.adm-region-table:not(.adm-location-table) th:nth-child(4),.adm-region-table:not(.adm-location-table) td:nth-child(4) { text-align:center; font-variant-numeric:tabular-nums; }
 .adm-region-table.adm-location-table { min-width:900px; }
 .adm-location-table th:first-child { width:36%; }
 .adm-location-table th:nth-child(2) { width:calc(64% - 384px); }
@@ -477,10 +480,10 @@ html.dark .adm-screen-table .adm-row-actions .adm-delete:hover,html.dark .adm-sc
 .adm-region-table .adm-row-actions .adm-delete { width:40px; border-radius:10px; }
 .adm-region-table .adm-row-actions .adm-delete:hover,.adm-region-table .adm-row-actions .adm-delete:focus-visible { background:rgba(200,65,80,.14); color:#cf5263; }
 html.dark .adm-region-table .adm-row-actions .adm-delete:hover,html.dark .adm-region-table .adm-row-actions .adm-delete:focus-visible { color:#ffabb5; }
-.adm-country-table th:nth-child(2),.adm-country-table th:nth-child(3) { width:18%; }
+.adm-country-table th:nth-child(2),.adm-country-table th:nth-child(3),.adm-country-table th:nth-child(4) { width:12%; }
 .adm-country-table th:last-child { width:140px; text-align:center; }
 .adm-country-table .adm-row-actions,.adm-region-table .adm-row-actions { justify-content:center; }
-.adm-country-table td:nth-child(2),.adm-country-table td:nth-child(3),.adm-country-table th:nth-child(2),.adm-country-table th:nth-child(3) { text-align:center; font-variant-numeric:tabular-nums; }
+.adm-country-table td:nth-child(2),.adm-country-table td:nth-child(3),.adm-country-table td:nth-child(4),.adm-country-table th:nth-child(2),.adm-country-table th:nth-child(3),.adm-country-table th:nth-child(4) { text-align:center; font-variant-numeric:tabular-nums; }
 .adm-country-table .adm-name-cell>div { min-width:0; }
 .adm-country-table .adm-name-cell strong { overflow-wrap:anywhere; white-space:normal; line-height:1.5; }
 .adm-country-table .adm-row-actions .adm-delete { width:40px; border-radius:10px; }

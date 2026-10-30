@@ -16,6 +16,8 @@ export async function GET() {
     await db.prepare("SELECT screen_id, section, fields, version, updated_at FROM screen_hardware_sections LIMIT 1").first();
     await db.prepare("SELECT screen_id, note, version, updated_at FROM screen_notes LIMIT 1").first();
     await db.prepare("SELECT screen_id, teamviewer_id, anydesk_id, version, updated_at FROM screen_remote_access LIMIT 1").first();
+    await db.prepare("SELECT id, version, payload FROM cms_updates LIMIT 1").first();
+    await db.prepare("SELECT id, update_id, source_version FROM cms_reports LIMIT 1").first();
     await db.prepare("SELECT id FROM email_alert_settings LIMIT 1").first();
     await db.prepare("SELECT id FROM email_alert_queue LIMIT 1").first();
     await db.prepare("SELECT id FROM email_alert_delivery LIMIT 1").first();

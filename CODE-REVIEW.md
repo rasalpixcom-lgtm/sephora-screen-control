@@ -1,5 +1,50 @@
 # Code review and local verification
 
+## Database verification completed after Docker recovery - 30 October 2026
+
+Docker's Linux engine and the existing local development PostgreSQL container recovered. Repeated all previously blocked integration suites successfully against disposable databases: authentication/inventory/monitor 213, Activity 46, Reports 89, OnSign/photos 83, email 92, WhatsApp 140, CMS 44 and SQLite import 10 (717 total). External transports were mocked/local; no client messages were sent. A fresh local development backup restored into a disposable database with every row in all 26 public tables matching. All 273 maintained application/configuration/script/test files compared still matched the tested review copy byte for byte.
+
+This resolves the database-verification limitation recorded below. Together with today's successful build/TypeScript, lint, 17 unit/regression suites, zero-vulnerability audit and packaging/secret checks, no blocking issue was confirmed. No application-code change, commit, push or company-server deployment was performed.
+
+## Pre-push recheck - 30 October 2026
+
+Rechecked the pending changes and revisited CMS request parsing, authorization/origin checks, inventory snapshots and group selection, concurrency/finalization, PDF generation, hierarchy counts, private file and standalone paths, migrations and deployment requirements. All 273 maintained application/configuration/script/test files compared in this run matched the isolated review copy byte for byte. No new application defect was confirmed; no application code was changed.
+
+Fresh checks passed: production build/TypeScript, full ESLint, git diff --check and 17 unit/regression suites (client-fetch, hardware, notes, remote access, CMS, Activity queries, mocked OnSign API, OnSign content, photo storage, inventory PDF, WhatsApp PDF, preview health, streams, monitor summaries, screen logic, location filters/counts and network origins). Fresh npm audit reports zero vulnerabilities. Configured-secret scanning found no matches in 316 source files, 76 browser assets and 174 packaged server artifacts. No environment files were packaged; the report font is present.
+
+Fresh database integration runs could not proceed: the local development PostgreSQL endpoint on 127.0.0.1:55432 refused connections and Docker Desktop's Linux engine remained unavailable after a startup attempt. This is an environment limitation, not a passing test result. The 717 integration checks and all-26-table backup restoration last passed on 29 October against these unchanged application files. They were not successfully repeated on 30 October. Company-network/HTTPS and live-provider checks were not repeated. No push, production update or company-server change was performed.
+
+## Follow-up review including country and region location counts - 29 October 2026
+
+Repeated verification after the location-count changes. The isolated clean installation matched all 276 maintained application/configuration/script/test files byte for byte before testing. Production build/TypeScript, full ESLint, git diff --check, all 717 integration checks and the existing unit/regression suites passed. The hierarchy suite now passes 26 checks, including country/region counts, empty locations, moves, deletions and invalid parents. The fresh dependency audit reports zero vulnerabilities.
+
+Additional PDF boundary verification used maximum-length fields and long unbroken text; the two-page output was rendered and inspected without clipping. A fresh local development database backup restored into a disposable database with every row in all 26 public tables matching. Configured-secret scanning found no matches in 316 source files, 76 browser assets or 174 packaged server artifacts. Standalone contains no environment files and includes the report font.
+
+No additional blocking defect was confirmed in this follow-up. No application code changes, commits, pushes, production updates or company-server operations were performed. Existing release requirements and review scope below still apply; live company-network/provider and full device/browser testing were not repeated.
+
+## Full project review with CMS Support - 29 October 2026
+
+Reviewed the maintained application entry points and data flow: page/API authorization and same-origin checks, bounded request parsing, inventory hierarchy and transactions, private screen/location photos and standalone path resolution, screen hardware/notes/remote-access conflicts, monitor access and selection, OnSign organization scoping and preview recovery, activity, report queries/PDFs, email/WhatsApp queues and transports, authentication/session handling, PostgreSQL migrations/import, packaging and deployment paths. The deepest line-level review focused on the pending CMS implementation: server-derived inventory snapshots, group selection/deduplication, manual independent statuses, GST/date validation, optimistic concurrency, private database image storage, PDF layout and immutable finalization. Generated dependencies and inactive legacy Sites/D1 integration artifacts were not audited line by line. This is bounded review evidence, not a guarantee that every possible defect is absent.
+
+Confirmed findings and corrections:
+
+- A fresh npm audit reported runtime findings in locked Nodemailer 10.1.1 and Zod 4.6.5. Updated only those two package versions, to Nodemailer 10.1.4 and Zod 4.6.7, with matching manifest/lockfile. No forced audit fix, framework downgrade or unrelated package-version update. Advisory references: https://github.com/nodemailer/nodemailer/security/advisories/GHSA-8c8m-p3m8-cjg8 and https://github.com/advisories/GHSA-mrhx-c7xc-m3w5. The fresh full audit of the patched clean install reports zero vulnerabilities. The old development-only ESLint entries from earlier review dates are not reported by the current audit database.
+- The Reports regression suite still expected 15 migrations. It now compares the applied count with the actual SQL migration files (currently 16), retaining checksum/idempotence checks.
+- Import-test cleanup includes CMS tables. The backup/restore verification now discovers every public table rather than relying on a historical fixed list, so CMS records, images and report bytes are covered.
+
+Fresh verification used an isolated clean installation of the patched lockfile and disposable PostgreSQL databases/local mock transports, never the company server:
+
+- Production build/TypeScript, full ESLint and whitespace checks passed.
+- 717 integration checks passed: authentication/inventory/monitor 213; Activity 46; Reports/hardware/notes/remote access 89; OnSign/photos 83; email 92; WhatsApp 140; CMS 44; SQLite import 10.
+- 497 mocked OnSign API checks, 40 CMS validation/selection checks, 16 Activity query checks, 13 photo storage/upload checks, 25 WhatsApp PDF checks, hardware/notes/remote/fetch/content/inventory-PDF suites and six preview/stream/selection/location/origin regression suites passed. PDF inspection used the bundled Python with pypdf/pdfplumber.
+- CMS PDF fixtures cover image/no-image, long fields and 70 screens. All screen rows/statuses remain present; internal notes and per-screen playback-check times stay out of the client PDF. The current 70-screen sample spans six portrait pages with repeated headers and no out-of-margin text. Final-report byte immutability and concurrent-finalize deduplication pass in the server suite.
+- Backup of the local development database restored successfully into a disposable database; every row in all 26 public tables matched, including CMS tables and binary columns. The source database was read only by this verification.
+- Configured-secret scanning of 316 source files, 76 browser assets and 180 packaged server artifacts found no matches. No .env files were packaged in standalone; the report font is present.
+
+CMS migration 0015 is required for the next release. It has been applied to the local development database only. CMS content images/final PDFs live in PostgreSQL, not an additional filesystem directory. Existing screen/location-photo directories remain persistent and still need their configured Windows account permissions.
+
+The running source-checkout development process and company server were not reinstalled/restarted by this review. The patched lockfile was tested with npm ci in the isolated review copy. Before running the next release, install dependencies, apply migrations, build and restart through the established deployment process. No commit, Git push, production-branch update or company deployment was performed.
+
 ## Full project review before pushing — 23 October 2026
 
 Re-reviewed the maintained application paths against `83c24a2`: authenticated pages/API routes, role and origin checks, inventory and gallery transactions, validation and private file paths, screen hardware/Notes/Remote access persistence and conflicts, OnSign organization scoping, client cancellation, preview transport and incident freshness, Controller/Monitor selection, Activity, reports/PDFs, alert queues/transports, migrations/import and standalone/Docker packaging. The only pending application-source change is the HTTP photo-selection correction below. Generated dependencies and inactive legacy Sites/D1 artifacts were not audited line by line; these checks cannot prove the absence of every possible defect.

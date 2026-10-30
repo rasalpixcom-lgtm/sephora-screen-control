@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { cmsAdditionalScreens, cmsScreenOptions } from '../lib/cms-screen-selection.ts';
+import { cmsEmptyDetails, cmsImageMime, parseCmsPayload, cmsScreenLimit } from '../lib/cms-support.ts';
+const inventory = [{ id:'c',type:'country',name:'UAE',parentId:null },{id:'r',type:'region',name:'Dubai',parentId:'c'},{id:'l',type:'store',name:'Mall',parentId:'r'},{id:'s',type:'screen',name:'Popup',parentId:'l'}];
+const base = { ...cmsEmptyDetails, contentName:'Kayali', category:'Popup', receivedAt:'2026-10-19T17:21:00+04:00', playbackStart:'2026-10-24', playbackEnd:'2026-11-12', screens:[{screenId:'s',screenName:'Spoofed',network:'Not checked',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:''}] };
+let checks=0;
+function check(value){ assert.ok(value); checks++; }
+function rejects(change){ assert.throws(()=>parseCmsPayload({...base,...change},inventory)); checks++; }
+const parsed=parseCmsPayload(base,inventory);
+check(parsed.screens[0].screenName==='Popup'); check(parsed.screens[0].country==='UAE'); check(parsed.receivedAt==='2026-10-19T13:21:00.000Z');
+rejects({contentName:''}); rejects({category:''}); rejects({receivedAt:'2026-02-31T12:00:00Z'}); rejects({receivedAt:'2026-10-19T17:21'}); rejects({playbackStart:'2026-02-30'}); rejects({playbackEnd:'2026-10-01'}); rejects({missingReceivedAt:'2026-10-01T00:00:00Z'}); rejects({screens:[]}); rejects({screens:[base.screens[0],base.screens[0]]}); rejects({screens:Array(cmsScreenLimit+1).fill(base.screens[0])});
+for(const key of ['network','scheduling','playback']) rejects({screens:[{...base.screens[0],[key]:'Unknown'}]});
+rejects({screens:[{...base.screens[0],playback:'Verified'}]}); rejects({screens:[{...base.screens[0],scheduling:'Scheduled'}]}); rejects({internalNotes:'bad\u0000text'}); rejects({contentName:'x'.repeat(161)}); rejects({screens:[{...base.screens[0],remarks:'x'.repeat(301)}]});
+check(parseCmsPayload({...base,scheduledAt:'2026-10-22T14:26:00+04:00',screens:[{...base.screens[0],network:'Offline',scheduling:'Scheduled',playback:'Verified',checkedAt:'2026-10-25T15:00:00+04:00'}]},inventory).screens[0].playback==='Verified');
+check(parseCmsPayload(base,[],parsed).screens[0].screenName==='Popup');
+assert.throws(()=>parseCmsPayload(base,[]));checks++;
+check(cmsImageMime('test.PNG','')==='image/png');
+check(cmsImageMime('test.jpg','application/octet-stream')==='image/jpeg');
+check(cmsImageMime('test.webp','image/webp')==='image/webp');
+check(cmsImageMime('test.svg','')==='');
+check(cmsImageMime('test.png','image/gif')==='');
+// Campaigns can span locations and groups without changing saved screen selections.
+const row=(id,country,region,location)=>({screen:{id,name:'Screen '+id},country:{id:country,name:country},region:{id:region,name:region},location:{id:location,name:location}});
+const choices=[row('a','UAE','Dubai','Mall 1'),row('b','UAE','Abu Dhabi','Mall 2'),row('c','KSA','Riyadh','Mall 3'),row('d','UAE','Dubai','Mall 1')];
+const membership=[{groupId:'animation',screenId:'a'},{groupId:'animation',screenId:'c'},{groupId:'animation',screenId:'a'},{groupId:'popup',screenId:'a'},{groupId:'popup',screenId:'b'},{groupId:'animation',screenId:'deleted-screen'}];
+const filters={group:'',country:'',region:'',location:'',search:''};
+const ids=rows=>rows.map(row=>row.screen.id).join(',');
+check(ids(cmsScreenOptions(choices,membership,filters))==='a,b,c,d');
+const group1=cmsScreenOptions(choices,membership,{...filters,group:'animation'});
+check(ids(group1)==='a,c');
+check(ids(cmsScreenOptions(choices,membership,{...filters,group:'animation',country:'UAE'}))==='a');
+check(ids(cmsScreenOptions(choices,membership,{...filters,group:'popup',region:'Abu Dhabi',location:'Mall 2'}))==='b');
+check(ids(cmsScreenOptions(choices,membership,{...filters,group:'popup',search:'  MALL 1  '}))==='a');
+check(cmsScreenOptions(choices,membership,{...filters,group:'empty'}).length===0);
+check(cmsScreenOptions(choices,membership,{...filters,group:'animation',country:'KSA',region:'Dubai'}).length===0);
+const savedIds=group1.map(row=>row.screen.id);
+const group2=cmsScreenOptions(choices,membership,{...filters,group:'popup'});
+check(ids(cmsAdditionalScreens(choices,savedIds,group2.map(row=>row.screen.id)))==='b');
+check(cmsAdditionalScreens(choices,savedIds,['a','a','missing']).length===0);
+check(ids(cmsAdditionalScreens(choices,[],['b','b']))==='b');
+check(cmsScreenOptions(choices,[],{...filters,group:'animation'}).length===0 && savedIds.join(',')==='a,c');
+console.log(checks+' CMS validation and screen selection checks passed.');

@@ -1,5 +1,15 @@
-import { pgTable, text, integer, boolean, timestamp, bigint, jsonb, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, bigint, jsonb, primaryKey, index, uniqueIndex, check, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+const privateBytes = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
+export const cmsUpdates = pgTable("cms_updates", {
+  id: text("id").primaryKey(), version: text("version").notNull(), payload: jsonb("payload").notNull(), image: privateBytes("image"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), updatedBy: text("updated_by").notNull(),
+}, table => [index("cms_updates_updated_idx").on(table.updatedAt.desc(), table.id), check("cms_updates_payload_check", sql`jsonb_typeof(${table.payload}) = 'object'`), check("cms_updates_image_check", sql`${table.image} IS NULL OR octet_length(${table.image}) <= 5242880`)]);
+export const cmsReports = pgTable("cms_reports", {
+  id: text("id").primaryKey(), updateId: text("update_id").notNull().references(() => cmsUpdates.id), revision: integer("revision").notNull(), sourceVersion: text("source_version").notNull(), pdf: privateBytes("pdf").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), createdBy: text("created_by").notNull(),
+}, table => [check("cms_reports_revision_check", sql`${table.revision} > 0`), check("cms_reports_pdf_check", sql`octet_length(${table.pdf}) <= 10485760`), uniqueIndex("cms_reports_update_revision_idx").on(table.updateId, table.revision), uniqueIndex("cms_reports_update_version_idx").on(table.updateId, table.sourceVersion)]);
 
 export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), onsignPlayerId: text("onsign_player_id"), photoKey: text("photo_key"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
   check("entities_photo_screen", sql`${table.photoKey} IS NULL OR (${table.type} = 'screen' AND ${table.photoKey} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$')`),

@@ -27,6 +27,7 @@ import MonitorLinkPanel from "@/components/monitor-link-panel";
 import ActivityPanel from "@/components/activity-panel";
 import LocationPicker from "@/components/location-picker";
 import PreviewReportsPanel from "@/components/preview-reports-panel";
+import CmsSupportPanel from "@/components/cms-support-panel";
 import EmailAlertPanel from "@/components/email-alert-panel";
 import WhatsAppAlertPanel from "@/components/whatsapp-alert-panel";
 import SettingsTabs from "@/components/settings-tabs";
@@ -35,16 +36,17 @@ import { LocationPhotosInput, LocationPhotosView, type LocationPhotoDraft } from
 import OnSignPlayerPicker from "@/components/onsign-player-picker";
 import OnSignScreenDetails from "@/components/onsign-screen-details";
 import { screenInventoryRows } from "@/lib/screen-inventory-report";
+import { locationCountsByCountry, locationCountsByRegion } from "@/lib/location-filters";
 
 
 
 type State = { entities: Entity[]; members: Member[]; locationPhotos: LocationPhoto[]; display: Display; activity: Activity[] };
 
-export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "reports" | "settings" | "users";
+export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "cms-support" | "reports" | "settings" | "users";
 
 const empty: State = { entities: [], members: [], locationPhotos: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", reports: "Reports", settings: "Settings", users: "Users" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", "cms-support": "CMS Support", reports: "Reports", settings: "Settings", users: "Users" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
@@ -61,6 +63,7 @@ const navigation = [
   { id: "locations", icon: MapPin }, { id: "groups", icon: Layers3 },
 
   { id: "activity", icon: ClipboardList },
+  { id: "cms-support", icon: FileText },
   { id: "reports", icon: FileText },
 
   { id: "users", icon: Users },
@@ -118,6 +121,8 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
   const [deleteTarget, setDeleteTarget] = useState<Entity | null>(null);
 
   const entities = state.entities;
+  const countryLocationCounts = useMemo(() => locationCountsByCountry(entities), [entities]);
+  const regionLocationCounts = useMemo(() => locationCountsByRegion(entities), [entities]);
 
   const byType = useCallback((type: EntityType) => entities.filter((item) => item.type === type), [entities]);
 
@@ -258,10 +263,11 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
     const list = type === "screen" ? visibleScreens : searchable.filter((item) => item.type === type);
 
     return <div className="adm-table-wrap"><table className={`adm-table${type === "country" ? " adm-country-table" : (type === "region" || type === "store") ? ` adm-region-table${type === "store" ? " adm-location-table" : ""}` : type === "screen" ? " adm-screen-table" : ""}`}>
-      <thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th>{type === "screen" && <th>Details</th>}<th>{type === "screen" ? "Preview link" : "Screens"}</th>{type === "store" && <th>Photos</th>}<th>Actions</th></tr></thead>
+      <thead><tr><th>Name</th><th>{type === "country" ? "Regions" : type === "region" ? "Country" : type === "store" ? "Region / country" : "Location / region"}</th>{(type === "country" || type === "region") && <th>Locations</th>}{type === "screen" && <th>Details</th>}<th>{type === "screen" ? "Preview link" : "Screens"}</th>{type === "store" && <th>Photos</th>}<th>Actions</th></tr></thead>
       <tbody>{list.map((item) => <tr key={item.id}>
         <td><div className="adm-name-cell"><span className="adm-list-icon">{type === "screen" ? <Monitor size={17}/> : type === "country" ? <Globe2 size={17}/> : <MapPin size={17}/>}</span><div><strong>{item.name}</strong>{type === "country" && item.shortName && <small>Abbreviation: {item.shortName}</small>}{item.isDemo ? <small>Sample data</small> : null}</div></div></td>
         <td>{type === "country" ? byType("region").filter((child) => child.parentId === item.id).length : parentNames(item, entities)}</td>
+        {(type === "country" || type === "region") && <td>{(type === "country" ? countryLocationCounts : regionLocationCounts).get(item.id) || 0}</td>}
         {type === "screen" && <td><Link href={`/admin/screens/${encodeURIComponent(item.id)}`} prefetch={false} className="adm-secondary-btn onsign-details-button" aria-label={`Details for ${item.name}`}>Details</Link></td>}
         <td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td>
         {type === "store" && <td><LocationPhotosView locationId={item.id} name={item.name} photos={state.locationPhotos.filter(photo => photo.locationId === item.id)}/></td>}
@@ -282,6 +288,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
     locations: "Stores and malls where screens are installed.", groups: "Combine similar screens across locations.",
 
     activity: "Recent changes to screens, groups, and the monitoring wall.",
+    "cms-support": "Record content updates and prepare client upload reports.",
     reports: "View unavailable previews and export reports.",
 
     settings: "Email and WhatsApp alerts, preview links, and account settings.",
@@ -329,6 +336,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
         {section === "activity" && <ActivityPanel refreshKey={usersRefreshKey}/>}
         {section === "reports" && <PreviewReportsPanel entities={entities} refreshKey={usersRefreshKey}/>}
+        {section === "cms-support" && <CmsSupportPanel entities={entities} members={state.members} refreshKey={usersRefreshKey}/>}
 
 
         {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}

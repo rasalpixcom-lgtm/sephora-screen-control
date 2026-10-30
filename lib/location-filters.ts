@@ -17,3 +17,26 @@ export function validLocationFilters(entities: Pick<Entity, "id" | "type" | "par
     && (!filters.country || byId.get(location.parentId || "")?.parentId === filters.country);
   return { country: filters.country, region: filters.region, location: validLocation ? filters.location : "" };
 }
+
+// Count saved locations even when they do not contain any screens.
+export function locationCountsByCountry(entities: Pick<Entity, "id" | "type" | "parentId">[]) {
+  const byId = new Map(entities.map(entity => [entity.id, entity]));
+  const counts = new Map(entities.filter(entity => entity.type === "country").map(country => [country.id, 0]));
+  for (const location of entities) {
+    if (location.type !== "store") continue;
+    const region = byId.get(location.parentId || "");
+    if (region?.type !== "region" || !region.parentId || !counts.has(region.parentId)) continue;
+    counts.set(region.parentId, counts.get(region.parentId)! + 1);
+  }
+  return counts;
+}
+
+export function locationCountsByRegion(entities: Pick<Entity, "id" | "type" | "parentId">[]) {
+  const counts = new Map(entities.filter(entity => entity.type === "region").map(region => [region.id, 0]));
+  for (const location of entities) {
+    if (location.type === "store" && location.parentId && counts.has(location.parentId)) {
+      counts.set(location.parentId, counts.get(location.parentId)! + 1);
+    }
+  }
+  return counts;
+}
