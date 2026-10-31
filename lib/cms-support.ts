@@ -6,10 +6,10 @@ export const cmsStatuses = {
 } as const;
 export type CmsStatusKind = keyof typeof cmsStatuses;
 export type CmsScreen = { screenId: string; screenName: string; location: string; region: string; country: string; network: string; scheduling: string; playback: string; checkedAt: string; remarks: string };
-export type CmsDetails = { contentName: string; campaignName: string; category: string; receivedAt: string; missingReceivedAt: string; scheduledAt: string; playbackStart: string; playbackEnd: string; approvedBy: string; resizedBy: string; remarks: string; internalNotes: string };
+export type CmsDetails = { contentName: string; campaignName: string; category: string; receivedAt: string; missingReceivedAt: string; scheduledAt: string; playbackStart: string; playbackEnd: string; approvedBy: string; resizedBy: string; remarks: string; internalNotes: string; videoUrl: string };
 export type CmsPayload = CmsDetails & { screens: CmsScreen[] };
 export type CmsRecord = { id: string; version: string; payload: CmsPayload; hasImage: boolean; createdAt: string; updatedAt: string; updatedBy: string; reports: { id: string; revision: number; createdAt: string; createdBy: string }[] };
-export const cmsEmptyDetails: CmsDetails = { contentName: "", campaignName: "", category: "", receivedAt: "", missingReceivedAt: "", scheduledAt: "", playbackStart: "", playbackEnd: "", approvedBy: "", resizedBy: "", remarks: "", internalNotes: "" };
+export const cmsEmptyDetails: CmsDetails = { contentName: "", campaignName: "", category: "", receivedAt: "", missingReceivedAt: "", scheduledAt: "", playbackStart: "", playbackEnd: "", approvedBy: "", resizedBy: "", remarks: "", internalNotes: "", videoUrl: "" };
 export const cmsScreenLimit = 500;
 export function cmsImageMime(name: string, type: string): string {
   if (["image/jpeg", "image/png", "image/webp"].includes(type)) return type;
@@ -20,6 +20,15 @@ export const cmsId = (value: unknown): value is string => typeof value === "stri
 export function cmsText(value: unknown, label: string, max: number, required = false): string {
   if (typeof value !== "string" || value.trim().length > max || /[\u0000-\u001f\u007f]/.test(value) || (required && !value.trim())) throw new Error(`${label}: ${required ? "enter a value, " : "use "}up to ${max} characters without line breaks.`);
   return value.trim();
+}
+// Existing records omit this optional field; never fetch remote video on the server.
+export function cmsVideoUrl(value: unknown): string {
+  const raw = cmsText(value === undefined ? "" : value, "Content video URL", 4096);
+  if (!raw) return "";
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error("Enter a complete HTTP or HTTPS video URL."); }
+  if (!/^https?:\/\//i.test(raw) || !["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password || raw.includes("\\")) throw new Error("Use an HTTP or HTTPS video URL without embedded login details.");
+  return raw;
 }
 function timestamp(value: unknown, label: string, required = false): string {
   if (value === "" && !required) return "";
@@ -38,7 +47,7 @@ export function parseCmsPayload(input: unknown, inventory: Inventory[], previous
   const details: CmsDetails = {
     contentName: cmsText(v.contentName, "Content name", 160, true), campaignName: cmsText(v.campaignName, "Campaign name", 160), category: cmsText(v.category, "Screen category", 100, true),
     receivedAt: timestamp(v.receivedAt, "received date and time", true), missingReceivedAt: timestamp(v.missingReceivedAt, "missing files received time"), scheduledAt: timestamp(v.scheduledAt, "scheduled time"),
-    playbackStart: day(v.playbackStart), playbackEnd: day(v.playbackEnd), approvedBy: cmsText(v.approvedBy, "Approved by", 120), resizedBy: cmsText(v.resizedBy, "Resized by", 120), remarks: cmsText(v.remarks, "Client remarks", 600), internalNotes: cmsText(v.internalNotes, "Internal notes", 1000),
+    playbackStart: day(v.playbackStart), playbackEnd: day(v.playbackEnd), approvedBy: cmsText(v.approvedBy, "Approved by", 120), resizedBy: cmsText(v.resizedBy, "Resized by", 120), remarks: cmsText(v.remarks, "Client remarks", 600), internalNotes: cmsText(v.internalNotes, "Internal notes", 1000), videoUrl: cmsVideoUrl(v.videoUrl),
   };
   if (details.playbackEnd < details.playbackStart) throw new Error("Playback end must be on or after its start.");
   if (details.missingReceivedAt && details.missingReceivedAt < details.receivedAt) throw new Error("Missing files received time cannot precede the original received time.");

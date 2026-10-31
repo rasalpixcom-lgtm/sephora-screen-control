@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
 import sharp from "sharp";
-import { cmsTime, type CmsPayload } from "./cms-support";
+import { cmsVideoUrl, cmsTime, type CmsPayload } from "./cms-support";
 
 export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, reference: string, generatedAt: string, draft = false): Promise<Buffer> {
   const jpeg = image ? await sharp(image).flatten({ background: "#ffffff" }).jpeg({ quality: 88 }).toBuffer() : null;
@@ -113,8 +113,15 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
     doc.image(jpeg, imageX + 5, imageY + 5, { fit: [imageWidth - 10, imageHeight - 10], align: "center", valign: "center" });
   }
   y += cardHeight + 16;
+  const videoUrl = cmsVideoUrl(payload.videoUrl);
+  if (videoUrl) {
+    if (y + 24 + 13 > bottom) { doc.addPage(); y = pageHead(true); }
+    doc.font(regular).fontSize(9).fillColor("#216d46").text("Watch content video", left, y, { link: videoUrl, underline: true, lineBreak: false });
+    y += 24;
+  }
   const scheduled = payload.screens.filter(row => row.scheduling === "Scheduled").length;
   const verified = payload.screens.filter(row => row.playback === "Verified").length;
+  if (y + 13 > bottom) { doc.addPage(); y = pageHead(true); }
   y = text(`${payload.screens.length} ${payload.screens.length === 1 ? "screen" : "screens"} | ${scheduled} scheduled | ${verified} playback verified`, left, y, width, 9, muted) + 14;
   if (payload.remarks) {
     for (const item of lines(`Remarks: ${payload.remarks}`, width, 9)) {

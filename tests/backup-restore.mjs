@@ -18,22 +18,28 @@ const admin = new pg.Pool({ connectionString: adminUrl.toString() });
 const source = new pg.Pool({ connectionString: sourceUrl.toString() });
 const restored = new pg.Pool({ connectionString: restoredUrl.toString() });
 let created = false;
+let snapshotClient;
 function docker(...args) { return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
 try {
-  docker("exec", "sephora-server-postgres", "pg_dump", "--username=sephora", "--dbname=sephora", "--format=custom", "--file=" + remoteFile);
+  // Compare the dump with the same read-only snapshot, even while preview workers run.
+  snapshotClient = await source.connect();
+  await snapshotClient.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  const snapshot = (await snapshotClient.query("SELECT pg_export_snapshot() AS snapshot")).rows[0].snapshot;
+  docker("exec", "sephora-server-postgres", "pg_dump", "--username=sephora", "--dbname=sephora", "--format=custom", "--snapshot=" + snapshot, "--file=" + remoteFile);
   docker("cp", "sephora-server-postgres:" + remoteFile, backupFile);
   await admin.query('CREATE DATABASE "' + destination + '"'); created = true;
   docker("exec", "sephora-server-postgres", "pg_restore", "--username=sephora", "--dbname=" + destination, "--no-owner", "--exit-on-error", remoteFile);
-  const tables = (await source.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")).rows.map(row => row.tablename);
+  const tables = (await snapshotClient.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")).rows.map(row => row.tablename);
   for (const table of tables) {
     const rows = async (pool) => (await pool.query('SELECT * FROM "' + table.replaceAll('"', '""') + '"')).rows.map(row => JSON.stringify(row)).sort();
-    const originalRows = await rows(source);
+    const originalRows = await rows(snapshotClient);
     // Only emit table names/counts, never account credentials or password hashes.
     assert.ok(JSON.stringify(originalRows) === JSON.stringify(await rows(restored)), "Restored rows differ in " + table);
     console.log("PASS restored " + table + ": " + originalRows.length + " rows preserved");
   }
   console.log("Backup restoration verified. Private backup: " + backupFile);
 } finally {
+  if (snapshotClient) { await snapshotClient.query("ROLLBACK"); snapshotClient.release(); }
   await source.end(); await restored.end();
   if (created) await admin.query('DROP DATABASE "' + destination + '" WITH (FORCE)');
   await admin.end();

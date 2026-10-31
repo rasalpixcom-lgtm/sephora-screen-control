@@ -24,3 +24,14 @@ export function cmsAdditionalScreens<T extends CmsInventoryScreen>(inventory: T[
     return true;
   });
 }
+
+// Search only the displayed results; retain the complete saved/draft screen list.
+export function cmsResultScreens<T extends { screenName: string; location: string; region: string; country: string }>(screens: T[], search: string): T[] {
+  const query = search.trim().toLowerCase();
+  return query ? screens.filter(row => [row.screenName, row.location, row.region, row.country].some(value => value.toLowerCase().includes(query))) : screens;
+}
+
+export function cmsVisibleMarkedIds(screens: { screenId: string }[], marked: string[]): string[] {
+  const visible = new Set(screens.map(row => row.screenId));
+  return [...new Set(marked)].filter(id => visible.has(id));
+}

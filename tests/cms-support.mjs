@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { cmsAdditionalScreens, cmsScreenOptions } from '../lib/cms-screen-selection.ts';
-import { cmsEmptyDetails, cmsImageMime, parseCmsPayload, cmsScreenLimit } from '../lib/cms-support.ts';
+import { cmsAdditionalScreens, cmsScreenOptions, cmsResultScreens, cmsVisibleMarkedIds } from '../lib/cms-screen-selection.ts';
+import { cmsEmptyDetails, cmsImageMime, cmsVideoUrl, parseCmsPayload, cmsScreenLimit } from '../lib/cms-support.ts';
 const inventory = [{ id:'c',type:'country',name:'UAE',parentId:null },{id:'r',type:'region',name:'Dubai',parentId:'c'},{id:'l',type:'store',name:'Mall',parentId:'r'},{id:'s',type:'screen',name:'Popup',parentId:'l'}];
 const base = { ...cmsEmptyDetails, contentName:'Kayali', category:'Popup', receivedAt:'2026-10-19T17:21:00+04:00', playbackStart:'2026-10-24', playbackEnd:'2026-11-12', screens:[{screenId:'s',screenName:'Spoofed',network:'Not checked',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:''}] };
 let checks=0;
@@ -39,4 +39,23 @@ check(ids(cmsAdditionalScreens(choices,savedIds,group2.map(row=>row.screen.id)))
 check(cmsAdditionalScreens(choices,savedIds,['a','a','missing']).length===0);
 check(ids(cmsAdditionalScreens(choices,[],['b','b']))==='b');
 check(cmsScreenOptions(choices,[],{...filters,group:'animation'}).length===0 && savedIds.join(',')==='a,c');
+const results=[{screenId:'a',screenName:'Animation Table',location:'Mall One',region:'Dubai',country:'UAE',remarks:'Keep draft'}, {screenId:'b',screenName:'Cash',location:'Mall Two',region:'Riyadh',country:'KSA',remarks:''}];
+check(cmsResultScreens(results,'')===results);
+check(cmsResultScreens(results,'  ')===results);
+check(cmsResultScreens(results,' animation ')[0]===results[0]);
+check(cmsResultScreens(results,'MALL TWO')[0]===results[1]);
+check(cmsResultScreens(results,'riyadh')[0]===results[1]);
+check(cmsResultScreens(results,'uae')[0]===results[0]);
+check(cmsResultScreens(results,'missing').length===0);
+check(cmsResultScreens(results,'keep draft').length===0);
+check(cmsVisibleMarkedIds(cmsResultScreens(results,'Dubai'),['a','b','a','deleted']).join(',')==='a');
+check(cmsVisibleMarkedIds([],['a','b']).length===0);
+check(results.length===2 && results[0].remarks==='Keep draft');
+check(cmsVideoUrl(undefined)==='');
+check(cmsVideoUrl('   ')==='');
+check(cmsVideoUrl(' https://media.example.test/ad.mp4?token=abc%2Fdef ')==='https://media.example.test/ad.mp4?token=abc%2Fdef');
+check(cmsVideoUrl('http://media.example.test/ad.mp4')==='http://media.example.test/ad.mp4');
+for(const url of ['javascript:alert(1)','data:video/mp4;base64,AAAA','file:///C:/ad.mp4','//media.example.test/ad.mp4','https://user:secret@media.example.test/ad.mp4','https://media.example.test/\nvideo','https://media.example.test/'+'a'.repeat(4096),null,42]) { assert.throws(()=>cmsVideoUrl(url)); checks++; }
+check(parseCmsPayload({...base,videoUrl:undefined},inventory).videoUrl==='');
+check(parseCmsPayload({...base,videoUrl:'https://media.example.test/ad.mp4'},inventory).videoUrl==='https://media.example.test/ad.mp4');
 console.log(checks+' CMS validation and screen selection checks passed.');

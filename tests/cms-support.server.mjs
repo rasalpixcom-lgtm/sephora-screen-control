@@ -31,7 +31,8 @@ try {
  const create=async(type,label,parentId=null)=>{const r=await request('/api/state',{action:'create',type,name:label,parentId},cookie);assert.ok(r.ok,await r.clone().text());return(await r.json()).entities.find(e=>e.name===label&&e.type===type)};
  const country=await create('country','UAE'),region=await create('region','Dubai',country.id),location=await create('store','Dubai Mall',region.id),screen=await create('screen','Popup Screen 01',location.id),screen2=await create('screen','Cash Screen 02',location.id);
  const now=new Date().toISOString();
- const payload={contentName:'Kayali',campaignName:'November campaign',category:'Regional popup',receivedAt:'2026-10-19T17:21:00+04:00',missingReceivedAt:'2026-10-22T14:26:00+04:00',scheduledAt:'2026-10-23T10:00:00+04:00',playbackStart:'2026-10-24',playbackEnd:'2026-11-12',approvedBy:'Client approver',resizedBy:'Not required',remarks:'Updated content scheduled for selected screens.',internalNotes:'INTERNAL-ONLY-NOTE-123',screens:[{screenId:screen.id,network:'Online',scheduling:'Scheduled',playback:'Verified',checkedAt:now,remarks:'Checked by CMS team'},{screenId:screen2.id,network:'Unstable',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:'Awaiting connectivity'}]};
+ const payload={contentName:'Kayali',campaignName:'November campaign',videoUrl:'https://media.example.test/campaign.mp4?token=fixture',category:'Regional popup',receivedAt:'2026-10-19T17:21:00+04:00',missingReceivedAt:'2026-10-22T14:26:00+04:00',scheduledAt:'2026-10-23T10:00:00+04:00',playbackStart:'2026-10-24',playbackEnd:'2026-11-12',approvedBy:'Client approver',resizedBy:'Not required',remarks:'Updated content scheduled for selected screens.',internalNotes:'INTERNAL-ONLY-NOTE-123',screens:[{screenId:screen.id,network:'Online',scheduling:'Scheduled',playback:'Verified',checkedAt:now,remarks:'Checked by CMS team'},{screenId:screen2.id,network:'Unstable',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:'Awaiting connectivity'}]};
+ check((await request('/api/cms-support',{action:'create',payload:{...payload,videoUrl:'javascript:alert(1)'}},cookie)).status===400,'unsafe video URL rejected');
  const metadata={action:'create',payload,imageAction:'replace'};
  const bytes=await sharp({create:{width:900,height:500,channels:3,background:'#d5b67f'}}).png().toBuffer();fs.writeFileSync(path.join(root,'content-fixture.png'),bytes);
  const upload=(meta=metadata,buffer=bytes,type='image/png',session=cookie)=>{const f=new FormData();f.set('metadata',JSON.stringify(meta));f.set('image',new Blob([buffer],{type}),'campaign.png');return fetch(origin+'/api/cms-support',{method:'POST',headers:{Origin:origin,Cookie:session},body:f})};
@@ -44,6 +45,11 @@ try {
  const response=await upload();assert.ok(response.ok,await response.clone().text());const saved=await response.json();
  const get=async()=>{const r=await request('/api/cms-support?id='+saved.id,undefined,cookie);assert.ok(r.ok,await r.clone().text());return(await r.json()).record};
  let record=await get();check(record.hasImage&&record.payload.screens.length===2,'campaign image and screen records saved together');
+ check(record.payload.videoUrl===payload.videoUrl,'video URL persists with the content update');
+ await pool.query("UPDATE cms_updates SET payload=payload-'videoUrl' WHERE id=$1",[saved.id]);
+ const legacyPdf=await request('/api/cms-support/pdf?id='+saved.id,undefined,cookie);
+ check(legacyPdf.ok&&!Buffer.from(await legacyPdf.arrayBuffer()).includes(Buffer.from('/URI (')),'older records without video generate PDFs without a video link');
+ await pool.query("UPDATE cms_updates SET payload=jsonb_set(payload,'{videoUrl}',$1::jsonb) WHERE id=$2",[JSON.stringify(payload.videoUrl),saved.id]);
  check(record.payload.screens.every(s=>s.country==='UAE'&&s.location==='Dubai Mall'),'server derives inventory hierarchy');
  const image=await request(`/api/cms-support?id=${saved.id}&image=1`,undefined,cookie);const imageBytes=Buffer.from(await image.arrayBuffer());
  check(image.ok&&(await sharp(imageBytes).metadata()).format==='webp','private normalized image served');
@@ -64,9 +70,10 @@ try {
  const finalize=()=>request('/api/cms-support',{action:'finalize',id:saved.id,version:record.version},cookie);
  const finals=await Promise.all([finalize(),finalize()]);assert.ok(finals.every(r=>r.ok));const ids=await Promise.all(finals.map(r=>r.json()));check(ids[0].reportId===ids[1].reportId,'concurrent finalization does not duplicate a revision');
  const reportId=ids[0].reportId;const final=await request('/api/cms-support/pdf?reportId='+reportId,undefined,cookie);const finalBytes=Buffer.from(await final.arrayBuffer());check(final.ok&&finalBytes.subarray(0,4).toString()==='%PDF','final client PDF downloads');fs.writeFileSync(path.join(root,'client-report.pdf'),finalBytes);
+ check(finalBytes.includes(Buffer.from('/URI ('+payload.videoUrl+')')),'PDF includes the clickable video destination');
  check((await request('/api/cms-support/pdf?reportId='+reportId)).status===401,'report download protected');
  check((await request('/api/cms-support',{action:'update',id:saved.id,version:crypto.randomUUID(),payload},cookie)).status===409,'stale update rejected');
- const changed=await request('/api/cms-support',{action:'update',id:saved.id,version:record.version,payload:{...payload,contentName:'Kayali revised'}},cookie);assert.ok(changed.ok,await changed.clone().text());
+ const changed=await request('/api/cms-support',{action:'update',id:saved.id,version:record.version,payload:{...payload,videoUrl:'https://media.example.test/revised.mp4',contentName:'Kayali revised'}},cookie);assert.ok(changed.ok,await changed.clone().text());
  const finalAgain=await request('/api/cms-support/pdf?reportId='+reportId,undefined,cookie);check(Buffer.from(await finalAgain.arrayBuffer()).equals(finalBytes),'editing does not change finalized PDF bytes');
  record=await get();check(record.reports.length===1&&record.hasImage,'ordinary edit preserves image and report history');
  await pool.query('DELETE FROM entities WHERE id=$1',[screen.id]);
