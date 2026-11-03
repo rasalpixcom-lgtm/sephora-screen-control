@@ -1,0 +1,28 @@
+Panorama Mall Animation Table 1920 x 1080 — Panorama Mall, KSA - Riyadh, Saudi Arabia
+
+SCREEN TYPE
+Screen type: LCD
+
+LCD TV
+LCD TV model: QM32R
+LCD TV size (inches): 32
+Manufactured by: Samsung
+Installed by: Sephora
+
+PPM INSPECTION
+LED modules / dead pixels:
+Cabinet alignment and mounting:
+Brightness and colour uniformity: Pass
+Power supply and wiring:
+Receiving card communication:
+Sending card configuration:
+Ventilation and dust condition: Pass
+Media player playback and CMS sync: Pass
+Network connection and cables: Pass
+Final screen playback verification: Pass
+PPM date: 2026-11-01
+Client / project:
+Overall status: Pass
+Next PPM date:
+Defects / findings:
+Corrective action:

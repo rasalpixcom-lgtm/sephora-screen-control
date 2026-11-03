@@ -1,5 +1,22 @@
 # Code review and local verification
 
+## Pre-push hardware, PPM, gallery and survey review - 3 November 2026
+
+Reviewed all pending application changes against f6dcb81, including type-specific hardware visibility, manual LED measurements and diagram proportions, shared location details, PPM validation, private photo categories/storage/cleanup, survey parsing and selected-field imports, authorization, same-origin checks, optimistic concurrency, transaction rollback, schema migrations and standalone routes/assets. Existing authentication, monitor/controller, OnSign, CMS/PDF, Activity, alert and legacy import behavior was regression-tested. Generated dependencies and inactive legacy deployment code were not audited line by line. No new interactive browser sweep or live company/provider validation was performed; the user's manual screen checks complement the automated coverage.
+
+Corrections made during this review:
+
+- Reset the full-photo error when opening a gallery image, so a previous failure cannot incorrectly block another image or a retry.
+- Supplied router context to the OnSign content rendering fixture and included the new photo table in the disposable SQLite-import fixture reset.
+- Corrected README visibility descriptions: unrelated hardware sections are hidden while saved records are preserved.
+- Reinstalled the unchanged lockfile after stopping the local development server's Windows file lock. The fresh build now uses the locked Next.js 16.4.2 rather than the stale installed 16.3.8. No dependency declarations or lockfile versions changed.
+
+Verification passed: lint, production build/TypeScript and standalone packaging; 21 current unit/regression suites including CMS and WhatsApp PDF links, privacy, pagination and text boundaries; 922 isolated server checks (331 authentication/inventory, 124 OnSign/photos, 100 reports, 31 survey import, 48 CMS, 46 Activity, 92 email alerts, 140 WhatsApp alerts, 10 SQLite import); and LCD/Video Wall migration preservation/repeatability checks. Server checks use disposable databases and local mock providers, not company data or real message recipients. Private environments, uploads, generated artifacts and review logs remain ignored by Git.
+
+Security audit: zero production dependency vulnerabilities. The full npm audit reports 16 moderate development-tool findings in the ESLint/minimatch dependency chain, with no high or critical findings. Do not apply the suggested incompatible ESLint/Next lint-config downgrades automatically. These findings remain open.
+
+Release requires a database/photo/environment backup and `npm run db:migrate` before starting the new build (pending migrations 0016–0023). The manual-measurement change itself needs no additional migration. Nothing was committed, pushed or deployed during this review.
+
 ## Full pre-push review of search/video changes - 31 October 2026
 
 Revisited maintained application entry points and security/data boundaries: page/API authorization, same-origin validation and bounded bodies, PostgreSQL transactions, migration checksums and backups, inventory relationships/private photo storage paths, hardware/notes/remote access, monitor selection/access, OnSign query scoping and transport recovery, Activity, report generation, alert queues/transports, and standalone packaging. Deep line-level review focused on all pending search/bulk-selection, video URL/player, PDF hyperlink/layout and CSS changes against e23da0b. Generated dependencies and inactive legacy Sites artifacts were not audited line by line; live company-network/provider and full device/browser testing were not repeated.

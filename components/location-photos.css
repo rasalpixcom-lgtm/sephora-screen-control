@@ -32,9 +32,10 @@
 .adm-dialog.adm-location-editor { display:flex; flex-direction:column; max-height:min(760px,calc(100dvh - 64px)); overflow:hidden; }
 .adm-location-editor .adm-form { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
 .adm-location-editor .adm-form :is(input,select,button):focus-visible { outline-offset:-2px; }
-.adm-location-editor-fields { display:flex; flex:1; flex-direction:column; gap:16px; min-height:0; overflow:hidden; }
+.adm-location-editor-fields { display:flex; flex:1; flex-direction:column; gap:16px; min-height:0; overflow-y:auto; padding:3px; }
+.adm-location-editor-fields>.adm-location-details { flex:none; }
 .adm-location-editor-fields>label { flex:none; }
-.adm-location-editor .location-photo-input { display:flex; flex:1; flex-direction:column; min-height:0; overflow-y:auto; }
+.adm-location-editor .location-photo-input { display:flex; flex:none; flex-direction:column; min-height:0; }
 .adm-location-editor .location-photo-drafts { flex:none; }
 .adm-location-editor .adm-form-actions { flex:none; margin-top:0; padding-top:14px; border-top:1px solid var(--work-line); }
 @media(max-width:600px) { .location-photo-selected { align-items:stretch; flex-direction:column; } .location-photo-draft-actions { justify-content:flex-end; } }

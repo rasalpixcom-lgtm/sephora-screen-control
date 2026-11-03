@@ -11,12 +11,20 @@ export const cmsReports = pgTable("cms_reports", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), createdBy: text("created_by").notNull(),
 }, table => [check("cms_reports_revision_check", sql`${table.revision} > 0`), check("cms_reports_pdf_check", sql`octet_length(${table.pdf}) <= 10485760`), uniqueIndex("cms_reports_update_revision_idx").on(table.updateId, table.revision), uniqueIndex("cms_reports_update_version_idx").on(table.updateId, table.sourceVersion)]);
 
-export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), onsignPlayerId: text("onsign_player_id"), photoKey: text("photo_key"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
+export const entities = pgTable("entities", { id: text("id").primaryKey(), type: text("type").notNull(), name: text("name").notNull(), shortName: text("short_name"), parentId: text("parent_id"), liveUrl: text("live_url"), onsignPlayerId: text("onsign_player_id"), photoKey: text("photo_key"), screenType: text("screen_type"), isDemo: integer("is_demo").notNull().default(0), createdAt: text("created_at").notNull() }, table => [
+  check("entities_screen_type_check", sql`${table.screenType} IS NULL OR (${table.type} = 'screen' AND ${table.screenType} IN ('LED', 'LCD', 'Video Wall'))`),
   check("entities_photo_screen", sql`${table.photoKey} IS NULL OR (${table.type} = 'screen' AND ${table.photoKey} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$')`),
   uniqueIndex("entities_photo_key_idx").on(table.photoKey).where(sql`${table.photoKey} IS NOT NULL`),
   check("entities_onsign_player_screen", sql`${table.onsignPlayerId} IS NULL OR (${table.type} = 'screen' AND length(${table.onsignPlayerId}) BETWEEN 1 AND 256 AND ${table.onsignPlayerId} !~ '[[:space:][:cntrl:]]')`),
   check("entities_country_short_name_check", sql`${table.shortName} IS NULL OR (${table.type} = 'country' AND ${table.shortName} = btrim(${table.shortName}) AND char_length(${table.shortName}) BETWEEN 1 AND 12)`),
   uniqueIndex("entities_country_short_name_idx").on(sql`lower(${table.shortName})`).where(sql`${table.type} = 'country' AND ${table.shortName} IS NOT NULL`),
+]);
+export const screenReferencePhotos = pgTable("screen_reference_photos", {
+  screenId: text("screen_id").notNull().references(() => entities.id, { onDelete: "cascade" }),
+  category: text("category").notNull(), photoKey: text("photo_key").notNull().unique(),
+}, table => [primaryKey({ columns: [table.screenId, table.category] }),
+  check("screen_reference_photos_category_check", sql`${table.category} IN ('serial', 'issues', 'back_cabling', 'looping_diagram', 'sending_card', 'media_player', 'power_network', 'connection_diagram')`),
+  check("screen_reference_photos_photo_key_check", sql`${table.photoKey} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$'`),
 ]);
 export const groupMembers = pgTable("group_members", { groupId: text("group_id").notNull(), screenId: text("screen_id").notNull() }, (table) => [primaryKey({ columns: [table.groupId, table.screenId] })]);
 export const screenHardwareSections = pgTable("screen_hardware_sections", {
@@ -27,7 +35,7 @@ export const screenHardwareSections = pgTable("screen_hardware_sections", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, table => [
   primaryKey({ columns: [table.screenId, table.section] }),
-  check("screen_hardware_section_check", sql`${table.section} IN ('ledDisplay', 'ledController', 'mediaPlayer', 'powerNetwork')`),
+  check("screen_hardware_section_check", sql`${table.section} IN ('ledDisplay', 'ledController', 'mediaPlayer', 'powerNetwork', 'lcd', 'video_wall')`),
   check("screen_hardware_fields_check", sql`jsonb_typeof(${table.fields}) = 'object'`),
 ]);
 export const screenNotes = pgTable("screen_notes", {
@@ -36,6 +44,12 @@ export const screenNotes = pgTable("screen_notes", {
   version: text("version").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, table => [check("screen_notes_length_check", sql`char_length(${table.note}) <= 4000`)]);
+export const screenPpmInspections = pgTable("screen_ppm_inspections", {
+  screenId: text("screen_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
+  fields: jsonb("fields").$type<Record<string, string>>().notNull().default({}),
+  version: text("version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [check("screen_ppm_inspections_fields_check", sql`jsonb_typeof(${table.fields}) = 'object'`)]);
 export const screenRemoteAccess = pgTable("screen_remote_access", {
   screenId: text("screen_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
   teamViewerId: text("teamviewer_id").notNull(), anyDeskId: text("anydesk_id").notNull(),
@@ -44,6 +58,12 @@ export const screenRemoteAccess = pgTable("screen_remote_access", {
   check("screen_remote_access_teamviewer_id_check", sql`${table.teamViewerId} = '' OR ${table.teamViewerId} ~ '^[0-9]{1,32}$'`),
   check("screen_remote_access_anydesk_id_check", sql`${table.anyDeskId} = '' OR ${table.anyDeskId} ~ '^[A-Za-z0-9][A-Za-z0-9._@-]{0,99}$'`),
 ]);
+export const locationDetails = pgTable("location_details", {
+  locationId: text("location_id").primaryKey().references(() => entities.id, { onDelete: "cascade" }),
+  fields: jsonb("fields").$type<Record<string, string>>().notNull().default({}),
+  version: text("version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [check("location_details_fields_check", sql`jsonb_typeof(${table.fields}) = 'object'`)]);
 export const locationPhotos = pgTable("location_photos", {
   id: text("id").primaryKey(),
   locationId: text("location_id").notNull().references(() => entities.id, { onDelete: "cascade" }),

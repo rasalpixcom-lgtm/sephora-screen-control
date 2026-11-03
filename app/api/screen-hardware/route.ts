@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { readObject, requestFailure } from "@/lib/request";
-import { displayHardwareFields, hardwareSectionIds, hardwareSections, isHardwareSection, parseHardwareFields, type HardwareRecord, type HardwareSection } from "@/lib/screen-hardware";
+import { displayHardwareFields, hardwareSectionsForType, hardwareSections, isHardwareSection, parseHardwareFields, type HardwareRecord, type HardwareSection } from "@/lib/screen-hardware";
 
 export const runtime = "nodejs";
 const reply = (body: object, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -16,12 +16,13 @@ export async function GET(request: NextRequest) {
     const screenId = request.nextUrl.searchParams.get("screenId");
     if (!validId(screenId)) return reply({ error: "Choose a screen." }, 400);
     const db = database();
-    const screen = await db.prepare("SELECT id FROM entities WHERE id = ? AND type = 'screen'").bind(screenId).first();
+    const screen = await db.prepare("SELECT id, screen_type AS \"screenType\" FROM entities WHERE id = ? AND type = 'screen'").bind(screenId).first<{ id: string; screenType: string | null }>();
     if (!screen) return reply({ error: "Screen not found." }, 404);
     const rows = await db.prepare('SELECT section, fields, version, updated_at AS "updatedAt" FROM screen_hardware_sections WHERE screen_id = ?').bind(screenId).all<{ section: HardwareSection; fields: Record<string, string>; version: string; updatedAt: Date }>();
-    const sections = Object.fromEntries(hardwareSectionIds.map(id => [id, { fields: {}, version: null, updatedAt: null }])) as Record<HardwareSection, HardwareRecord>;
-    for (const row of rows.results) if (isHardwareSection(row.section)) sections[row.section] = { fields: displayHardwareFields(row.section, row.fields), version: row.version, updatedAt: row.updatedAt.toISOString() };
-    return reply({ sections });
+    const allowed = hardwareSectionsForType(screen.screenType);
+    const sections = Object.fromEntries(allowed.map(id => [id, { fields: {}, version: null, updatedAt: null }])) as Partial<Record<HardwareSection, HardwareRecord>>;
+    for (const row of rows.results) if (allowed.includes(row.section)) sections[row.section] = { fields: displayHardwareFields(row.section, row.fields), version: row.version, updatedAt: row.updatedAt.toISOString() };
+    return reply({ sections, screenType: screen.screenType });
   } catch (error) { return requestFailure(error); }
 }
 
@@ -39,8 +40,11 @@ export async function PUT(request: NextRequest) {
     try { fields = parseHardwareFields(section, body.fields); }
     catch (error) { return reply({ error: error instanceof Error ? error.message : "Enter valid hardware details." }, 400); }
     const result = await database().transaction(async db => {
-      const screen = await db.prepare("SELECT name FROM entities WHERE id = ? AND type = 'screen'").bind(body.screenId).first<{ name: string }>();
+      // Serialize with screen-type changes and inventory deletion.
+      await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+      const screen = await db.prepare('SELECT name, screen_type AS "screenType" FROM entities WHERE id = ? AND type = \'screen\'').bind(body.screenId).first<{ name: string; screenType: string | null }>();
       if (!screen) return reply({ error: "Screen not found." }, 404);
+      if (!hardwareSectionsForType(screen.screenType).includes(section)) return reply({ error: screen.screenType ? "This hardware section does not apply to the current screen type. Refresh the page before editing again." : "Choose a screen type in Edit screen before adding hardware details." }, 400);
       const version = crypto.randomUUID(), now = new Date().toISOString();
       const row = body.version === null
         ? await db.prepare('INSERT INTO screen_hardware_sections (screen_id, section, fields, version, updated_at) VALUES (?, ?, ?::jsonb, ?, ?) ON CONFLICT DO NOTHING RETURNING version').bind(body.screenId, body.section, JSON.stringify(fields), version, now).first()

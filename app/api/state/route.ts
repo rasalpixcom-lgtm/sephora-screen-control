@@ -9,6 +9,10 @@ import { validOnSignPlayerId } from "@/lib/onsign-api-shared";
 import { prepareScreenPhoto, readScreenMutation, removeScreenPhoto } from "@/lib/screen-photo";
 import { parseLocationPhotos, prepareLocationPhoto, readLocationMutation, removeLocationPhoto } from "@/lib/location-photo";
 
+import { parseLocationDetails } from "@/lib/location-details";
+import { RequestError } from "@/lib/request";
+import { isScreenType } from "@/lib/screen-type";
+
 export const runtime = "nodejs";
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
 const parentType: Partial<Record<EntityType, EntityType>> = { region: "country", store: "region", screen: "store" };
@@ -45,6 +49,12 @@ export async function POST(request: NextRequest) {
   const locationPhotos = body.locationPhotos === undefined ? null : parseLocationPhotos(body.locationPhotos, locationFiles);
   const expectedLocationPhotos = locationPhotos ? parseLocationPhotos(body.locationPhotoExpected ?? [], new Map()) : null;
   if (expectedLocationPhotos?.some(photo => !photo.id)) return bad("Invalid location photo version.");
+  if (body.locationDetails !== undefined && (body.type !== "store" || !["create", "update"].includes(String(body.action)))) return bad("Only locations can have location details.");
+  let locationDetails: ReturnType<typeof parseLocationDetails> | undefined;
+  if (body.locationDetails !== undefined) {
+    try { locationDetails = parseLocationDetails(body.locationDetails); }
+    catch (error) { throw new RequestError(error instanceof Error ? error.message : "Enter valid location details."); }
+  }
   const photoAction = body.photoAction ?? "keep";
   if (typeof photoAction !== "string" || !["keep", "replace", "remove"].includes(photoAction) || (photoAction !== "keep" && (body.type !== "screen" || !["create", "update"].includes(String(body.action)))) || (photoAction === "replace") !== !!file) return bad("Choose a valid screen photo change.");
   let verifiedPlayerId: string | null = null;
@@ -74,6 +84,8 @@ export async function POST(request: NextRequest) {
       const name = (body.name as string).trim();
       const existing = body.action === "update" ? entity(body.id) : undefined;
       if (body.action === "update" && (!existing || existing.type !== type)) return bad("Item not found.", 404);
+      const screenType = body.screenType === undefined ? existing?.screenType || null : body.screenType === "" ? null : body.screenType;
+      if (screenType !== null && (type !== "screen" || !isScreenType(screenType))) return bad("Choose LED, LCD or Video Wall for the screen type.");
       if (body.shortName !== undefined && body.shortName !== null && typeof body.shortName !== "string") return bad("Enter a valid abbreviation.");
       const shortName = body.shortName === undefined ? existing?.shortName || null : typeof body.shortName === "string" && body.shortName.trim() ? body.shortName.trim() : null;
       if (shortName && (shortName.length > 12 || /[\u0000-\u001f\u007f]/.test(shortName))) return bad("Abbreviations must be 12 characters or fewer, without line breaks.");
@@ -102,22 +114,24 @@ export async function POST(request: NextRequest) {
         if (JSON.stringify(currentLocationPhotos.map(({ id, label }) => ({ id, label }))) !== JSON.stringify(expectedLocationPhotos)) return bad("This location gallery changed. Reopen Edit location and try again.", 409);
         if (locationPhotos.some(photo => photo.id && !currentLocationPhotos.some(current => current.id === photo.id))) return bad("A location photo no longer belongs to this location.", 409);
       }
+      if (locationDetails !== undefined && (body.locationDetailsExpected ?? null) !== (existing ? state.locationDetails[existing.id]?.version ?? null : null)) return bad("This location's details changed. Reopen Edit location and try again.", 409);
       const photoKey = photoAction === "replace" ? preparedPhoto : photoAction === "remove" ? null : existing?.photoKey || null;
       let savedId: string;
       if (body.action === "create") {
         const id = crypto.randomUUID();
-        await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, onsign_player_id, photo_key, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)")
-          .bind(id, type, name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, now).run();
+        await db.prepare("INSERT INTO entities (id, type, name, short_name, parent_id, live_url, onsign_player_id, photo_key, screen_type, is_demo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)")
+          .bind(id, type, name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, screenType, now).run();
         audit = { action: "created", type, id, name };
         savedId = id;
       } else {
         if (!existing || existing.type !== type) return bad("Item not found.", 404);
-        await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, onsign_player_id = ?, photo_key = ?, is_demo = 0 WHERE id = ?")
-          .bind(name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, existing.id).run();
+        await db.prepare("UPDATE entities SET name = ?, short_name = ?, parent_id = ?, live_url = ?, onsign_player_id = ?, photo_key = ?, screen_type = ?, is_demo = 0 WHERE id = ?")
+          .bind(name, shortName, parentId, liveUrl, onsignPlayerId, photoKey, screenType, existing.id).run();
         if (existing.photoKey && existing.photoKey !== photoKey) obsoletePhotos.push(existing.photoKey);
         audit = { action: "updated", type, id: existing.id, name };
         savedId = existing.id;
       }
+      if (locationDetails !== undefined) await db.prepare("INSERT INTO location_details (location_id, fields, version, updated_at) VALUES (?, ?::jsonb, ?, ?::timestamptz) ON CONFLICT (location_id) DO UPDATE SET fields = EXCLUDED.fields, version = EXCLUDED.version, updated_at = EXCLUDED.updated_at").bind(savedId, JSON.stringify(locationDetails), crypto.randomUUID(), now).run();
       if (locationPhotos) {
         for (const photo of currentLocationPhotos) if (!locationPhotos.some(next => next.id === photo.id)) obsoleteLocationPhotos.push(photo.id);
         await db.prepare("DELETE FROM location_photos WHERE location_id = ?").bind(savedId).run();
@@ -136,6 +150,8 @@ export async function POST(request: NextRequest) {
       for (const id of ids) {
         const photoKey = entity(id)?.photoKey;
         if (photoKey) obsoletePhotos.push(photoKey);
+        const references = await db.prepare("SELECT photo_key AS key FROM screen_reference_photos WHERE screen_id = ?").bind(id).all<{ key: string }>();
+        obsoletePhotos.push(...references.results.map(photo => photo.key));
         for (const photo of state.locationPhotos) if (photo.locationId === id) obsoleteLocationPhotos.push(photo.id);
         await db.prepare("DELETE FROM group_members WHERE group_id = ? OR screen_id = ?").bind(id, id).run();
         await db.prepare("DELETE FROM entities WHERE id = ?").bind(id).run();

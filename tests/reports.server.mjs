@@ -105,6 +105,22 @@ try {
   check(updatedNote.status===200&&updatedNoteData.text==="Updated"&&updatedNoteData.version!==savedNote.version,"Admin can edit a note");
   check((await put("/api/screen-notes",{screenId:noteScreenId,note:"Stale edit",version:savedNote.version},admin.cookie)).status===409,"stale edits cannot overwrite newer notes");
   check((await put("/api/screen-notes",{screenId:noteScreenId,note:"Not allowed",version:updatedNoteData.version},controller.cookie)).status===403,"Controller cannot edit notes");
+  const ppmRoute="/api/screen-ppm-inspection?screenId="+noteScreenId;
+  const ppmBody={screenId:noteScreenId,fields:{ppmDate:"2026-11-01",nextPpmDate:"2026-12-01",clientProject:"Sephora",overallStatus:"Follow-up",led_modules:"Pass",cabinet_alignment:"Fail",findings:"Loose cable",correctiveAction:"Secure cable"},version:null};
+  check((await request(ppmRoute)).status===401&&(await request(ppmRoute,undefined,controller.cookie)).status===403,"PPM inspections require Admin access");
+  const initialPpm=(await (await request(ppmRoute,undefined,admin.cookie)).json()).record;
+  check(initialPpm.version===null&&Object.keys(initialPpm.fields).length===0,"a new screen has an empty PPM inspection");
+  check((await put("/api/screen-ppm-inspection",{...ppmBody,fields:{...ppmBody.fields,nextPpmDate:"2026-10-01"}},admin.cookie)).status===400,"PPM inspection rejects a next date before the inspection date");
+  const ppmSaved=await put("/api/screen-ppm-inspection",ppmBody,admin.cookie),ppmRecord=(await ppmSaved.json()).record;
+  check(ppmSaved.status===200&&ppmRecord.fields.cabinet_alignment==="Fail"&&ppmRecord.version,"Admin can save PPM checks and findings");
+  const ppmLoaded=(await (await request(ppmRoute,undefined,admin.cookie)).json()).record;
+  check(ppmLoaded.version===ppmRecord.version&&ppmLoaded.fields.clientProject==="Sephora","PPM inspection persists independently");
+  check((await put("/api/screen-ppm-inspection",ppmBody,admin.cookie)).status===409,"a stale PPM create cannot overwrite an inspection");
+  const ppmUpdated=await put("/api/screen-ppm-inspection",{...ppmBody,fields:{...ppmBody.fields,overallStatus:"Pass"},version:ppmRecord.version},admin.cookie);
+  const ppmUpdatedRecord=(await ppmUpdated.json()).record;
+  check(ppmUpdated.status===200&&ppmUpdatedRecord.fields.overallStatus==="Pass"&&ppmUpdatedRecord.version!==ppmRecord.version,"Admin can update PPM inspections");
+  check((await put("/api/screen-ppm-inspection",{...ppmBody,version:ppmRecord.version},admin.cookie)).status===409,"stale PPM edits cannot overwrite a newer inspection");
+  check((await put("/api/screen-ppm-inspection",{...ppmBody,version:ppmUpdatedRecord.version},controller.cookie)).status===403,"Controller cannot edit PPM inspections");
   const remoteRoute="/api/screen-remote-access?screenId="+noteScreenId;
   const remoteBody={screenId:noteScreenId,fields:{teamViewerId:"123 456 789",anyDeskId:"store-screen@ad"},version:null};
   check((await request(remoteRoute)).status===401&&(await request(remoteRoute,undefined,controller.cookie)).status===403,"remote IDs require Admin access");
@@ -126,17 +142,19 @@ try {
   const hardwareRoute="/api/screen-hardware?screenId="+noteScreenId;
   check((await request(hardwareRoute)).status===401&&(await request(hardwareRoute,undefined,controller.cookie)).status===403,"screen hardware requires Admin access");
   const initialHardware=await request(hardwareRoute,undefined,admin.cookie);
-  check(initialHardware.status===200&&(await initialHardware.json()).sections.ledDisplay.version===null,"a new screen has empty hardware details");
-  const ledFields={resolution:"2300 x 800",pixelPitch:"2.5",dimensions:"999",totalSqm:"999"};
+  check(initialHardware.status===200&&Object.keys((await initialHardware.json()).sections).length===0,"an unspecified screen exposes no hardware sections");
+  await pool.query("UPDATE entities SET screen_type='LED' WHERE id=$1",[noteScreenId]);
+  const ledFields={resolution:"2300 x 800",pixelPitch:"2.5",width_mm:"6000",height_mm:"2100",total_sqm:"12.7",dimensions:"999",totalSqm:"999"};
   const savedHardware=await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:null},admin.cookie);
   const savedHardwareRecord=(await savedHardware.json()).record;
-  check(savedHardware.status===200&&savedHardwareRecord.fields.dimensions==="5.75 × 2"&&savedHardwareRecord.fields.totalSqm==="11.5","server calculates LED dimensions and area from resolution and pitch");
+  check(savedHardware.status===200&&savedHardwareRecord.fields.width_mm==="6000"&&savedHardwareRecord.fields.total_sqm==="12.7"&&!savedHardwareRecord.fields.dimensions&&!savedHardwareRecord.fields.totalSqm,"server preserves manual LED dimensions and area independently of resolution and pitch");
   const loadedHardware=(await (await request(hardwareRoute,undefined,admin.cookie)).json()).sections.ledDisplay;
-  check(loadedHardware.version===savedHardwareRecord.version&&loadedHardware.fields.totalSqm==="11.5","saved hardware details load independently");
+  check(loadedHardware.version===savedHardwareRecord.version&&loadedHardware.fields.total_sqm==="12.7"&&loadedHardware.fields.height_mm==="2100","saved manual hardware measurements reload independently");
   check((await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:null},admin.cookie)).status===409,"stale hardware edits cannot overwrite saved details");
   check((await put("/api/screen-hardware",{screenId:noteScreenId,section:"ledDisplay",fields:ledFields,version:savedHardwareRecord.version},controller.cookie)).status===403,"Controller cannot edit hardware details");
   await pool.query("DELETE FROM entities WHERE id=$1",[noteScreenId]);
   check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_notes WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes its note");
+  check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_ppm_inspections WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes its PPM inspection");
   check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_remote_access WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes remote IDs");
   check((await pool.query("SELECT COUNT(*)::integer AS count FROM screen_hardware_sections WHERE screen_id=$1",[noteScreenId])).rows[0].count===0,"deleting a screen removes its hardware details");
   check((await request("/api/reports/preview/pdf",undefined,controller.cookie)).status===403&&(await request("/api/reports/preview/pdf")).status===401,"PDF export enforces Admin access");
@@ -196,7 +214,7 @@ try {
   check((pdf.toString("latin1").match(/\/Type\s*\/Page\b/g)||[]).length>=3,"PDF export paginates a long report");
   check(!pdf.includes(Buffer.from(tokenFor(ids.old)))&&!pdf.includes(Buffer.from("https://")),"PDF does not expose preview URLs or tokens");
   fs.writeFileSync(path.join(root,".server-runtime","preview-report-sample.pdf"),pdf);
-  for(const table of ["preview_screen_state","preview_incident","screen_hardware_sections","screen_notes","location_photos","screen_remote_access"]) {
+  for(const table of ["preview_screen_state","preview_incident","screen_hardware_sections","screen_notes","screen_ppm_inspections","location_photos","screen_remote_access"]) {
     await pool.query(`ALTER TABLE ${table} RENAME TO ${table}_health_fixture`);
     try {check((await request("/api/health")).status===503,`health check detects missing ${table} migration`);}
     finally {await pool.query(`ALTER TABLE ${table}_health_fixture RENAME TO ${table}`);}

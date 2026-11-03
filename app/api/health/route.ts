@@ -6,14 +6,22 @@ export async function GET() {
   try {
     assertAuthConfig();
     const db = database();
-    await db.prepare("SELECT id, short_name, onsign_player_id, photo_key FROM entities LIMIT 1").first();
+    await db.prepare("SELECT id, short_name, onsign_player_id, photo_key, screen_type FROM entities LIMIT 1").first();
     await db.prepare("SELECT id, role, disabled FROM auth_user LIMIT 1").first();
     await db.prepare("SELECT id, selection FROM display_state LIMIT 1").first();
     await db.prepare("SELECT id FROM monitor_access LIMIT 1").first();
     await db.prepare("SELECT screen_id FROM preview_screen_state LIMIT 1").first();
     await db.prepare("SELECT id FROM preview_incident LIMIT 1").first();
     await db.prepare("SELECT id, location_id FROM location_photos LIMIT 1").first();
+    await db.prepare("SELECT screen_id, category, photo_key FROM screen_reference_photos LIMIT 1").first();
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name = '0022_led_reference_photos.sql'").first()) throw new Error("LED photo migration is missing");
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name = '0023_lcd_video_wall_photos.sql'").first()) throw new Error("LCD and Video Wall photo migration is missing");
+    await db.prepare("SELECT location_id, fields, version, updated_at FROM location_details LIMIT 1").first();
     await db.prepare("SELECT screen_id, section, fields, version, updated_at FROM screen_hardware_sections LIMIT 1").first();
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name = '0017_lcd_hardware.sql'").first()) throw new Error("LCD hardware migration is missing");
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name = '0018_video_wall_hardware.sql'").first()) throw new Error("Video Wall hardware migration is missing");
+    await db.prepare("SELECT screen_id, fields, version, updated_at FROM screen_ppm_inspections LIMIT 1").first();
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name = '0020_screen_ppm_inspection.sql'").first()) throw new Error("PPM inspection migration is missing");
     await db.prepare("SELECT screen_id, note, version, updated_at FROM screen_notes LIMIT 1").first();
     await db.prepare("SELECT screen_id, teamviewer_id, anydesk_id, version, updated_at FROM screen_remote_access LIMIT 1").first();
     await db.prepare("SELECT id, version, payload FROM cms_updates LIMIT 1").first();

@@ -22,8 +22,8 @@
 .hardware-section-hint { margin:-4px 0 16px; }
 .hardware-form-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 20px; }
 .hardware-form-fields label { display:grid; gap:7px; min-width:0; font-size:13px; font-weight:600; }
-.hardware-form-fields input { width:100%; min-width:0; min-height:44px; padding:10px 12px; border:1px solid var(--work-line); border-radius:10px; background:var(--work-surface); color:var(--work-text); font:inherit; font-weight:400; }
-.hardware-form-fields input:focus-visible { outline:2px solid var(--work-focus,var(--work-action)); outline-offset:2px; }
+.hardware-form-fields input,.hardware-form-fields select { width:100%; min-width:0; min-height:44px; padding:10px 12px; border:1px solid var(--work-line); border-radius:10px; background:var(--work-surface); color:var(--work-text); font:inherit; font-weight:400; }
+.hardware-form-fields input:focus-visible,.hardware-form-fields select:focus-visible { outline:2px solid var(--work-focus,var(--work-action)); outline-offset:2px; }
 .hardware-calculated-value { display:flex; align-items:center; width:100%; min-width:0; min-height:44px; padding:10px 12px; border:1px solid var(--work-line); border-radius:10px; color:var(--work-text); font-weight:400; }
 .hardware-form-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
 .hardware-card .adm-error { margin-top:16px; }

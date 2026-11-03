@@ -8,6 +8,9 @@ import { onSignLoops, type OnSignPlayer, type OnSignValue, type OnSignSection, t
 import { onSignMediaLinks, safeOnSignDownload } from "@/lib/onsign-content";
 import ScreenHardwareInventory from "./screen-hardware-inventory";
 import ScreenNotes from "./screen-notes";
+import ScreenPpmInspection from "./screen-ppm-inspection";
+import ScreenGallery from "./screen-gallery";
+import ScreenSurveyImport from "./screen-survey-import";
 import ScreenRemoteAccess from "./screen-remote-access";
 
 type Values = Record<string, OnSignValue>;
@@ -157,6 +160,8 @@ const detailTabs = [
   { id: "content", label: "Content" },
   { id: "alerts", label: "Alerts & captures" },
   { id: "hardware", label: "Hardware inventory" },
+  { id: "ppm", label: "PPM inspection" },
+  { id: "photos", label: "Photos" },
   { id: "notes", label: "Notes" },
   { id: "remote", label: "Remote access" },
   { id: "maintenance", label: "Maintenance" },
@@ -168,17 +173,24 @@ export default function OnSignExpandedDetails({ screenId, player, linked, onsign
   const [attempt, setAttempt] = useState(0);
   const [activeTab, setActiveTab] = useState<DetailTab>(linked ? "content" : "hardware");
   const [visitedTabs, setVisitedTabs] = useState<DetailTab[]>([linked ? "content" : "hardware"]);
+  const [inventoryRevision, setInventoryRevision] = useState(0);
   const tabId = useId();
   const tabButtons = useRef<Array<HTMLButtonElement | null>>([]);
   const leaveHardware = useRef<(() => boolean) | null>(null);
+  const leavePpm = useRef<(() => boolean) | null>(null);
+  const leavePhotos = useRef<(() => boolean) | null>(null);
+  const registerPhotosLeaveGuard = useCallback((guard: (() => boolean) | null) => { leavePhotos.current = guard; }, []);
   const leaveNotes = useRef<(() => boolean) | null>(null);
   const leaveRemote = useRef<(() => boolean) | null>(null);
   const registerLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveHardware.current = guard; }, []);
+  const registerPpmLeaveGuard = useCallback((guard: (() => boolean) | null) => { leavePpm.current = guard; }, []);
   const registerNotesLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveNotes.current = guard; }, []);
   const registerRemoteLeaveGuard = useCallback((guard: (() => boolean) | null) => { leaveRemote.current = guard; }, []);
   function selectTab(id: DetailTab) {
     if (id === activeTab) return true;
+    if (activeTab === "photos" && leavePhotos.current && !leavePhotos.current()) return false;
     if (activeTab === "hardware" && leaveHardware.current && !leaveHardware.current()) return false;
+    if (activeTab === "ppm" && leavePpm.current && !leavePpm.current()) return false;
     if (activeTab === "notes" && leaveNotes.current && !leaveNotes.current()) return false;
     if (activeTab === "remote" && leaveRemote.current && !leaveRemote.current()) return false;
     setActiveTab(id);
@@ -210,6 +222,7 @@ export default function OnSignExpandedDetails({ screenId, player, linked, onsign
           event.preventDefault(); if (selectTab(detailTabs[target].id)) tabButtons.current[target]?.focus();
         }}>{tab.label}</button>)}
     </div>
+    <ScreenSurveyImport screenId={screenId} beforeOpen={() => activeTab === "hardware" ? !leaveHardware.current || leaveHardware.current() : selectTab("hardware")} onImported={() => setInventoryRevision(value => value + 1)}/>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-device-panel`} aria-labelledby={`${tabId}-device-tab`} hidden={activeTab !== "device"} tabIndex={0}>
       {!p ? <p className="onsign-hint">{linked ? onsignLoading ? "Loading OnSign device information…" : "OnSign device information is unavailable." : "Link an OnSign player to see live device and network information."}</p> : visitedTabs.includes("device") && <div className="onsign-tab-columns">
         <div className="onsign-tab-column">
@@ -237,7 +250,13 @@ export default function OnSignExpandedDetails({ screenId, player, linked, onsign
       </div>}
     </div>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-hardware-panel`} aria-labelledby={`${tabId}-hardware-tab`} hidden={activeTab !== "hardware"} tabIndex={0}>
-      {visitedTabs.includes("hardware") && <ScreenHardwareInventory screenId={screenId} onLeaveGuard={registerLeaveGuard}/>}
+      {activeTab === "hardware" && <ScreenHardwareInventory key={inventoryRevision} screenId={screenId} onLeaveGuard={registerLeaveGuard}/>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-ppm-panel`} aria-labelledby={`${tabId}-ppm-tab`} hidden={activeTab !== "ppm"} tabIndex={0}>
+      {visitedTabs.includes("ppm") && <ScreenPpmInspection key={inventoryRevision} screenId={screenId} onLeaveGuard={registerPpmLeaveGuard}/>}
+    </div>
+    <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-photos-panel`} aria-labelledby={`${tabId}-photos-tab`} hidden={activeTab !== "photos"} tabIndex={0}>
+      {activeTab === "photos" && <ScreenGallery screenId={screenId} onLeaveGuard={registerPhotosLeaveGuard}/>}
     </div>
     <div className="onsign-tab-panel" role="tabpanel" id={`${tabId}-notes-panel`} aria-labelledby={`${tabId}-notes-tab`} hidden={activeTab !== "notes"} tabIndex={0}>
       {visitedTabs.includes("notes") && <ScreenNotes screenId={screenId} onLeaveGuard={registerNotesLeaveGuard}/>}

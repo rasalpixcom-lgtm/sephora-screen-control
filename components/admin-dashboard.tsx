@@ -36,15 +36,18 @@ import { LocationPhotosInput, LocationPhotosView, type LocationPhotoDraft } from
 import OnSignPlayerPicker from "@/components/onsign-player-picker";
 import OnSignScreenDetails from "@/components/onsign-screen-details";
 import { screenInventoryRows } from "@/lib/screen-inventory-report";
+import { LocationDetailsInput, LocationDetailsView } from "@/components/location-details";
+import type { LocationDetails, LocationDetailFields } from "@/lib/location-details";
+import { screenTypes } from "@/lib/screen-type";
 import { locationCountsByCountry, locationCountsByRegion } from "@/lib/location-filters";
 
 
 
-type State = { entities: Entity[]; members: Member[]; locationPhotos: LocationPhoto[]; display: Display; activity: Activity[] };
+type State = { locationDetails: Record<string, LocationDetails>; entities: Entity[]; members: Member[]; locationPhotos: LocationPhoto[]; display: Display; activity: Activity[] };
 
 export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "cms-support" | "reports" | "settings" | "users";
 
-const empty: State = { entities: [], members: [], locationPhotos: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
+const empty: State = { locationDetails: {}, entities: [], members: [], locationPhotos: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
 const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", "cms-support": "CMS Support", reports: "Reports", settings: "Settings", users: "Users" };
 
@@ -110,9 +113,12 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
   const [editor, setEditor] = useState<{ type: EntityType; item?: Entity } | null>(null);
 
   const [photoDraft, setPhotoDraft] = useState<PhotoDraft>({ file: null, remove: false });
+  const [locationDetailDraft, setLocationDetailDraft] = useState<LocationDetailFields>({});
+  const [locationDetailVersion, setLocationDetailVersion] = useState<string | null>(null);
+  const [viewLocation, setViewLocation] = useState<Entity | null>(null);
   const [locationPhotoDraft, setLocationPhotoDraft] = useState<LocationPhotoDraft[]>([]);
   const [locationPhotoInitial, setLocationPhotoInitial] = useState<LocationPhoto[]>([]);
-  const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "", onsignPlayerId: "" });
+  const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "", onsignPlayerId: "", screenType: "" });
 
   const [groupId, setGroupId] = useState<string | null>(null);
 
@@ -196,9 +202,11 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
     setPhotoDraft({ file: null, remove: false });
     const savedLocationPhotos = item?.type === "store" ? state.locationPhotos.filter(photo => photo.locationId === item.id) : [];
+    setLocationDetailDraft(item ? state.locationDetails[item.id]?.fields || {} : {});
+    setLocationDetailVersion(item ? state.locationDetails[item.id]?.version || null : null);
     setLocationPhotoInitial(savedLocationPhotos);
     setLocationPhotoDraft(savedLocationPhotos.map(({ id, label }) => ({ id, label })));
-    setDraft({ name: item?.name || "", shortName: item?.shortName || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "", onsignPlayerId: item?.onsignPlayerId || "" });
+    setDraft({ name: item?.name || "", shortName: item?.shortName || "", parentId: item?.parentId || "", liveUrl: item?.liveUrl || "", onsignPlayerId: item?.onsignPlayerId || "", screenType: item?.screenType || "" });
 
     const store = entities.find(entity => entity.id === item?.parentId && entity.type === "store");
     const region = entities.find(entity => entity.id === store?.parentId && entity.type === "region");
@@ -216,9 +224,11 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
       setError("Choose a country, region, and location for this screen."); return;
     }
 
-    if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...draft,
+    const { screenType, ...details } = draft;
+    if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...details,
+      ...(editor.type === "screen" ? { screenType: screenType || null } : {}),
       ...(editor.type === "screen" && (photoDraft.file || photoDraft.remove) ? { photoAction: photoDraft.file ? "replace" : "remove", photoExpectedKey: editor.item?.photoKey || null } : {}),
-      ...(editor.type === "store" ? { locationPhotos: locationPhotoDraft.map((item, index) => item.id ? { id: item.id, label: item.label } : { uploadIndex: index, label: item.label }), locationPhotoExpected: locationPhotoInitial.map(({ id, label }) => ({ id, label })) } : {}),
+      ...(editor.type === "store" ? { locationDetails: locationDetailDraft, locationDetailsExpected: locationDetailVersion, locationPhotos: locationPhotoDraft.map((item, index) => item.id ? { id: item.id, label: item.label } : { uploadIndex: index, label: item.label }), locationPhotoExpected: locationPhotoInitial.map(({ id, label }) => ({ id, label })) } : {}),
     }, editor.type === "screen" ? photoDraft : undefined, editor.type === "store" ? locationPhotoDraft : undefined)) closeEditor();
 
   }
@@ -271,7 +281,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
         {type === "screen" && <td><Link href={`/admin/screens/${encodeURIComponent(item.id)}`} prefetch={false} className="adm-secondary-btn onsign-details-button" aria-label={`Details for ${item.name}`}>Details</Link></td>}
         <td>{type === "screen" ? item.liveUrl ? <span className="adm-source-ready">Link saved</span> : <span className="adm-source-missing">No link</span> : entities.filter((screen) => screen.type === "screen" && (type === "store" ? screen.parentId === item.id : type === "region" ? entities.find((store) => store.id === screen.parentId)?.parentId === item.id : entities.find((region) => region.id === entities.find((store) => store.id === screen.parentId)?.parentId)?.parentId === item.id)).length}</td>
         {type === "store" && <td><LocationPhotosView locationId={item.id} name={item.name} photos={state.locationPhotos.filter(photo => photo.locationId === item.id)}/></td>}
-        <td><div className="adm-row-actions"><button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td>
+        <td><div className="adm-row-actions">{type === "store" && <button aria-label={`Details for ${item.name}`} onClick={() => setViewLocation(item)}>Details</button>}<button aria-label={`Edit ${item.name}`} onClick={() => openEditor(type, item)}>Edit</button><button className="adm-delete" onClick={() => openDelete(item)} aria-label={`Delete ${item.name}`}><Trash2 size={16}/></button></div></td>
       </tr>)}</tbody>
     </table>{!list.length && <div className="adm-empty">{(search.trim() || (type === "screen" && hasScreenFilters)) ? `No ${metricLabels[type].toLowerCase()} match your filters.` : `No ${metricLabels[type].toLowerCase()} yet. Add your first ${typeNames[type].toLowerCase()} to get started.`}</div>}</div>;
 
@@ -352,7 +362,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
       <DialogContent className={`adm-dialog${editor?.type === "screen" ? " adm-screen-editor" : editor?.type === "store" ? " adm-location-editor" : ""}`}>
         <DialogHeader>
           <DialogTitle>{editor?.item ? `Edit ${typeNames[editor.type]}` : editor ? `Add ${typeNames[editor.type]}` : "Edit"}</DialogTitle>
-          <DialogDescription>{editor?.type === "screen" ? "Choose the screen location, preview connection and optional installation photo." : editor?.type === "store" ? "Set the location and add up to five reference photos." : "Keep the name clear for everyone using the network."}</DialogDescription>
+          <DialogDescription>{editor?.type === "screen" ? "Choose the screen location, preview connection and an optional screen front photo." : editor?.type === "store" ? "Set the location and add up to five reference photos." : "Keep the name clear for everyone using the network."}</DialogDescription>
         </DialogHeader>
         {editor?.type !== "screen" && dialogError}
         <form onSubmit={saveEditor} className="adm-form">
@@ -362,6 +372,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
               <section className="adm-screen-editor-column" aria-label="Screen and location">
                 <h3>Screen & location</h3>
                 <label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>
+                <label>Screen type<select value={draft.screenType} disabled={busy} onChange={event => setDraft({ ...draft, screenType: event.target.value })}><option value="">Not specified</option>{screenTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
       <LocationPicker label="Country" value={screenPath.countryId} placeholder="Select country" disabled={busy} options={sortedOptions("country")} onChange={countryId=>{setScreenPath({countryId,regionId:""});setDraft({...draft,parentId:""});}}/>
       <LocationPicker label="Region" value={screenPath.regionId} placeholder="Select region" disabled={busy || !screenPath.countryId} options={sortedOptions("region",screenPath.countryId)} onChange={regionId=>{setScreenPath({...screenPath,regionId});setDraft({...draft,parentId:""});}}/>
       <LocationPicker label="Location" value={draft.parentId} placeholder="Select location" disabled={busy || !screenPath.regionId} options={sortedOptions("store",screenPath.regionId)} onChange={parentId=>setDraft({...draft,parentId})}/>
@@ -375,7 +386,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
               </section>
             </div>
             <ScreenPhotoInput key={editor.item?.id || "new"} screenId={editor.item?.id} photoKey={editor.item?.photoKey} value={photoDraft} onChange={setPhotoDraft} disabled={busy}/>
-          </div> : <div className={editor?.type === "store" ? "adm-location-editor-fields" : "adm-standard-editor-fields"}><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}{editor?.type === "store" && <LocationPhotosInput locationId={editor.item?.id} value={locationPhotoDraft} onChange={setLocationPhotoDraft} disabled={busy}/>}</div>}
+          </div> : <div className={editor?.type === "store" ? "adm-location-editor-fields" : "adm-standard-editor-fields"}><label>Name<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })}/></label>{editor?.type === "country" && <label>Abbreviation (optional)<input maxLength={12} value={draft.shortName} onChange={(event) => setDraft({ ...draft, shortName: event.target.value })} placeholder="e.g. UAE, KSA"/></label>}{editor && ["region","store"].includes(editor.type) && <label>{editor.type === "region" ? "Country" : editor.type === "store" ? "Region" : "Location"}<select required value={draft.parentId} onChange={(event) => setDraft({ ...draft, parentId: event.target.value })}><option value="">Select {editor.type === "region" ? "country" : editor.type === "store" ? "region" : "location"}</option>{byType(editor.type === "region" ? "country" : editor.type === "store" ? "region" : "store").map((item) => <option key={item.id} value={item.id}>{item.name}{item.parentId ? ` · ${parentNames(item, entities)}` : ""}</option>)}</select></label>}{editor?.type === "store" && <LocationDetailsInput value={locationDetailDraft} onChange={setLocationDetailDraft} disabled={busy}/>}{editor?.type === "store" && <LocationPhotosInput locationId={editor.item?.id} value={locationPhotoDraft} onChange={setLocationPhotoDraft} disabled={busy}/>}</div>}
           <div className="adm-form-actions">
             <button type="button" className="adm-secondary-btn" disabled={busy} onClick={() => closeEditor()}>Cancel</button>
             <button type="submit" className="adm-primary-btn" disabled={busy || (editor?.type === "screen" && !draft.parentId)}>{busy ? "Saving..." : `Save ${editor ? typeNames[editor.type].toLowerCase() : ""}`}</button>
@@ -383,6 +394,8 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
         </form>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={!!viewLocation} onOpenChange={open => !open && setViewLocation(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{viewLocation?.name}</DialogTitle><DialogDescription>Shared location details</DialogDescription></DialogHeader><LocationDetailsView fields={viewLocation ? state.locationDetails[viewLocation.id]?.fields || {} : {}}/><div className="adm-form-actions"><button className="adm-secondary-btn" onClick={() => setViewLocation(null)}>Close</button><button className="adm-primary-btn" onClick={() => { if (viewLocation) { openEditor("store", viewLocation); setViewLocation(null); } }}>Edit</button></div></DialogContent></Dialog>
 
     <Dialog open={!!groupId} onOpenChange={(open) => !open && !busy && setGroupId(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{entities.find((item) => item.id === groupId)?.name}</DialogTitle><DialogDescription>Choose screens from any location. Changes save automatically.</DialogDescription></DialogHeader>{dialogError}<div className="adm-search"><Search size={17}/><input aria-label="Search group screens" placeholder="Search screens or locations" value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)}/></div><span className="adm-assignment-count">{state.members.filter((member) => member.groupId === groupId).length} {state.members.filter((member) => member.groupId === groupId).length === 1 ? "screen" : "screens"} assigned{busy ? " - Saving..." : ""}</span><div className="adm-assignment-list">{assignmentScreens.map((screen) => { const checked = state.members.some((member) => member.groupId === groupId && member.screenId === screen.id); return <label key={screen.id}><input type="checkbox" checked={checked} disabled={busy} onChange={(event) => void mutate({ action: "member", groupId, screenId: screen.id, enabled: event.target.checked })}/><span><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></label>; })}{!assignmentScreens.length && <div className="adm-empty">{byType("screen").length ? "No screens match your search." : "Add screens before assigning them to a group."}</div>}</div><button className="adm-primary-btn" disabled={busy} onClick={() => setGroupId(null)}>Done</button></DialogContent></Dialog>
 

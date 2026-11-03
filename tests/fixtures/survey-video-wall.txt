@@ -1,0 +1,33 @@
+Thalia Shemaisy Family -Above Sephora 1920 X 1080 — Thalia Shemaisy Family, KSA - Jeddah, Saudi Arabia
+
+SCREEN TYPE
+Screen type: Video Wall
+
+VIDEO WALL
+Video wall TV model:
+Number of displays: 25
+Layout:
+Screen size per display (inches):
+Resolution per display (px):
+Video wall total width (mm): 6500
+Video wall total height (mm): 3750
+Manufactured by:
+Installed by: Another Company
+
+PPM INSPECTION
+LED modules / dead pixels:
+Cabinet alignment and mounting: Fail
+Brightness and colour uniformity: Fail
+Power supply and wiring:
+Receiving card communication:
+Sending card configuration:
+Ventilation and dust condition:
+Media player playback and CMS sync: Pass
+Network connection and cables: Pass
+Final screen playback verification: Pass
+PPM date: 2026-11-01
+Client / project: Sephora
+Overall status: Pass
+Next PPM date:
+Defects / findings: There is a color difference between some TVs on the video wall. Specifically, there is a subtle variation in the white levels across certain displays.
+Corrective action:

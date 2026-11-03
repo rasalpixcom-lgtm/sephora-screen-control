@@ -1,0 +1,29 @@
+.screen-ppm-card { min-width: 0; padding: 22px 24px; }
+.screen-ppm-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.screen-ppm-head h2 { margin:0 0 5px; font-size:17px; }
+.screen-ppm-head .onsign-hint { margin:0; }
+.screen-ppm-form { display:grid; gap:18px; }
+.screen-ppm-edit-grid, .screen-ppm-checks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px; }
+.screen-ppm-field { display:grid; gap:7px; min-width:0; font-size:13px; font-weight:650; }
+.screen-ppm-field input, .screen-ppm-field select, .screen-ppm-field textarea { width:100%; min-width:0; border:1px solid var(--work-line); border-radius:10px; background:var(--work-surface); color:var(--work-text); font:inherit; padding:10px 12px; }
+.screen-ppm-field textarea { min-height:96px; resize:vertical; line-height:1.45; }
+.screen-ppm-field input:focus-visible, .screen-ppm-field select:focus-visible, .screen-ppm-field textarea:focus-visible { outline:2px solid var(--work-focus,var(--work-action)); outline-offset:2px; }
+.screen-ppm-check-fieldset { min-width:0; margin:0; padding:16px; border:1px solid var(--work-line); border-radius:12px; }
+.screen-ppm-check-fieldset legend { padding:0 6px; font-size:14px; font-weight:700; }
+.screen-ppm-actions { display:flex; justify-content:flex-end; gap:10px; }
+.screen-ppm-summary, .screen-ppm-check-view { display:grid; gap:14px 22px; margin:0; }
+.screen-ppm-summary { grid-template-columns:repeat(4,minmax(0,1fr)); margin-bottom:22px; }
+.screen-ppm-check-view { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.screen-ppm-summary div, .screen-ppm-check-view div { min-width:0; }
+.screen-ppm-summary dt, .screen-ppm-check-view dt { color:var(--work-muted); font-size:13px; }
+.screen-ppm-summary dd, .screen-ppm-check-view dd { margin:5px 0 0; font-weight:650; overflow-wrap:anywhere; }
+.screen-ppm-check-view dd[data-status="Pass"], .screen-ppm-summary dd[data-status="Pass"] { color:var(--work-success,#37b98b); }
+.screen-ppm-check-view dd[data-status="Fail"], .screen-ppm-summary dd[data-status="Fail"] { color:var(--work-danger,#e97983); }
+.screen-ppm-summary dd[data-status="Follow-up"] { color:var(--work-warning,#d9a441); }
+.screen-ppm-section-title { margin:22px 0 14px; font-size:15px; }
+.screen-ppm-notes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:22px; }
+.screen-ppm-notes h3 { margin:0 0 7px; font-size:14px; }
+.screen-ppm-notes p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.55; }
+.screen-ppm-updated { margin:22px 0 0; }
+@media (max-width:850px) { .screen-ppm-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:650px) { .screen-ppm-card { padding:20px; } .screen-ppm-head { align-items:stretch; flex-direction:column; } .screen-ppm-head .adm-secondary-btn { align-self:flex-start; } .screen-ppm-edit-grid, .screen-ppm-checks, .screen-ppm-check-view, .screen-ppm-notes { grid-template-columns:1fr; } .screen-ppm-summary { grid-template-columns:1fr; } }

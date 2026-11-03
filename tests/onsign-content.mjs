@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 
 const output = new URL("../.server-runtime/onsign-content-test.cjs", import.meta.url);
 await fs.mkdir(new URL("../.server-runtime/", import.meta.url), { recursive: true });
@@ -24,7 +25,7 @@ await build({ entryPoints: ["components/onsign-expanded-details.tsx"], outfile: 
 const { default: Details, onSignElapsed } = createRequire(import.meta.url)(fileURLToPath(componentOutput));
 for (const [seconds, expected] of [[0, "0 seconds ago"], [1, "1 second ago"], [59, "59 seconds ago"], [60, "1 minute ago"], [61, "1 minute, 1 second ago"], [3600, "1 hour ago"], [3661, "1 hour, 1 minute ago"], [86400, "1 day ago"], [93192, "1 day, 1 hour ago"], [172800, "2 days ago"], [-1, "Not reported"], [NaN, "Not reported"], [Infinity, "Not reported"]]) assert.equal(onSignElapsed(seconds), expected);
 const player = { id: "test", name: "Test player", isConnected: false, lastSync: null, lastSeen: null, syncProgress: 0, errorCount: 0, warningCount: 0, network: [] };
-const html = renderToStaticMarkup(React.createElement(Details, { screenId: "test", player }));
+const html = renderToStaticMarkup(React.createElement(AppRouterContext.Provider, { value: { refresh() {} } }, React.createElement(Details, { screenId: "test", player })));
 assert.match(html, /Content &amp; downloads/);
 assert.match(html, /<h2>Overview<\/h2>[\s\S]*?<dt>Download progress<\/dt><dd>0%<\/dd>/);
 assert.doesNotMatch(html.slice(html.indexOf("<summary>Content &amp; downloads</summary>")), /Last reported download progress|<dt>Download progress<\/dt>|<dt>Active alerts<\/dt>/);

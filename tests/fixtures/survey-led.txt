@@ -1,0 +1,79 @@
+Olaya Towers Cash Counter 1999 x 800 — Olaya Towers, KSA - Riyadh, Saudi Arabia
+
+SCREEN TYPE
+Screen type: LED
+
+LED DISPLAY
+Installation date:
+Installed by: Pixcom
+Asset ID:
+Manufacturer:
+Model:
+Serial number:
+Pixel pitch (mm): 2.5
+Module type:
+Module batch: AU12C1211KSHH-5343
+Cabinet quantity: 20
+Screen width (pixels): 2000
+Screen height (pixels): 800
+Screen width (mm): 5000
+Screen height (mm): 2000
+Total sqm: 10
+Installation location: Behind cash
+
+SENDING CARD & CONTROLLER
+Sending card model: MCTRL700
+Sending card serial no.: 2ABD23612W0A10018537
+Receiving card ID: A5s
+Hub card model: EMC. Uni hub45*15-v1.4-R
+Video signal input: HDMI
+RGB colour mixing:
+Rack cleaning done: Yes
+Sending card connected to NovaLCT: Yes
+Sending card labelled: No
+Controller brand: Novastar
+Controller model:
+Controller serial number:
+Firmware:
+Controller IP address:
+
+MEDIA PLAYER
+Media player model: P388
+Connectivity type: Wi-Fi
+Installation date:
+Installed by: Pixcom
+Media player labelled: No
+Asset ID:
+Serial number: Hk23nk53007318
+CPU / RAM / SSD:
+MAC address: C8-21-58-C5-02-51
+IP address: 192.168.0.113
+CMS software: Onsign
+CMS device ID:
+
+POWER & NETWORK
+Power supply model: LP.168W1.702
+Power supply quantity: 40
+Switch: Aruba
+Switch port:
+Network IP:
+UPS:
+PDU:
+
+PPM INSPECTION
+LED modules / dead pixels: Pass
+Cabinet alignment and mounting: Pass
+Brightness and colour uniformity: Pass
+Power supply and wiring: Pass
+Receiving card communication: Pass
+Sending card configuration: Pass
+Ventilation and dust condition: Pass
+Media player playback and CMS sync: Pass
+Network connection and cables: Fail
+Final screen playback verification: Pass
+PPM date: 2026-11-02
+Client / project:
+Overall status: Pass
+Next PPM date:
+Defects / findings: DSA network connected, but no internet access.
+Corrective action:

@@ -1,0 +1,12 @@
+.adm-location-details { border-top:1px solid var(--work-line); padding-top:18px; }
+.adm-location-details h3 { margin:0 0 16px; font-size:15px; font-weight:600; }
+.adm-location-details h3 small { color:var(--work-muted); font-weight:400; }
+.adm-location-details-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.adm-location-detail-wide { grid-column:1/-1; }
+.adm-location-details-grid label { min-width:0; }
+.adm-location-details-grid textarea { width:100%; min-height:88px; resize:vertical; padding:12px; border:1px solid var(--work-line); border-radius:12px; background:var(--work-soft); color:var(--work-text); font:inherit; }
+.adm-location-details-grid textarea:focus-visible { outline:2px solid var(--work-focus); outline-offset:2px; }
+.adm-location-details-view { margin:8px 0; }
+.adm-location-details-view dt { color:var(--work-muted); font-size:12px; margin-bottom:6px; }
+.adm-location-details-view dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; }
+@media(max-width:600px) { .adm-location-details-grid { grid-template-columns:1fr; } }
