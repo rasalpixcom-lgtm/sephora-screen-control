@@ -1,5 +1,17 @@
 # Code review and local verification
 
+## Pre-push PDF and CMS filter review - 4 November 2026
+
+Reviewed every pending application diff and new export/filter module, and revisited authorization, same-origin writes, bounded inputs, PostgreSQL transactions, inventory relationships, private photo paths, survey imports, alert transports, migrations and standalone packaging. Deep line-level review covered the new screen details PDF route/renderer/download dialog, Outfit assets and licensing, CMS result filters/filtered export/version checks, summary/footer pagination and location portrait containment. Generated dependencies and inactive legacy deployment code were not audited line by line. No new blocking application defect was confirmed and no application correction was needed in this review.
+
+Verification passed: 22 unit/PDF regression suites; 951 isolated server checks (331 authentication/inventory, 124 OnSign/photos, 100 reports, 31 survey import, 54 CMS, 23 screen details PDF, 46 Activity, 92 email alerts, 140 WhatsApp alerts, 10 SQLite import); LCD/Video Wall migration preservation/repeatability checks; guarded local backup/restoration with matching table contents; full ESLint; production build/TypeScript and standalone packaging; and whitespace checks. The legacy migration-preservation helper requires an explicitly supplied SQLite source and was not a runnable standalone suite; the maintained isolated SQLite import suite passed. No company data was changed or real alerts sent.
+
+PDF layout checks cover LED, LCD, Video Wall, unspecified type, missing/corrupt photos, optional location photos, long/unbroken text, margins, page numbering and image proportions. Both Outfit weights are embedded and copied with their license into standalone assets. The user's actual LED/LCD/Video Wall exports were also rendered and reviewed earlier in this review cycle. Existing earlier browser checks cover responsive CMS filters/download controls; a new full interactive browser sweep and live company/provider checks were not performed in this run.
+
+Configured-secret scanning found no matches in 334 maintained text/source files. Environment files and private uploads are excluded from Git and the standalone bundle. Dependency audit remains zero runtime vulnerabilities; the full audit reports 16 moderate development-tool findings in the ESLint/minimatch chain (no high/critical findings). No forced/incompatible dependency downgrade was applied. These known tooling findings remain open.
+
+No migration, dependency version, production branch or company-server change is required by this pending PDF/filter release. Changes remain local and uncommitted; no push or deployment was performed.
+
 ## Pre-push hardware, PPM, gallery and survey review - 3 November 2026
 
 Reviewed all pending application changes against f6dcb81, including type-specific hardware visibility, manual LED measurements and diagram proportions, shared location details, PPM validation, private photo categories/storage/cleanup, survey parsing and selected-field imports, authorization, same-origin checks, optimistic concurrency, transaction rollback, schema migrations and standalone routes/assets. Existing authentication, monitor/controller, OnSign, CMS/PDF, Activity, alert and legacy import behavior was regression-tested. Generated dependencies and inactive legacy deployment code were not audited line by line. No new interactive browser sweep or live company/provider validation was performed; the user's manual screen checks complement the automated coverage.

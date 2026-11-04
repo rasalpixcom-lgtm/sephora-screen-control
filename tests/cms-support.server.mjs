@@ -67,9 +67,18 @@ try {
  check((await upload(metadata,Buffer.alloc(5*1024*1024+1))).status===413,'oversized content image rejected');
 
  const draft=await request('/api/cms-support/pdf?id='+saved.id,undefined,cookie);check(draft.ok&&draft.headers.get('content-type')==='application/pdf','draft preview PDF generated');fs.writeFileSync(path.join(root,'draft.pdf'),Buffer.from(await draft.arrayBuffer()));
+ const filteredQuery=`/api/cms-support/pdf?id=${saved.id}&filtered=1&version=${record.version}`;
+ const filteredPdf=await request(filteredQuery+'&network=Unstable&scheduling=Pending&playback=Not%20verified&search=Cash',undefined,cookie);
+ check(filteredPdf.ok&&filteredPdf.headers.get('content-disposition').includes('-filtered.pdf'),'combined saved result filters export a PDF');
+ fs.writeFileSync(path.join(root,'filtered.pdf'),Buffer.from(await filteredPdf.arrayBuffer()));
+ check((await request(filteredQuery+'&network=Offline',undefined,cookie)).status===400,'empty filtered PDF rejected');
+ check((await request(filteredQuery+'&network=invalid',undefined,cookie)).status===400,'invalid PDF status filter rejected');
+ check((await request(filteredQuery.replace(record.version,crypto.randomUUID()),undefined,cookie)).status===409,'stale filtered export rejected');
+ check((await request(filteredQuery)).status===401,'filtered export requires authentication');
  const finalize=()=>request('/api/cms-support',{action:'finalize',id:saved.id,version:record.version},cookie);
  const finals=await Promise.all([finalize(),finalize()]);assert.ok(finals.every(r=>r.ok));const ids=await Promise.all(finals.map(r=>r.json()));check(ids[0].reportId===ids[1].reportId,'concurrent finalization does not duplicate a revision');
  const reportId=ids[0].reportId;const final=await request('/api/cms-support/pdf?reportId='+reportId,undefined,cookie);const finalBytes=Buffer.from(await final.arrayBuffer());check(final.ok&&finalBytes.subarray(0,4).toString()==='%PDF','final client PDF downloads');fs.writeFileSync(path.join(root,'client-report.pdf'),finalBytes);
+ check((await request('/api/cms-support/pdf?reportId='+reportId+'&filtered=1',undefined,cookie)).status===400,'finalized report cannot be silently filtered');
  check(finalBytes.includes(Buffer.from('/URI ('+payload.videoUrl+')')),'PDF includes the clickable video destination');
  check((await request('/api/cms-support/pdf?reportId='+reportId)).status===401,'report download protected');
  check((await request('/api/cms-support',{action:'update',id:saved.id,version:crypto.randomUUID(),payload},cookie)).status===409,'stale update rejected');

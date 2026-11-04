@@ -31,7 +31,8 @@
     "test:import": "node --env-file=.env.local tests/import-sqlite.server.mjs",
     "db:migrate": "node --env-file=.env.local scripts/migrate-postgres.mjs",
     "db:import": "node --env-file=.env.local scripts/import-sqlite.mjs",
-    "test:cms-pdf": "node tests/cms-pdf.mjs"
+    "test:cms-pdf": "node tests/cms-pdf.mjs",
+    "test:screen-details-pdf": "node tests/screen-details-pdf.mjs && node --env-file=.env.local tests/screen-details.server.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

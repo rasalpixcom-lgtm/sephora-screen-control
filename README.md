@@ -73,6 +73,8 @@ Apply `0015_cms_support.sql` using `npm run db:migrate` before starting this rel
 
 ## Screen hardware inventory
 
+**Screen Details PDF:** open a screen and choose **Download PDF**. The admin-only report uses saved hardware details for the selected screen type, PPM inspection, location details and screen photos. **Include location photos** is optional and starts unchecked. Photos retain their proportions; missing photo files show an unavailable message. Reports are generated on demand with GST time and page numbers; they do not change saved records or require a new migration. Run `npm run test:screen-details-pdf` for PDF layout and isolated server checks (PDF checks require Python with pdfplumber and pypdf; set `PDF_TEST_PYTHON` to its executable if needed).
+
 Screens have an optional **Screen type**: LED, LCD or Video Wall. Set it in Add/Edit screen and view it in Hardware inventory. Existing screens remain **Not specified** until selected. Changing the type preserves all hardware sections and photos. Apply the additive migration `0016_screen_type.sql` with `npm run db:migrate` before starting this version.
 
 Admin → Screens → Details has a **Hardware inventory** tab for LED display, LED controller, media player, and power/network installation records. It works even without a linked OnSign player. Each section opens in view mode and has its own Add details/Edit, Save, and Cancel controls. Unsaved edits prompt before switching tabs or sections. These manually recorded details are separate from the live OnSign device data. The **Maintenance** tab is an empty placeholder for future work. One record per hardware section is supported for each screen.

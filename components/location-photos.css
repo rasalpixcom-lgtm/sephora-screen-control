@@ -19,8 +19,8 @@
 .location-photo-view img { width:42px; height:32px; object-fit:cover; border-radius:5px; }
 .location-photo-view small,.location-photo-empty { color:var(--work-muted); }
 .location-photo-gallery { width:min(680px,calc(100vw - 32px)); max-width:680px; }
-.location-photo-large { height:clamp(180px,50dvh,480px); display:grid; place-items:center; background:var(--work-soft); border-radius:12px; overflow:hidden; }
-.location-photo-large img { width:100%; height:100%; object-fit:contain; }
+.location-photo-large { position:relative; height:clamp(180px,50dvh,480px); display:grid; place-items:center; background:var(--work-soft); border-radius:12px; overflow:hidden; }
+.location-photo-large img { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain; }
 .location-photo-large p { color:var(--work-muted); }
 .location-photo-caption { margin:0; height:40px; overflow-y:auto; font-size:13px; overflow-wrap:anywhere; }
 .location-photo-thumbs { display:flex; gap:8px; overflow-x:auto; padding:3px; }

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { cmsAdditionalScreens, cmsScreenOptions, cmsResultScreens, cmsVisibleMarkedIds } from '../lib/cms-screen-selection.ts';
 import { cmsEmptyDetails, cmsImageMime, cmsVideoUrl, parseCmsPayload, cmsScreenLimit } from '../lib/cms-support.ts';
+const {build}=await import('esbuild');
+const bundledFilters=await build({entryPoints:['lib/cms-result-filters.ts'],bundle:true,write:false,platform:'node',format:'esm'});
+const {filterCmsResults,emptyCmsResultFilters,parseCmsResultFilters,cmsResultFilterDescription}=await import('data:text/javascript;base64,'+Buffer.from(bundledFilters.outputFiles[0].contents).toString('base64'));
 const inventory = [{ id:'c',type:'country',name:'UAE',parentId:null },{id:'r',type:'region',name:'Dubai',parentId:'c'},{id:'l',type:'store',name:'Mall',parentId:'r'},{id:'s',type:'screen',name:'Popup',parentId:'l'}];
 const base = { ...cmsEmptyDetails, contentName:'Kayali', category:'Popup', receivedAt:'2026-10-19T17:21:00+04:00', playbackStart:'2026-10-24', playbackEnd:'2026-11-12', screens:[{screenId:'s',screenName:'Spoofed',network:'Not checked',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:''}] };
 let checks=0;
@@ -58,4 +61,15 @@ check(cmsVideoUrl('http://media.example.test/ad.mp4')==='http://media.example.te
 for(const url of ['javascript:alert(1)','data:video/mp4;base64,AAAA','file:///C:/ad.mp4','//media.example.test/ad.mp4','https://user:secret@media.example.test/ad.mp4','https://media.example.test/\nvideo','https://media.example.test/'+'a'.repeat(4096),null,42]) { assert.throws(()=>cmsVideoUrl(url)); checks++; }
 check(parseCmsPayload({...base,videoUrl:undefined},inventory).videoUrl==='');
 check(parseCmsPayload({...base,videoUrl:'https://media.example.test/ad.mp4'},inventory).videoUrl==='https://media.example.test/ad.mp4');
+const statusRows=results.map((row,i)=>({...row,network:i?'Offline':'Online',scheduling:i?'Pending':'Scheduled',playback:i?'Not verified':'Verified'}));
+const resultFilters=emptyCmsResultFilters();
+check(filterCmsResults(statusRows,resultFilters).length===2);
+check(filterCmsResults(statusRows,{...resultFilters,network:'Offline'})[0].screenId==='b');
+check(filterCmsResults(statusRows,{...resultFilters,network:'Offline',search:'Dubai'}).length===0);
+check(filterCmsResults(statusRows,{...resultFilters,search:' MALL TWO ',network:'Offline',scheduling:'Pending',playback:'Not verified'})[0].screenId==='b');
+check(cmsVisibleMarkedIds(filterCmsResults(statusRows,{...resultFilters,network:'Online'}),['a','b']).join(',')==='a');
+check(statusRows.length===2 && statusRows[0].remarks==='Keep draft');
+check(parseCmsResultFilters(new URLSearchParams('search=+Cash+&network=Offline')).search==='Cash');
+check(cmsResultFilterDescription({...resultFilters,network:'Offline'})==='Network: Offline');
+for(const query of ['network=unknown','scheduling=Verified','playback=Online','search='+ 'x'.repeat(201),'search=a%0Ab']) { assert.throws(()=>parseCmsResultFilters(new URLSearchParams(query))); checks++; }
 console.log(checks+' CMS validation and screen selection checks passed.');

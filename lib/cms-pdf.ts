@@ -4,7 +4,7 @@ import PDFDocument from "pdfkit";
 import sharp from "sharp";
 import { cmsVideoUrl, cmsTime, type CmsPayload } from "./cms-support";
 
-export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, reference: string, generatedAt: string, draft = false): Promise<Buffer> {
+export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, reference: string, generatedAt: string, draft = false, selection?: { description: string; total: number }): Promise<Buffer> {
   const jpeg = image ? await sharp(image).flatten({ background: "#ffffff" }).jpeg({ quality: 88 }).toBuffer() : null;
   const doc = new PDFDocument({ size: "A4", layout: "portrait", margins: { top: 36, right: 36, bottom: 42, left: 36 }, bufferPages: true, info: { Title: `CMS Upload Report - ${payload.contentName}`, Author: "Sephora Screen Control" } });
   const chunks: Buffer[] = [];
@@ -14,7 +14,7 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
   const regular = font ? "Report" : "Helvetica";
   const left = 36, width = doc.page.width - 72;
   const ink = "#222222", muted = "#606660", line = "#dce0dc";
-  const bottom = doc.page.height - 54;
+  const statusNote = '* Note: "Scheduled" means content is uploaded and scheduled in the CMS. Offline devices must reconnect and download new content before playback. "Playback verified" means playback was checked by our support team.';
   // Measure wrapped lines explicitly so long names cannot escape their cells.
   function lines(value: string, available: number, size: number, face = regular) {
     doc.font(face).fontSize(size);
@@ -38,6 +38,9 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
     wrapped.forEach((item, i) => doc.font(face).fontSize(size).fillColor(color).text(item, x, y + i * size * 1.4, { width: w, lineBreak: false, characterSpacing: 0, wordSpacing: 0 }));
     return y + wrapped.length * size * 1.4;
   }
+  // Reserve the note on every page before laying out tables and remarks.
+  const noteTop = doc.page.height - 58 - height(statusNote, width, 7.5);
+  const bottom = noteTop - 14;
   const date = (value: string) => new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(value + "T00:00:00Z"));
   function pageHead(continued = false) {
     doc.rect(0, 0, doc.page.width, doc.page.height).fill("#f3f4f3");
@@ -119,10 +122,51 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
     doc.font(regular).fontSize(9).fillColor("#216d46").text("Watch content video", left, y, { link: videoUrl, underline: true, lineBreak: false });
     y += 24;
   }
+  if (selection) {
+    const label = `Filtered screen list: ${payload.screens.length} of ${selection.total} screens. ${selection.description}`;
+    for (const item of lines(label, width, 9)) {
+      if (y + 13 > bottom) { doc.addPage(); y = pageHead(true); }
+      y = text(item, left, y, width, 9, muted);
+    }
+    y += 12;
+  }
   const scheduled = payload.screens.filter(row => row.scheduling === "Scheduled").length;
   const verified = payload.screens.filter(row => row.playback === "Verified").length;
-  if (y + 13 > bottom) { doc.addPage(); y = pageHead(true); }
-  y = text(`${payload.screens.length} ${payload.screens.length === 1 ? "screen" : "screens"} | ${scheduled} scheduled | ${verified} playback verified`, left, y, width, 9, muted) + 14;
+  const networkCount = (status: string) => payload.screens.filter(row => row.network === status).length;
+  const online = networkCount("Online"), offline = networkCount("Offline"), unstable = networkCount("Unstable"), unchecked = networkCount("Not checked");
+  const summaryWidth = (width - 12) / 2, summaryInner = summaryWidth - 20;
+  const summaries = [
+    { title: "Content status", parts: [
+      { label: `${payload.screens.length} ${payload.screens.length === 1 ? "screen" : "screens"}`, color: ink },
+      { label: `${scheduled} scheduled*`, color: ink },
+      { label: `${verified} playback verified*`, color: ink },
+    ] },
+    { title: "Network status", parts: [
+      { label: `${online} online`, color: online ? "#216d46" : muted },
+      { label: `${offline} offline`, color: offline ? "#a42f2f" : muted },
+      { label: `${unstable} unstable`, color: unstable ? "#8a590d" : muted },
+      ...(unchecked ? [{ label: `${unchecked} not checked`, color: muted }] : []),
+    ] },
+  ].map(summary => {
+    let offset = 0, row = 0;
+    const parts = summary.parts.map(part => {
+      const partWidth = doc.font(regular).fontSize(9).widthOfString(part.label);
+      if (offset && offset + partWidth > summaryInner) { offset = 0; row++; }
+      const placed = { ...part, x: offset, y: row * 13 };
+      offset += partWidth + 12;
+      return placed;
+    });
+    return { ...summary, parts, height: 34 + (row + 1) * 13 };
+  });
+  const summaryHeight = Math.max(...summaries.map(summary => summary.height));
+  if (y + summaryHeight > bottom) { doc.addPage(); y = pageHead(true); }
+  summaries.forEach((summary, i) => {
+    const x = left + i * (summaryWidth + 12);
+    doc.roundedRect(x, y, summaryWidth, summaryHeight, 6).fillAndStroke("#ffffff", line);
+    text(summary.title, x + 10, y + 9, summaryInner, 8, muted, "Helvetica-Bold");
+    summary.parts.forEach(part => text(part.label, x + 10 + part.x, y + 25 + part.y, summaryInner - part.x, 9, part.color));
+  });
+  y += summaryHeight + 14;
   if (payload.remarks) {
     for (const item of lines(`Remarks: ${payload.remarks}`, width, 9)) {
       if (y + 13 > bottom) { doc.addPage(); y = pageHead(true); }
@@ -191,6 +235,7 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
   const pages = doc.bufferedPageRange();
   for (let i = 0; i < pages.count; i++) {
     doc.switchToPage(i); doc.page.margins.bottom = 10;
+    text(statusNote, left, noteTop, width, 7.5, muted);
     doc.moveTo(left, doc.page.height - 40).lineTo(left + width, doc.page.height - 40).strokeColor(line).lineWidth(.5).stroke();
     text("Statuses recorded by the CMS support team. Times are in GST.", left, doc.page.height - 29, width - 65, 7, muted);
     text(`${i + 1} / ${pages.count}`, left + width - 40, doc.page.height - 29, 40, 8, muted);
