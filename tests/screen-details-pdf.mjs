@@ -10,11 +10,12 @@ await build({entryPoints:['lib/screen-details-pdf.ts'],outfile:path.join(out,'re
 const {renderScreenDetailsPdf}=createRequire(import.meta.url)(path.join(out,'renderer.cjs'));
 const portrait=await sharp({create:{width:400,height:900,channels:3,background:'#eec795'}}).webp().toBuffer();
 const landscape=await sharp({create:{width:1200,height:400,channels:3,background:'#97badd'}}).png().toBuffer();
-const base={id:'00000000-0000-4000-8000-000000000001',name:'Example Mall - Animation Table',screenType:'LCD',location:'Example Mall',region:'Dubai',country:'United Arab Emirates',hardware:{lcd:{tv_model:'QM32R',tv_size:'32',manufactured_by:'Samsung',installed_by:'PIXCOM'},ledDisplay:{manufacturer:'HIDDEN-LED-FIELD',resolution:'9999 x 9999'}},ppm:{ppmDate:'2026-11-03',overallStatus:'Follow-up',brightness_colour:'Fail',final_playback:'Pass',findings:'Colour mismatch.\nInspect the upper display.',correctiveAction:'Review colour calibration.'},locationDetails:{address:'Unit 10',contact_name:'Demo Contact',working_hours:'10:00–22:00',access_notes:'Arrange access ahead of the visit.'},screenPhotos:[{label:'Screen front',bytes:portrait},{label:'Connection diagram',bytes:landscape}],locationPhotos:[{label:'Store entrance',bytes:landscape}],includeLocationPhotos:false};
+const base={id:'00000000-0000-4000-8000-000000000001',name:'Example Mall - Animation Table',screenType:'LCD',location:'Example Mall',region:'Dubai',country:'United Arab Emirates',hardware:{mediaPlayer:{model:'LCD shared player',cmsSoftware:'Onsign'},lcd:{tv_model:'QM32R',tv_size:'32',manufactured_by:'Samsung',installed_by:'PIXCOM'},ledDisplay:{manufacturer:'HIDDEN-LED-FIELD',resolution:'9999 x 9999'}},ppm:{ppmDate:'2026-11-03',overallStatus:'Follow-up',brightness_colour:'Fail',final_playback:'Pass',findings:'Colour mismatch.\nInspect the upper display.',correctiveAction:'Review colour calibration.'},locationDetails:{address:'Unit 10',contact_name:'Demo Contact',working_hours:'10:00–22:00',access_notes:'Arrange access ahead of the visit.'},screenPhotos:[{label:'Screen front',bytes:portrait},{label:'Connection diagram',bytes:landscape}],locationPhotos:[{label:'Store entrance',bytes:landscape}],includeLocationPhotos:false};
 const cases=[
  ['lcd',base],
  ['led',{...base,screenType:'LED',hardware:{ledDisplay:{manufacturer:'LED Brand',resolution:'2000 × 800',width_mm:'5100',height_mm:'2100',total_sqm:'10.71',pixelPitch:'2.5',dimensions:'DO-NOT-EXPORT-DERIVED'},ledController:{brand:'Novastar'},mediaPlayer:{model:'P388'},powerNetwork:{networkSwitch:'Aruba'}}}],
- ['wall',{...base,screenType:'Video Wall',hardware:{video_wall:{display_qty:'25',total_width_mm:'6500',total_height_mm:'3750'}}}],
+ ['wall',{...base,screenType:'Video Wall',hardware:{mediaPlayer:{model:'Wall shared player'},video_wall:{display_qty:'25',total_width_mm:'6500',total_height_mm:'3750'}}}],
+ ['legacy-lcd',{...base,hardware:{lcd:base.hardware.lcd},screenPhotos:[]}],
  ['unknown',{...base,screenType:null,screenPhotos:[],locationPhotos:[]}],
  ['with-location',{...base,includeLocationPhotos:true}],
  ['missing',{...base,screenPhotos:[{label:'Missing file',bytes:null},{label:'Unreadable photo',bytes:Buffer.from('invalid')}],locationPhotos:[],includeLocationPhotos:true}],
@@ -27,7 +28,7 @@ from pathlib import Path
 import pdfplumber
 from pypdf import PdfReader
 root=Path(sys.argv[1])
-for name in ['lcd','led','wall','unknown','with-location','missing','long','many-photos']:
+for name in ['lcd','led','wall','legacy-lcd','unknown','with-location','missing','long','many-photos']:
  reader=PdfReader(root/(name+'.pdf')); text='\n'.join(p.extract_text() or '' for p in reader.pages)
  assert 'SCREEN DETAILS REPORT' in text and 'PPM inspection' in text and 'Location details' in text
  assert 'HIDDEN-LED-FIELD' not in text and 'DO-NOT-EXPORT-DERIVED' not in text
@@ -37,6 +38,10 @@ for name in ['lcd','led','wall','unknown','with-location','missing','long','many
  assert any('Outfit' in font and 'SemiBold' in font for font in fonts),fonts
  if name=='lcd':
   assert 'LCD TV' in text and 'QM32R' in text and 'Samsung' in text and 'LED display' not in text and 'Video Wall' not in text
+ if name in ['lcd','wall']:
+  assert text.index('LCD TV' if name=='lcd' else 'Video Wall') < text.index('Media player') < text.index('PPM inspection')
+  assert ('LCD shared player' if name=='lcd' else 'Wall shared player') in text
+ if name=='legacy-lcd': assert 'Not recorded' in text and 'Media player' in text
  if name=='led':
   for expected in ['LED display','Sending card & controller','Media player','Power & network','5100','2100','10.71']: assert expected in text,expected
   assert 'LCD TV' not in text

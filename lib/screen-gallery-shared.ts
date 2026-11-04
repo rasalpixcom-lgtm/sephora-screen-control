@@ -13,6 +13,7 @@ export type ScreenPhotoCategory = typeof screenPhotoCategories[number]["id"];
 export const validPhotoCategory = (value: unknown): value is ScreenPhotoCategory => screenPhotoCategories.some(category => category.id === value);
 export function photoCategoryApplies(category: ScreenPhotoCategory, screenType: string | null) {
   if (["front", "serial", "issues"].includes(category)) return true;
+  if (category === "media_player") return screenType === "LED" || screenType === "LCD" || screenType === "Video Wall";
   if (category === "connection_diagram") return screenType === "LCD";
   if (category === "back_cabling" || category === "looping_diagram") return screenType === "LED" || screenType === "Video Wall";
   return screenType === "LED";

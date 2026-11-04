@@ -138,7 +138,7 @@ try {
     const response = await editScreen({ screenType });
     check(response.status === 200 && (await response.json()).entities.find(item => item.id === screen.id).screenType === screenType, "screen type saves: " + screenType);
     const hardware = await (await request("/api/screen-hardware?screenId=" + screen.id, undefined, admin.cookie)).json();
-    const expectedSections = screenType === "LED" ? ["ledDisplay", "ledController", "mediaPlayer", "powerNetwork"] : screenType === "LCD" ? ["lcd"] : ["video_wall"];
+    const expectedSections = screenType === "LED" ? ["ledDisplay", "ledController", "mediaPlayer", "powerNetwork"] : screenType === "LCD" ? ["lcd", "mediaPlayer"] : ["video_wall", "mediaPlayer"];
     check(hardware.screenType === screenType && JSON.stringify(Object.keys(hardware.sections)) === JSON.stringify(expectedSections) && (await db.prepare("SELECT fields FROM screen_hardware_sections WHERE screen_id=? AND section='ledDisplay'").bind(screen.id).first()).fields.assetId === retainedHardware.assetId, "hardware shows only matching sections and retains LED data when switching to " + screenType);
   }
   const omittedType = await editScreen({});
@@ -237,8 +237,13 @@ try {
   const savedLcd = (await lcdSave.json()).record;
   check(lcdSave.status === 200 && Object.entries(lcdFields).every(([key, value]) => savedLcd.fields[key] === value), "LCD model, decimal size, manufacturer and installer save through the API");
   const lcdReload = await (await request("/api/screen-hardware?screenId=" + screen.id, undefined, admin.cookie)).json();
-  check(lcdReload.screenType === "LCD" && lcdReload.sections.lcd.fields.tv_size === "55.5" && Object.keys(lcdReload.sections).length === 1 && (await db.prepare("SELECT fields FROM screen_hardware_sections WHERE screen_id=? AND section='ledDisplay'").bind(screen.id).first()).fields.assetId === retainedHardware.assetId, "LCD details reload alone while existing LED data is retained");
-  check((await hardwareWrite(retainedHardware, clearedLed.version)).status === 400 && (await playerWrite(legacyPlayer, clearedPlayer.version)).status === 400, "LCD screens reject LED display and media player writes");
+  check(lcdReload.screenType === "LCD" && lcdReload.sections.lcd.fields.tv_size === "55.5" && Object.keys(lcdReload.sections).length === 2 && lcdReload.sections.mediaPlayer.fields.model === legacyPlayer.model && (await db.prepare("SELECT fields FROM screen_hardware_sections WHERE screen_id=? AND section='ledDisplay'").bind(screen.id).first()).fields.assetId === retainedHardware.assetId, "LCD and media player details reload while existing LED data is retained");
+  check((await hardwareWrite(retainedHardware, clearedLed.version)).status === 400, "LCD screens still reject LED display writes");
+  const lcdPlayerSave = await playerWrite(playerFields, clearedPlayer.version);
+  const lcdPlayer = (await lcdPlayerSave.json()).record;
+  check(lcdPlayerSave.ok && lcdPlayer.fields.connectivity === "LAN" && lcdPlayer.fields.labelled === "No", "LCD media player details can be edited");
+  check((await playerWrite(legacyPlayer, clearedPlayer.version)).status === 409, "LCD media player stale edits are rejected");
+  check((await playerWrite({ ...playerFields, connectivity: "invalid" }, lcdPlayer.version)).status === 400, "LCD media player validation remains enforced");
   for (const change of [{ tv_size: "-1" }, { tv_size: "55 inches" }, { tv_size: 55 }, { manufactured_by: "x".repeat(201) }]) check((await lcdWrite({ ...lcdFields, ...change }, savedLcd.version)).status === 400, "invalid LCD values are rejected: " + JSON.stringify(change));
   check((await lcdWrite(lcdFields, null)).status === 409, "stale LCD creation cannot replace saved details");
   const lcdZeroSave = await lcdWrite({ ...lcdFields, tv_size: "0" }, savedLcd.version);
@@ -261,8 +266,14 @@ try {
   const savedWall = (await wallSave.json()).record;
   check(wallSave.status === 200 && savedWall.fields.resolution === "1920 × 1080" && Object.entries(wallFields).filter(([key]) => key !== "resolution").every(([key, value]) => savedWall.fields[key] === value), "all nine Video Wall fields save with per-display resolution");
   const wallReload = await (await request("/api/screen-hardware?screenId=" + screen.id, undefined, admin.cookie)).json();
-  check(wallReload.sections.video_wall.fields.total_width_mm === "3650.25" && wallReload.sections.video_wall.fields.resolution === "1920 × 1080" && Object.keys(wallReload.sections).length === 1, "Video Wall fields reload without exposing other hardware sections");
+  check(wallReload.sections.video_wall.fields.total_width_mm === "3650.25" && wallReload.sections.video_wall.fields.resolution === "1920 × 1080" && Object.keys(wallReload.sections).length === 2 && wallReload.sections.mediaPlayer.fields.connectivity === "LAN", "Video Wall and media player fields reload without exposing unrelated sections");
   check((await lcdWrite(lcdFields, zeroLcd.version)).status === 400 && (await hardwareWrite(retainedHardware, clearedLed.version)).status === 400, "Video Wall screens reject LCD and LED writes");
+  const wallPlayerSave = await playerWrite({ ...playerFields, connectivity: "Wi-Fi", model: "Wall player" }, lcdPlayer.version);
+  const wallPlayer = (await wallPlayerSave.json()).record;
+  check(wallPlayerSave.ok && wallPlayer.fields.model === "Wall player", "Video Wall media player details can be edited");
+  check((await playerWrite(playerFields, lcdPlayer.version)).status === 409, "Video Wall media player stale edits are rejected");
+  const wallPlayerReload = await (await request("/api/screen-hardware?screenId=" + screen.id, undefined, admin.cookie)).json();
+  check(wallPlayerReload.sections.mediaPlayer.fields.connectivity === "Wi-Fi" && wallPlayerReload.sections.video_wall.fields.display_qty === "6", "Video Wall media player reload preserves display details");
   for (const change of [{ display_qty: "-1" }, { screen_size: "NaN" }, { total_width_mm: "1e3" }, { total_height_mm: -1 }, { resolution: "0x1080" }, { resolution: "1920x1080x2" }, { layout: "x".repeat(201) }]) check((await wallWrite({ ...wallFields, ...change }, savedWall.version)).status === 400, "invalid Video Wall value rejected: " + Object.keys(change)[0]);
   check((await wallWrite(wallFields, null)).status === 409, "stale Video Wall creation cannot overwrite existing details");
   const wallEdit = await wallWrite({ ...wallFields, display_qty: "0", screen_size: "0.5", total_width_mm: "0", total_height_mm: "1370.5", layout: "Custom arrangement" }, savedWall.version);

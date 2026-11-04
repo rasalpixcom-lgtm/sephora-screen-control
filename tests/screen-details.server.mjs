@@ -38,6 +38,11 @@ try{
  fs.writeFileSync(path.join(screenDir,front+'.webp'),photo);fs.writeFileSync(path.join(screenDir,serial+'.webp'),photo);fs.writeFileSync(path.join(locationDir,locPhoto+'.webp'),photo);
  await pool.query('UPDATE entities SET photo_key=$1 WHERE id=$2',[front,ids.LED]);
  for(const [category,key] of [['serial',serial],['back_cabling',missing]])await pool.query('INSERT INTO screen_reference_photos(screen_id,category,photo_key) VALUES($1,$2,$3)',[ids.LED,category,key]);
+ for(const type of ['LCD','Video Wall']) {
+  const playerKey=crypto.randomUUID(); fs.writeFileSync(path.join(screenDir,playerKey+'.webp'),photo);
+  await pool.query('INSERT INTO screen_reference_photos(screen_id,category,photo_key) VALUES($1,$2,$3)',[ids[type],'media_player',playerKey]);
+  await pool.query('INSERT INTO screen_hardware_sections(screen_id,section,fields,version,updated_at) VALUES($1,$2,$3,$4,now())',[ids[type],'mediaPlayer',{model:type+' shared player',cmsSoftware:'Onsign'},crypto.randomUUID()]);
+ }
  await pool.query('INSERT INTO location_photos(id,location_id,position,label) VALUES($1,$2,0,$3)',[locPhoto,ids.location,'Store entrance reference']);
  await pool.query('INSERT INTO location_details(location_id,fields,version) VALUES($1,$2,$3)',[ids.location,{address:'Unit 42',contact_name:'Example contact',access_notes:'Use the service entrance.'},crypto.randomUUID()]);
  for(const [key,section,fields] of [['LED','ledDisplay',{manufacturer:'LEDManufacturer',resolution:'2000 x 800',width_mm:'5100',height_mm:'2100'}],['LED','lcd',{tv_model:'INACTIVE-HARDWARE-DO-NOT-EXPORT'}],['LCD','lcd',{tv_model:'LCDModel32',tv_size:'32'}],['Video Wall','video_wall',{display_qty:'25',total_width_mm:'6500'}]])await pool.query('INSERT INTO screen_hardware_sections(screen_id,section,fields,version,updated_at) VALUES($1,$2,$3,$4,now())',[ids[key],section,fields,crypto.randomUUID()]);
@@ -65,6 +70,10 @@ assert 'Store entrance reference' not in a and 'Store entrance reference' in b
 assert 'INACTIVE-HARDWARE-DO-NOT-EXPORT' not in a
 assert 'LCDModel32' in c and 'LED display' not in c
 assert '6500' in d and 'LCD TV' not in d
+for content,own,model in [(c,'LCD TV','LCD shared player'),(d,'Video Wall','Video Wall shared player')]:
+ assert content.index(own) < content.index('Media player') < content.index('PPM inspection')
+ assert model in content and 'Screen photos (1)' in content
+ assert 'Media player' in content.split('Screen photos (1)',1)[1],content
 assert 'Not specified' in e and 'Location not recorded' in e
 print('PASS exported saved hardware, PPM, location, photo categories and optional location photos match the database')
 `,root],{stdio:'inherit'});

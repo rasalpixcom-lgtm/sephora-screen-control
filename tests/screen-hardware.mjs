@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { manualLedSize, displayHardwareFields, hardwareFieldOptions, hardwareSectionIds, hardwareSectionsForType, hardwareSections, isHardwareSection, parseHardwareFields } from "../lib/screen-hardware.ts";
 
+import { photoCategoriesForScreen } from "../lib/screen-gallery-shared.ts";
+for (const [type, count] of [["LED", 8], ["LCD", 5], ["Video Wall", 6], [null, 3]]) {
+  const categories = photoCategoriesForScreen(type);
+  assert.equal(categories.length, count);
+  assert.equal(categories.some(category => category.id === "media_player"), type !== null);
+}
 assert.deepEqual(hardwareSectionIds, ["ledDisplay", "ledController", "mediaPlayer", "lcd", "video_wall", "powerNetwork"]);
 assert.deepEqual(hardwareSectionsForType("LED"), ["ledDisplay", "ledController", "mediaPlayer", "powerNetwork"]);
-assert.deepEqual(hardwareSectionsForType("LCD"), ["lcd"]);
-assert.deepEqual(hardwareSectionsForType("Video Wall"), ["video_wall"]);
+assert.deepEqual(hardwareSectionsForType("LCD"), ["lcd", "mediaPlayer"]);
+assert.deepEqual(hardwareSectionsForType("Video Wall"), ["video_wall", "mediaPlayer"]);
 assert.deepEqual(hardwareSectionsForType(null), []);
 assert.deepEqual(hardwareSectionsForType("unknown"), []);
 for (const section of hardwareSectionIds) {

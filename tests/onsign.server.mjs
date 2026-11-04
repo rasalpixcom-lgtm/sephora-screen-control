@@ -142,7 +142,14 @@ try {
   check((await galleryChange("sending_card", null)).status === 409 && fs.readdirSync(photoDirectory).length === beforeLedConflict, "LED photo conflicts clean staged files");
   await pool.query("UPDATE entities SET screen_type = 'LCD' WHERE id = $1", [photoOnly.id]);
   const lcdGallery = await (await request(galleryBase, undefined, cookie)).json();
-  check(Object.keys(lcdGallery.photos).length === 4 && lcdGallery.photos.connection_diagram === null && (await request(galleryBase + `&category=back_cabling&v=${ledKeys[0]}`, undefined, cookie)).status === 400, "LCD gallery exposes four categories and blocks LED-only image access");
+  check(Object.keys(lcdGallery.photos).length === 5 && lcdGallery.photos.media_player === ledKeys[3] && lcdGallery.photos.connection_diagram === null && (await request(galleryBase + `&category=back_cabling&v=${ledKeys[0]}`, undefined, cookie)).status === 400, "LCD gallery exposes five categories including the saved media player and blocks LED-only image access");
+  check((await request(galleryBase + `&category=media_player&v=${ledKeys[3]}&size=full`, undefined, cookie)).ok, "LCD media player photo opens full-size");
+  const lcdPlayerPhoto = await galleryChange("media_player", ledKeys[3]), lcdPlayerKey = (await lcdPlayerPhoto.json()).key;
+  check(lcdPlayerPhoto.ok && !fs.existsSync(path.join(photoDirectory, ledKeys[3] + ".webp")), "LCD media player replacement cleans previous files");
+  check((await galleryChange("media_player", ledKeys[3])).status === 409, "LCD media player photo rejects stale edits");
+  check((await galleryChange("media_player", lcdPlayerKey, "remove")).ok, "LCD optional media player photo can be removed");
+  const lcdPlayerNew = await galleryChange("media_player", null); ledKeys[3] = (await lcdPlayerNew.json()).key;
+  check(lcdPlayerNew.ok && ledKeys[3], "LCD media player photo can be added again");
   const connectionResponse = await galleryChange("connection_diagram", null), connectionKey = (await connectionResponse.json()).key;
   check(connectionResponse.ok && (await request(galleryBase + `&category=connection_diagram&v=${connectionKey}&size=full`, undefined, cookie)).ok, "LCD connection diagram uploads and opens full-size");
   check((await galleryChange("connection_diagram", null)).status === 409, "LCD diagram rejects stale changes");
@@ -153,9 +160,9 @@ try {
   check((await galleryChange("power_network", ledKeys[4])).status === 400, "screen-type changes block stale LED uploads");
   await pool.query("UPDATE entities SET screen_type = 'Video Wall' WHERE id = $1", [photoOnly.id]);
   const wallGallery = await (await request(galleryBase, undefined, cookie)).json();
-  check(Object.keys(wallGallery.photos).length === 5 && wallGallery.photos.back_cabling === ledKeys[0] && wallGallery.photos.looping_diagram === ledKeys[1], "Video Wall exposes five categories and preserves shared cabling and loop photos");
+  check(Object.keys(wallGallery.photos).length === 6 && wallGallery.photos.media_player === ledKeys[3] && wallGallery.photos.back_cabling === ledKeys[0] && wallGallery.photos.looping_diagram === ledKeys[1], "Video Wall exposes six categories and preserves shared cabling and loop photos");
   check((await request(galleryBase + `&category=connection_diagram&v=${retainedConnection}`, undefined, cookie)).status === 400 && (await galleryChange("connection_diagram", retainedConnection)).status === 400, "Video Wall blocks LCD-only photo reads and writes");
-  for (const [category, index] of [["back_cabling", 0], ["looping_diagram", 1]]) {
+  for (const [category, index] of [["back_cabling", 0], ["looping_diagram", 1], ["media_player", 3]]) {
     const wallResponse = await galleryChange(category, ledKeys[index]), wallKey = (await wallResponse.json()).key;
     check(wallResponse.ok && (await request(galleryBase + `&category=${category}&v=${wallKey}&size=full`, undefined, cookie)).ok && !fs.existsSync(path.join(photoDirectory, ledKeys[index] + ".webp")), `Video Wall ${category} replaces and opens full-size`);
     ledKeys[index] = wallKey;

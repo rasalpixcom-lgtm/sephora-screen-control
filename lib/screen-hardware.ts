@@ -75,8 +75,8 @@ export type HardwareRecord = { fields: HardwareFields; version: string | null; u
 export const hardwareSectionIds = Object.keys(hardwareSections) as HardwareSection[];
 export function hardwareSectionsForType(screenType: string | null): HardwareSection[] {
   if (screenType === "LED") return ["ledDisplay", "ledController", "mediaPlayer", "powerNetwork"];
-  if (screenType === "LCD") return ["lcd"];
-  if (screenType === "Video Wall") return ["video_wall"];
+  if (screenType === "LCD") return ["lcd", "mediaPlayer"];
+  if (screenType === "Video Wall") return ["video_wall", "mediaPlayer"];
   return [];
 }
 export function isHardwareSection(value: unknown): value is HardwareSection {

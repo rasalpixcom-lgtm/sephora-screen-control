@@ -87,6 +87,18 @@ try {
     const typePreview = await getPreview(typeCopy);
     check((await call(route, saveBody(typePreview, typeCopy), cookie, "PUT")).status === 503 && (await record("lcd")).tv_model === "QM32R" && (await pool.query("SELECT screen_type FROM entities WHERE id=$1", [screenId])).rows[0].screen_type === "Video Wall", "a failed import also rolls back screen type and hidden hardware changes");
   } finally { await pool.query("DROP TRIGGER survey_test_fail ON screen_ppm_inspections"); await pool.query("DROP FUNCTION survey_test_fail()"); }
+  const commonPlayer = 'MEDIA PLAYER\nMedia player model: Shared player\nConnectivity type: Wi-Fi\nInstallation date: 2026-11-01\nInstalled by: Pixcom\nMedia player labelled: No\nAsset ID: PLAYER-42\nSerial number: SERIAL-42\nCPU / RAM / SSD: i5 / 16 GB / 256 GB\nMAC address: C8-21-58-C5-02-51\nIP address: 192.168.0.113\nCMS software: Onsign\nCMS device ID: DEVICE-42\n\n';
+  for (const [copy, section, type] of [[lcd, "lcd", "LCD"], [wall, "video_wall", "Video Wall"]]) {
+    const playerCopy = copy.replace("PPM INSPECTION", commonPlayer.replace("Shared player", type + " player") + "PPM INSPECTION");
+    const playerPreview = await getPreview(playerCopy);
+    const selected = playerPreview.rows.filter(row => row.section === "mediaPlayer").map(row => row.id);
+    check(selected.length > 0 && (await call(route, saveBody(playerPreview, playerCopy, selected), cookie, "PUT")).ok, type + " accepts media player text import");
+    const fields = await record("mediaPlayer");
+    check(Object.keys(fields).length === 12 && fields.model === type + " player" && fields.cmsDeviceId === "DEVICE-42" && fields.labelled === "No", type + " persists all twelve media player fields");
+    check((await record("ledDisplay")).manufacturer === "New manufacturer" && (await record(section)) !== undefined, type + " player import preserves other hardware");
+    const oldPreview = await getPreview(copy);
+    check((await call(route, saveBody(oldPreview, copy), cookie, "PUT")).ok && (await record("mediaPlayer")).model === type + " player", type + " older surveys without media player preserve saved player data");
+  }
   const missing = await getPreview(rollbackCopy);
   await pool.query("DELETE FROM entities WHERE id=$1", [screenId]);
   check((await call(route, saveBody(missing, rollbackCopy), cookie, "PUT")).status === 404, "deleted screen cannot receive a stale import");

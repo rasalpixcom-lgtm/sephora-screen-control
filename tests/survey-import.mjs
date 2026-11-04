@@ -26,6 +26,16 @@ assert.equal(led.ppm.correctiveAction, undefined);
 assert.ok(led.skipped > 20);
 assert.deepEqual(lcd.hardware, { lcd: { tv_model: "QM32R", tv_size: "32", manufactured_by: "Samsung", installed_by: "Sephora" } });
 assert.equal(lcd.ppm.led_modules, undefined);
+const commonPlayer = 'MEDIA PLAYER\nMedia player model: Shared player\nConnectivity type: Wi-Fi\nInstallation date: 2026-11-01\nInstalled by: Pixcom\nMedia player labelled: No\nAsset ID: PLAYER-42\nSerial number: SERIAL-42\nCPU / RAM / SSD: i5 / 16 GB / 256 GB\nMAC address: C8-21-58-C5-02-51\nIP address: 192.168.0.113\nCMS software: Onsign\nCMS device ID: DEVICE-42\n\n';
+for (const [copy, section] of [[lcdText, "lcd"], [wallText, "video_wall"]]) {
+  const parsed = parseSurveyText(copy.replace("PPM INSPECTION", commonPlayer + "PPM INSPECTION"));
+  assert.deepEqual(Object.keys(parsed.hardware), [section, "mediaPlayer"]);
+  assert.equal(Object.keys(parsed.hardware.mediaPlayer).length, 12);
+  assert.equal(parsed.hardware.mediaPlayer.cmsDeviceId, "DEVICE-42");
+  assert.equal(parsed.hardware.mediaPlayer.labelled, "No");
+  assert.equal(parsed.hardware.mediaPlayer.connectivity, "Wi-Fi");
+  assert.equal(parsed.ppm.ppmDate, "2026-11-01");
+}
 assert.equal(wall.hardware.video_wall.display_qty, "25");
 assert.equal(wall.hardware.video_wall.total_width_mm, "6500");
 assert.equal(wall.hardware.video_wall.resolution, undefined);
