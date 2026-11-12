@@ -23,3 +23,5 @@ export type OnSignSectionResult = {
 export function validOnSignPlayerId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\s\u0000-\u001f\u007f]/.test(value);
 }
+
+export type OnSignFilterPlayer = { id: string; isConnected: boolean | null; osVersion: string | null; ssids: string[] };

@@ -105,6 +105,25 @@ try {
  const longPdf=await request('/api/cms-support/pdf?id='+longId,undefined,cookie);assert.ok(longPdf.ok);fs.writeFileSync(path.join(root,'multipage.pdf'),Buffer.from(await longPdf.arrayBuffer()));check(true,'70-screen multipage PDF generated');
  for(let i=0;i<25;i++)await pool.query('INSERT INTO cms_updates(id,version,payload,updated_by) VALUES($1,$2,$3::jsonb,$4)',[crypto.randomUUID(),crypto.randomUUID(),JSON.stringify({...payload,contentName:'Paging '+i}),'fixture']);
  list=await(await request('/api/cms-support?page=2',undefined,cookie)).json();check(list.total===27&&list.updates.length===2,'list pagination bounded at 25 rows');
+ // Date status filters must run before pagination and include both boundary dates.
+ const gstToday=new Date(Date.now()+4*3600000).toISOString().slice(0,10);
+ const shiftDay=offset=>new Date(Date.parse(gstToday+'T00:00:00Z')+offset*86400000).toISOString().slice(0,10);
+ for(let i=0;i<30;i++) {
+  const dates=i<26?[shiftDay(1),shiftDay(2)]:i<28?[gstToday,gstToday]:[shiftDay(-2),shiftDay(-1)];
+  await pool.query('INSERT INTO cms_updates(id,version,payload,updated_by) VALUES($1,$2,$3::jsonb,$4)',[crypto.randomUUID(),crypto.randomUUID(),JSON.stringify({...payload,screens:record.payload.screens,contentName:'Period fixture '+i,playbackStart:dates[0],playbackEnd:dates[1]}),'fixture']);
+ }
+ for(const [status,total] of [['Upcoming',26],['Active',2],['Expired',2]]) {
+  const response=await request('/api/cms-support?search=Period+fixture&playbackStatus='+status,undefined,cookie);
+  const data=await response.json();
+  check(response.ok&&data.total===total&&data.updates.length===Math.min(total,25)&&data.updates.every(row=>row.playbackStatus===status),'date filter and returned status agree: '+status);
+ }
+ list=await(await request('/api/cms-support?search=Period+fixture&playbackStatus=Upcoming&page=2',undefined,cookie)).json();
+ check(list.total===26&&list.updates.length===1&&list.updates[0].playbackStatus==='Upcoming','status pagination counts all matching rows');
+ list=await(await request('/api/cms-support?search=Period+fixture&playbackStatus=Active&country=UAE&status=Scheduled&start='+gstToday+'&end='+gstToday,undefined,cookie)).json();
+ check(list.total===2&&list.updates.every(row=>row.playbackStart===gstToday&&row.playbackEnd===gstToday),'same-day start and end are active with combined existing filters');
+ list=await(await request('/api/cms-support?search=Period+fixture&playbackStatus=',undefined,cookie)).json();
+ check(list.total===30,'clearing playback status restores every period');
+ check((await request('/api/cms-support?playbackStatus=Running',undefined,cookie)).status===400,'invalid playback period status rejected');
  const uiRecord=await request('/api/cms-support',{action:'create',payload:{...payload,contentName:'Browser campaign',screens:[payload.screens[1]]}},cookie);assert.ok(uiRecord.ok);
  await pool.query('ALTER TABLE cms_reports RENAME TO cms_reports_fixture');try{check((await request('/api/health')).status===503,'health detects missing CMS migration')}finally{await pool.query('ALTER TABLE cms_reports_fixture RENAME TO cms_reports')}
  check((await request('/api/health')).ok,'health recovers with CMS tables');

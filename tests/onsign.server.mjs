@@ -59,6 +59,15 @@ try {
   }
   const country = await create("country", "Test country"), region = await create("region", "Test region", country.id), location = await create("store", "Test location", region.id);
   const screen = await create("screen", "Dubai Screen", location.id, { onsignPlayerId: "player-1", liveUrl: "https://example.test/preview" });
+  check((await request("/api/onsign?view=filters")).status===401,"OnSign filter snapshot requires authentication");
+  check((await request("/api/onsign?view=invalid",undefined,cookie)).status===400,"invalid OnSign list view rejected");
+  const filterResponse=await request("/api/onsign?view=filters",undefined,cookie), filterData=await filterResponse.json();
+  check(filterResponse.ok&&filterData.players.length===1&&filterData.players[0].id==='player-1'&&filterData.players[0].ssids.includes('DSI'),"filter snapshot includes only linked inventory players across upstream pages");
+  check(filterResponse.headers.get('cache-control')==='no-store'&&!JSON.stringify(filterData).includes('Private network'),"filter snapshot is private and excludes unrelated player networks");
+  const filteredInventory=await request('/api/reports/screens/pdf?os='+encodeURIComponent('v:Windows 10 x86_64')+'&ssid=v:DSI&connectivity=v:Connected',undefined,cookie);
+  check(filteredInventory.ok&&filteredInventory.headers.get('content-type')==='application/pdf',"screen PDF accepts combined OnSign filters");
+  check((await request('/api/reports/screens/pdf?connectivity=v:Invalid',undefined,cookie)).status===400,"screen PDF rejects invalid OnSign filter values");
+  fs.writeFileSync(path.resolve(".server-runtime/onsign-filtered-inventory.pdf"), Buffer.from(await filteredInventory.arrayBuffer()));
   const photoBytes = await sharp({ create: { width: 1600, height: 1000, channels: 3, background: "#d9e9e4" } }).composite([{ input: Buffer.from('<svg width="1600" height="1000"><rect x="480" y="180" width="640" height="520" rx="18" fill="#172823"/><rect x="505" y="205" width="590" height="470" fill="#2b8c71"/><text x="800" y="430" text-anchor="middle" fill="white" font-size="52" font-family="Arial">SCREEN PHOTO</text><text x="800" y="510" text-anchor="middle" fill="white" font-size="30" font-family="Arial">TEST FIXTURE</text><rect x="775" y="700" width="50" height="100" fill="#172823"/><rect x="650" y="800" width="300" height="25" fill="#172823"/></svg>') }]).png().withMetadata({ orientation: 6 }).toBuffer();
   fs.mkdirSync(photoDirectory, { recursive: true });
   const fixturePhoto = path.join(photoDirectory, "upload-fixture.png"); fs.writeFileSync(fixturePhoto, photoBytes);
@@ -264,6 +273,7 @@ try {
   const controllerLogin = await request("/api/auth/sign-in/email", { email: "onsign-controller@example.test", password });
   assert.ok(controllerLogin.ok, "controller fixture can sign in");
   const controllerCookie = controllerLogin.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+  check((await request("/api/onsign?view=filters",undefined,controllerCookie)).status===403,"controller cannot read OnSign filter snapshots");
   check((await fetch(origin + detailsPage, { headers: { Cookie: controllerCookie }, redirect: "manual" })).status === 307, "Controller accounts cannot open Admin details pages");
   check((await section("extended", "", controllerCookie)).status === 403 && (await section("content", "", controllerCookie)).status === 403, "Controller accounts cannot read expanded information or content");
   check((await request(photoUrl(), undefined, controllerCookie)).status === 403 && (await upload({ ...photoUpdate, photoExpectedKey: key }, photoBytes, "image/png", controllerCookie)).status === 403, "Controller accounts cannot view or upload private screen photos");

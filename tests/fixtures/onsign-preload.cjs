@@ -13,6 +13,10 @@ globalThis.fetch = async (url, options) => {
     pageInfo: { hasNextPage: !variables.after, endCursor: variables.after ? "last-org" : "next-org" },
   } } });
   if (!query.includes("organizations(first: 1, ids: [$organizationId])") || variables.organizationId !== "sephora-org") throw new Error("Test request must explicitly select Sephora");
+  if (query.includes("query PlayerFilters")) return Response.json({ data: { organizations: { nodes: [{ id: "sephora-org", players: {
+    nodes: variables.after ? [{ id: "player-2", isConnected: false, osVersion: "Windows 11 x86_64", network: [{ ssid: "DSI" }] }] : [{ id: "player-1", isConnected: true, osVersion: "Windows 10 x86_64", network: [{ ssid: "DSI" }, { ssid: "Guest" }] }, { id: "not-linked-player", isConnected: true, osVersion: "Other OS", network: [{ ssid: "Private network" }] }],
+    pageInfo: { hasNextPage: !variables.after, endCursor: variables.after ? "last-filter" : "next-filter" },
+  } }] } } });
   if (query.includes("query Players")) return Response.json({ data: { organizations: { nodes: [{ id: "sephora-org", players: {
     nodes: variables.after ? [{ id: "player-2", name: "Abu Dhabi Player" }] : [{ id: "player-1", name: "Dubai Player" }, ...longPlayers],
     pageInfo: { hasNextPage: !variables.after, endCursor: variables.after ? "last" : "next" },

@@ -4,6 +4,7 @@ import { database } from "@/lib/database";
 import { cmsId, parseCmsPayload, type CmsPayload } from "@/lib/cms-support";
 import { RequestError, requestFailure } from "@/lib/request";
 import { normalizePrivatePhoto } from "@/lib/screen-photo";
+import { cmsPlaybackDay, cmsPlaybackStatuses } from "@/lib/cms-playback-status";
 import { renderCmsPdf } from "@/lib/cms-pdf";
 
 export const runtime = "nodejs";
@@ -55,12 +56,14 @@ export async function GET(request: NextRequest) {
       return reply({ record: { ...record, hasImage: Boolean(image), reports: reports.results } });
     }
     const search = params.get("search") || "", country = params.get("country") || "", location = params.get("location") || "", status = params.get("status") || "", start = params.get("start") || "", end = params.get("end") || "";
+    const playbackStatus = params.get("playbackStatus") || "", today = cmsPlaybackDay();
+    const periodStatus = "CASE WHEN payload->>'playbackStart' > ? THEN 'Upcoming' WHEN payload->>'playbackEnd' < ? THEN 'Expired' ELSE 'Active' END";
     const page = Number(params.get("page") || 1);
-    if (search.length > 160 || country.length > 200 || location.length > 200 || !["", "Scheduled", "Pending", "Failed", "Not required"].includes(status) || !Number.isInteger(page) || page < 1 || page > 100000 || [start, end].some(day => day && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day)) || (start && end && start > end)) throw new RequestError("Invalid content filters.");
-    const where = " WHERE (strpos(lower(concat(payload->>'contentName',' ',payload->>'campaignName',' ',payload->>'category')), lower(?)) > 0) AND EXISTS (SELECT 1 FROM jsonb_array_elements(payload->'screens') AS s WHERE (? = '' OR s->>'country' = ?) AND (? = '' OR s->>'location' = ?) AND (? = '' OR s->>'scheduling' = ?)) AND (? = '' OR payload->>'playbackEnd' >= ?) AND (? = '' OR payload->>'playbackStart' <= ?)";
-    const values = [search, country, country, location, location, status, status, start, start, end, end];
+    if ((playbackStatus !== "" && !cmsPlaybackStatuses.some(value => value === playbackStatus)) || search.length > 160 || country.length > 200 || location.length > 200 || !["", "Scheduled", "Pending", "Failed", "Not required"].includes(status) || !Number.isInteger(page) || page < 1 || page > 100000 || [start, end].some(day => day && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day)) || (start && end && start > end)) throw new RequestError("Invalid content filters.");
+    const where = " WHERE (strpos(lower(concat(payload->>'contentName',' ',payload->>'campaignName',' ',payload->>'category')), lower(?)) > 0) AND EXISTS (SELECT 1 FROM jsonb_array_elements(payload->'screens') AS s WHERE (? = '' OR s->>'country' = ?) AND (? = '' OR s->>'location' = ?) AND (? = '' OR s->>'scheduling' = ?)) AND (? = '' OR payload->>'playbackEnd' >= ?) AND (? = '' OR payload->>'playbackStart' <= ?)" + ` AND (? = '' OR (${periodStatus}) = ?)`;
+    const values = [search, country, country, location, location, status, status, start, start, end, end, playbackStatus, today, today, playbackStatus];
     const count = await db.prepare("SELECT count(*)::int AS total FROM cms_updates" + where).bind(...values).first<{ total: number }>();
-    const list = await db.prepare(`SELECT id, version, payload->>'contentName' AS "contentName", payload->>'campaignName' AS "campaignName", payload->>'category' AS category, payload->>'playbackStart' AS "playbackStart", payload->>'playbackEnd' AS "playbackEnd", jsonb_array_length(payload->'screens') AS screens, (SELECT count(*)::int FROM jsonb_array_elements(payload->'screens') AS s WHERE s->>'scheduling' = 'Scheduled') AS scheduled, updated_at AS "updatedAt", (SELECT count(*)::int FROM cms_reports WHERE update_id = cms_updates.id) AS reports FROM cms_updates` + where + " ORDER BY updated_at DESC, id LIMIT 25 OFFSET ?").bind(...values, (page - 1) * 25).all();
+    const list = await db.prepare(`SELECT id, version, ${periodStatus} AS "playbackStatus", payload->>'contentName' AS "contentName", payload->>'campaignName' AS "campaignName", payload->>'category' AS category, payload->>'playbackStart' AS "playbackStart", payload->>'playbackEnd' AS "playbackEnd", jsonb_array_length(payload->'screens') AS screens, (SELECT count(*)::int FROM jsonb_array_elements(payload->'screens') AS s WHERE s->>'scheduling' = 'Scheduled') AS scheduled, updated_at AS "updatedAt", (SELECT count(*)::int FROM cms_reports WHERE update_id = cms_updates.id) AS reports FROM cms_updates` + where + " ORDER BY updated_at DESC, id LIMIT 25 OFFSET ?").bind(today, today, ...values, (page - 1) * 25).all();
     const countries = await db.prepare("SELECT DISTINCT s->>'country' AS name FROM cms_updates, jsonb_array_elements(payload->'screens') AS s ORDER BY name").all();
     const locations = await db.prepare("SELECT DISTINCT s->>'location' AS name FROM cms_updates, jsonb_array_elements(payload->'screens') AS s WHERE (? = '' OR s->>'country' = ?) ORDER BY name").bind(country, country).all();
     return reply({ updates: list.results, total: count?.total || 0, countries: countries.results.map(row => row.name), locations: locations.results.map(row => row.name) });

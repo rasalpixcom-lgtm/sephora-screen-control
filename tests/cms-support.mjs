@@ -1,3 +1,4 @@
+import { cmsPlaybackDay, cmsPlaybackStatuses } from "../lib/cms-playback-status.ts";
 import assert from 'node:assert/strict';
 import { cmsAdditionalScreens, cmsScreenOptions, cmsResultScreens, cmsVisibleMarkedIds } from '../lib/cms-screen-selection.ts';
 import { cmsEmptyDetails, cmsImageMime, cmsVideoUrl, parseCmsPayload, cmsScreenLimit } from '../lib/cms-support.ts';
@@ -72,4 +73,12 @@ check(statusRows.length===2 && statusRows[0].remarks==='Keep draft');
 check(parseCmsResultFilters(new URLSearchParams('search=+Cash+&network=Offline')).search==='Cash');
 check(cmsResultFilterDescription({...resultFilters,network:'Offline'})==='Network: Offline');
 for(const query of ['network=unknown','scheduling=Verified','playback=Online','search='+ 'x'.repeat(201),'search=a%0Ab']) { assert.throws(()=>parseCmsResultFilters(new URLSearchParams(query))); checks++; }
+check(cmsPlaybackStatuses.join(',')==='Upcoming,Active,Expired');
+for(const [utc,day] of [
+ ['2026-11-10T19:59:59.999Z','2026-11-10'],
+ ['2026-11-10T20:00:00.000Z','2026-11-11'],
+ ['2026-12-31T20:00:00.000Z','2027-01-01'],
+ ['2028-02-28T20:00:00.000Z','2028-02-29'],
+ ['2028-02-29T20:00:00.000Z','2028-03-01']
+]) check(cmsPlaybackDay(new Date(utc))===day);
 console.log(checks+' CMS validation and screen selection checks passed.');

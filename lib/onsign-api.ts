@@ -161,6 +161,31 @@ export function createOnSignClient(environment: { token: () => string | undefine
         throw new OnSignApiError("The OnSign player list is too large. Contact your administrator.");
       });
     },
+    filterValues: async () => {
+      const scope = context();
+      return cached(scope, "filter-values", 60000, async () => {
+        const organizationId = await organization(scope);
+        const players = new Map<string, import("./onsign-api-shared").OnSignFilterPlayer>();
+        const cursors = new Set<string>(), signal = AbortSignal.timeout(10000);
+        let after: string | null = null;
+        for (let page = 0; page < 100; page++) {
+          const root = await query(`query PlayerFilters($organizationId: ID!, $after: String) { organizations(first: 1, ids: [$organizationId]) { nodes { id players(first: 100, after: $after) { nodes { id isConnected osVersion network { ssid } } pageInfo { hasNextPage endCursor } } } } }`, { organizationId, after }, scope.credential, signal);
+          const list = object(scopedOrganization(root, organizationId).players), info = object(list.pageInfo);
+          if (!Array.isArray(list.nodes) || typeof info.hasNextPage !== "boolean") throw unavailable();
+          for (const value of list.nodes) {
+            const item = object(value);
+            if (!validOnSignPlayerId(item.id)) throw unavailable();
+            const ssids = Array.isArray(item.network) ? item.network.map(value => text(object(value).ssid)?.trim()).filter((value): value is string => Boolean(value)) : [];
+            players.set(item.id, { id: item.id, isConnected: boolean(item.isConnected), osVersion: text(item.osVersion)?.trim() || null, ssids: [...new Set(ssids)] });
+          }
+          if (!info.hasNextPage) return { players: [...players.values()], fetchedAt: new Date(environment.now()).toISOString() };
+          const cursor = text(info.endCursor);
+          if (!cursor || cursors.has(cursor)) throw unavailable();
+          cursors.add(cursor); after = cursor;
+        }
+        throw new OnSignApiError("The OnSign player list is too large. Contact your administrator.");
+      });
+    },
     details: async (id: string): Promise<OnSignDetails> => {
       if (!validOnSignPlayerId(id)) throw new OnSignApiError("Choose a valid OnSign player.", 400);
       const scope = context();

@@ -36,6 +36,16 @@ check(pages.calls.every(call => call.variables.organizationId === "sephora-org")
 check(pages.organizationCalls.length === 1, "organization lookup is reused across player pages");
 await pages.client.list(); check(pages.calls.length === 2, "player list is cached for five minutes");
 pages.advance(300001); await pages.client.list(); check(pages.calls.length === 4, "expired list is refreshed");
+const filterPages = harness(({ variables }) => ok({players:{nodes:variables.after ? [{id:"two",isConnected:false,osVersion:null,network:[]}] : [{id:"one",isConnected:true,osVersion:" Windows 10 x86_64 ",network:[{ssid:" DSI "},{ssid:"DSI"},{ssid:null}]}],pageInfo:{hasNextPage:!variables.after,endCursor:variables.after?"last":"next"}}}));
+const filterSnapshot=await filterPages.client.filterValues();
+check(filterSnapshot.players.length===2&&filterSnapshot.players[0].ssids.join(',')==='DSI'&&filterSnapshot.players[0].osVersion==='Windows 10 x86_64','filter snapshot paginates and normalizes OS and SSID');
+check(filterSnapshot.players[1].isConnected===false&&filterSnapshot.players[1].osVersion===null,'filter snapshot preserves disconnected and missing information');
+await filterPages.client.filterValues();check(filterPages.calls.length===2,'filter snapshot cache avoids per-screen requests');
+filterPages.advance(60001);await filterPages.client.filterValues();check(filterPages.calls.length===4,'filter snapshot expires after one minute');
+const filterLoop=harness(()=>ok({players:{nodes:[],pageInfo:{hasNextPage:true,endCursor:'repeat'}}}));
+await rejects(()=>filterLoop.client.filterValues(),503,'filter pagination loops rejected');
+const partialFilters=harness(()=>Response.json({data:{organizations:{nodes:[{id:'sephora-org',players:{nodes:[],pageInfo:{hasNextPage:false}}}]}},errors:[{message:'private-token'}]}));
+await rejects(()=>partialFilters.client.filterValues(),503,'partial filter snapshot rejected without exposing upstream errors');
 const single = harness(() => ok({ player: fixture() }));
 const details = await single.client.details("player-1");
 check(details.player.isConnected === false && details.player.syncProgress === 0 && details.player.errorCount === 0, "false and zero values are preserved");

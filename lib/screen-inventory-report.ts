@@ -1,6 +1,7 @@
+import type { OnSignScreenFilters } from "./onsign-screen-filters";
 import type { Entity } from "@/lib/store";
 
-export type ScreenInventoryFilters = { countryId: string; regionId: string; storeId: string; search: string };
+export type ScreenInventoryFilters = { countryId: string; regionId: string; storeId: string; search: string } & Partial<OnSignScreenFilters>;
 
 export function screenReportDay(date: Date) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);

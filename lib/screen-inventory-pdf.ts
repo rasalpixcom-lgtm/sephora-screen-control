@@ -1,3 +1,4 @@
+import { onSignFilterLabels, onSignFilterValueLabel, type OnSignScreenFilterKey } from "./onsign-screen-filters";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -24,6 +25,9 @@ export async function renderScreenInventoryPdf(rows: Row[], filters: ScreenInven
   const width = columns.reduce((sum, value) => sum + value, 0);
   const active = [`Search: ${filters.search.trim()}`, `Country: ${filterNames.country || filters.countryId}`, `Region: ${filterNames.region || filters.regionId}`, `Location: ${filterNames.location || filters.storeId}`];
   const labels = [filters.search.trim() ? active[0] : "", filters.countryId ? active[1] : "", filters.regionId ? active[2] : "", filters.storeId ? active[3] : ""].filter(Boolean);
+  for (const key of Object.keys(onSignFilterLabels) as OnSignScreenFilterKey[]) {
+    if (filters[key]) labels.push(`${onSignFilterLabels[key]}: ${onSignFilterValueLabel(filters[key]!)}`);
+  }
   const filterSummary = labels.length ? labels.join("  |  ") : "All screens";
   const generated = generatedAt.toLocaleString("en-GB", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" });
   function header() {

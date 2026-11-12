@@ -12,6 +12,14 @@ export async function GET(request: Request) {
     if (!user) return Response.json({ error: "Sign in again." }, { status: 401, headers });
     if (user.role !== "admin") return Response.json({ error: "Admin access required." }, { status: 403, headers });
     const params = new URL(request.url).searchParams;
+    if (params.has("view")) {
+      if (params.get("view") !== "filters" || params.has("screenId") || params.has("section")) return Response.json({ error: "Choose valid OnSign filter options." }, { status: 400, headers });
+      const linked = await database().prepare("SELECT DISTINCT onsign_player_id AS id FROM entities WHERE type = 'screen' AND onsign_player_id IS NOT NULL AND onsign_player_id <> ''").all<{ id: string }>();
+      if (!onSignApi.configured()) return Response.json({ configured: false, players: [] }, { headers });
+      if (!linked.results.length) return Response.json({ configured: true, players: [], fetchedAt: new Date().toISOString() }, { headers });
+      const ids = new Set(linked.results.map(row => row.id)), data = await onSignApi.filterValues();
+      return Response.json({ configured: true, ...data, players: data.players.filter(player => ids.has(player.id)) }, { headers });
+    }
     const screenId = params.get("screenId"), section = params.get("section");
     if ((section !== null && (!screenId || !onSignSections.includes(section as OnSignSection)))
       || (params.has("loop") && !onSignLoops.includes(params.get("loop") as OnSignLoop))) return Response.json({ error: "Choose valid OnSign detail options." }, { status: 400, headers });
