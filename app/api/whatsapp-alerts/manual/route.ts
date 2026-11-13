@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { readObject, requestFailure } from "@/lib/request";
 import { WhatsAppServiceError, previewWhatsAppManual, queueWhatsAppSend } from "@/lib/whatsapp-alert-server";
@@ -12,11 +13,11 @@ async function admin(request:Request){
 function failure(error:unknown){
   return error instanceof WhatsAppServiceError?Response.json({error:error.message},{status:error.status,headers}):requestFailure(error);
 }
-export async function GET(request:Request){
+async function GETHandler(request:Request){
   try{const user=await admin(request);if(user instanceof Response)return user;return Response.json(await previewWhatsAppManual(),{headers});}
   catch(error){return failure(error);}
 }
-export async function POST(request:Request){
+async function POSTHandler(request:Request){
   if(!sameOrigin(request))return Response.json({error:"Invalid request origin."},{status:403,headers});
   try{
     const user=await admin(request);if(user instanceof Response)return user;
@@ -26,3 +27,7 @@ export async function POST(request:Request){
     return Response.json(result,{status:202,headers});
   }catch(error){return failure(error);}
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const POST = withWorkspace(POSTHandler);

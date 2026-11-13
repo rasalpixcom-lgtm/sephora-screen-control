@@ -1,10 +1,11 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { auth, currentUser, sameOrigin } from "@/lib/auth";
 import { readObject, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
-export async function GET() {
+async function GETHandler() {
   return Response.json({ error: "Not found" }, { status: 404 });
 }
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const path = new URL(request.url).pathname;
   if (!["/api/auth/sign-in/email", "/api/auth/sign-out", "/api/auth/change-password"].includes(path)) return Response.json({ error: "Not found" }, { status: 404 });
   if (!sameOrigin(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
@@ -20,3 +21,7 @@ export async function POST(request: Request) {
   return response;
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const POST = withWorkspace(POSTHandler);

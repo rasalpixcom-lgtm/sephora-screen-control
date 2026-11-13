@@ -3,11 +3,11 @@
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clientFetch } from "@/lib/client-fetch";
+import { clientFetch, workspaceRequestHeaders } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Download, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Download, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X, ArrowLeftRight } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -20,6 +20,7 @@ import type { Activity, Display, Entity, EntityType, LocationPhoto, Member } fro
 import { ThemeToggle } from "@/components/theme-toggle";
 
 import "./admin-dashboard.css";
+import ClientLogo from "@/components/client-logo";
 import SignOut from "@/components/sign-out";
 import UsersPanel from "@/components/users-panel";
 import ChangePassword from "@/components/change-password";
@@ -93,7 +94,7 @@ function parentNames(item: Entity, entities: Entity[]) {
 
 
 
-export default function AdminDashboard({ section, accountEmail, screenDetails }: { section: Section; accountEmail: string | null; screenDetails?: { screen: Entity; location: string } }) {
+export default function AdminDashboard({ section, accountEmail, screenDetails, clientId = "sephora", clientName = "Sephora", clientLogoKey }: { section: Section; accountEmail: string | null; clientId?: string; clientName?: string; clientLogoKey?:string|null; screenDetails?: { screen: Entity; location: string } }) {
 
   const [state, setState] = useState<State>(empty);
   const [usersRefreshKey, setUsersRefreshKey] = useState(0);
@@ -249,7 +250,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
     setDownloadingScreens(true); setScreenReportError("");
     try {
       const params = new URLSearchParams({ ...screenFilters, search, ...onSignFilters.filters });
-      const response = await fetch(`/api/reports/screens/pdf?${params}`, { cache: "no-store", signal: AbortSignal.timeout(60000) });
+      const response = await fetch(`/api/reports/screens/pdf?${params}`, { cache: "no-store", headers: workspaceRequestHeaders(`/api/reports/screens/pdf?${params}`), signal: AbortSignal.timeout(60000) });
       if (response.status === 401) { window.location.replace("/login?next=/admin/screens"); return; }
       if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.error || "Could not create the screens PDF."); }
       const url = URL.createObjectURL(await response.blob());
@@ -314,9 +315,9 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
 
 
-  return <SidebarProvider className="adm-shell" style={{ "--sidebar-width": "15rem" } as React.CSSProperties}>
+  return <SidebarProvider className="adm-shell" data-client-workspace={clientId} style={{ "--sidebar-width": "15rem" } as React.CSSProperties}>
 
-    <Sidebar collapsible="offcanvas" className="adm-sidebar"><SidebarHeader className="adm-sidebar-header"><Link href="/admin" className="adm-brand"><span className="adm-brand-icon"><Monitor size={23}/></span><span><strong>SEPHORA</strong><small>SCREEN CONTROL</small></span></Link></SidebarHeader><SidebarContent className="adm-sidebar-content"><SidebarGroup><SidebarGroupContent><SidebarMenu>{navigation.map(({ id, icon: Icon }) => <SidebarMenuItem key={id}><SidebarMenuButton asChild isActive={section === id} size="lg" className="adm-nav-button"><Link href={id === "dashboard" ? "/admin" : `/admin/${id}`}><Icon size={19}/><span>{sectionNames[id]}</span></Link></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup><div className="adm-sidebar-divider"/><div className="adm-sidebar-label">WORKSPACES</div><SidebarGroup><SidebarGroupContent><SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/controller"><ActivityIcon size={19}/><span>Wall controller</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/monitor"><Monitor size={19}/><span>Monitoring wall</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent><SidebarFooter className="adm-sidebar-footer"><div className="adm-account"><span className="adm-account-avatar">S</span><div><strong>Administrator</strong><small>{accountEmail || "Admin account"}</small></div><SignOut className="adm-signout"/></div></SidebarFooter></Sidebar>
+    <Sidebar collapsible="offcanvas" className="adm-sidebar"><SidebarHeader className="adm-sidebar-header"><Link href="/admin" className="adm-brand"><ClientLogo className="adm-brand-icon" clientId={clientId} version={clientLogoKey} fallback={<Monitor size={23}/>}/><span><strong>{clientName.toUpperCase()}</strong><small>SCREEN CONTROL</small></span></Link></SidebarHeader><SidebarContent className="adm-sidebar-content"><SidebarGroup><SidebarGroupContent><SidebarMenu>{navigation.map(({ id, icon: Icon }) => <SidebarMenuItem key={id}><SidebarMenuButton asChild isActive={section === id} size="lg" className="adm-nav-button"><Link href={id === "dashboard" ? "/admin" : `/admin/${id}`}><Icon size={19}/><span>{sectionNames[id]}</span></Link></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup><div className="adm-sidebar-divider"/><SidebarGroup><SidebarGroupContent><SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/workspaces"><ArrowLeftRight size={19}/><span>Switch client</span></Link></SidebarMenuButton></SidebarMenuItem><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/controller"><ActivityIcon size={19}/><span>Wall controller</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem><SidebarMenuItem><SidebarMenuButton asChild size="lg" className="adm-nav-button"><Link href="/monitor"><Monitor size={19}/><span>Monitoring wall</span><ArrowUpRight size={14} className="adm-nav-trailing"/></Link></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarGroupContent></SidebarGroup></SidebarContent><SidebarFooter className="adm-sidebar-footer"><div className="adm-account"><span className="adm-account-avatar">S</span><div><strong>Administrator</strong><small>{accountEmail || "Admin account"}</small></div><SignOut className="adm-signout"/></div></SidebarFooter></Sidebar>
 
     <SidebarInset className="adm-inset">
 
@@ -357,7 +358,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails }:
 
 
         {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}
-        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} whatsapp={<WhatsAppAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/><section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
+        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} whatsapp={<WhatsAppAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/><MonitorLinkPanel common refreshKey={usersRefreshKey}/><section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
 
       </>}
 

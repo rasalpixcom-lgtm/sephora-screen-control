@@ -1,16 +1,18 @@
+import { activeClientName } from "./client-workspace";
+import { clientIntegrations } from "./client-integrations";
 import { renderWhatsAppAlertPdf } from "./whatsapp-alert-pdf";
 import type { AlertMailRow } from "./alert-mail";
 export type WhatsAppMessage={kind:"unavailable"|"recovery"|"test"|"manual";recipient:string;rows:AlertMailRow[];generatedAt:Date;referenceId:string};
 export class WhatsAppSendError extends Error{constructor(public code:string,public uncertain=false){super(code);}}
-export function whatsAppSender(){
-  const instance=process.env.ULTRAMSG_INSTANCE_ID?.trim()||"";
-  return {configured:/^instance\d{1,20}$/.test(instance)&&!!process.env.ULTRAMSG_TOKEN?.trim(),instance:/^instance\d{1,20}$/.test(instance)?instance:null};
+export function whatsAppSender(credentials=clientIntegrations().whatsapp){
+  const instance=credentials?.instanceId?.trim()||"";
+  return {configured:/^instance\d{1,20}$/.test(instance)&&!!credentials?.token?.trim(),instance:/^instance\d{1,20}$/.test(instance)?instance:null};
 }
 const clean=(value:string)=>value.replace(/[\u0000-\u001f\u007f*_~`]/g," ").replace(/\s+/g," ").trim();
 const time=(value:string)=>new Date(value).toLocaleString("en-GB",{timeZone:"Asia/Dubai",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false});
 export function whatsAppMessageText(message:WhatsAppMessage){
   const title=message.kind==="test"?"WhatsApp alerts test":message.kind==="recovery"?"Previews recovered":message.kind==="manual"?"Current unavailable previews · Manual report":"Previews unavailable";
-  const header=`*Sephora Screen Control*\n${title}${message.kind==="test"?"":` · ${message.rows.length} ${message.rows.length===1?"screen":"screens"}`}\nUpdated ${time(message.generatedAt.toISOString())} GST (UTC+4)\n`;
+  const header=`*${activeClientName()} Screen Control*\n${title}${message.kind==="test"?"":` · ${message.rows.length} ${message.rows.length===1?"screen":"screens"}`}\nUpdated ${time(message.generatedAt.toISOString())} GST (UTC+4)\n`;
   if(message.kind==="test")return header+"\nYour WhatsApp alert connection is working. This is a test message.";
   const duration=(row:AlertMailRow)=>Math.max(0,Math.floor(((row.resolvedAt?Date.parse(row.resolvedAt):message.generatedAt.getTime())-Date.parse(row.startedAt))/60000));
   const rows=[...message.rows].sort((a,b)=>duration(b)-duration(a)||a.screenName.localeCompare(b.screenName));
@@ -27,10 +29,10 @@ export function whatsAppMessageText(message:WhatsAppMessage){
 export function whatsAppDocumentCaption(message:WhatsAppMessage){
   const title=message.kind==="test"?"WhatsApp PDF test":message.kind==="manual"?"Current unavailable previews - manual report":"Preview unavailable";
   const count=message.kind==="test"?"":` - ${message.rows.length} ${message.rows.length===1?"screen":"screens"}`;
-  return `*Sephora Screen Control*\n${title}${count}\nGenerated ${time(message.generatedAt.toISOString())} GST (UTC+4)\n${message.kind==="test"?"Sample PDF attached. No real outage is reported.":"Full screen details are in the attached PDF."}`;
+  return `*${activeClientName()} Screen Control*\n${title}${count}\nGenerated ${time(message.generatedAt.toISOString())} GST (UTC+4)\n${message.kind==="test"?"Sample PDF attached. No real outage is reported.":"Full screen details are in the attached PDF."}`;
 }
 export async function sendWhatsAppMessage(message:WhatsAppMessage):Promise<{providerId:string|null}>{
-  const sender=whatsAppSender();if(!sender.configured||!sender.instance)throw new WhatsAppSendError("configuration");
+  const credentials=clientIntegrations().whatsapp, sender=whatsAppSender(credentials);if(!sender.configured||!sender.instance)throw new WhatsAppSendError("configuration");
   const override=process.env.ULTRAMSG_TEST_ORIGIN;
   const origin=override&&/^http:\/\/127\.0\.0\.1:\d+$/.test(override)?override:"https://api.ultramsg.com";
   let endpoint="chat",fields:Record<string,string>={};
@@ -47,7 +49,7 @@ export async function sendWhatsAppMessage(message:WhatsAppMessage):Promise<{prov
     endpoint="document";
     fields={filename:`sephora-${label}-${stamp}-${reference}-GST.pdf`,document:bytes.toString("base64"),caption:whatsAppDocumentCaption(message)};
   }
-  const body=new URLSearchParams({token:process.env.ULTRAMSG_TOKEN!.trim(),to:message.recipient,...fields,priority:"1",referenceId:message.referenceId});
+  const body=new URLSearchParams({token:credentials!.token!.trim(),to:message.recipient,...fields,priority:"1",referenceId:message.referenceId});
   let response:Response;
   try{response=await fetch(`${origin}/${sender.instance}/messages/${endpoint}`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body,redirect:"error",signal:AbortSignal.timeout(endpoint==="document"?30000:10000)});}
   catch(cause){const code=(cause as {cause?:{code?:string}})?.cause?.code;throw new WhatsAppSendError(["ECONNREFUSED","ENOTFOUND","EAI_AGAIN"].includes(code||"")?"connection":"uncertain",!["ECONNREFUSED","ENOTFOUND","EAI_AGAIN"].includes(code||""));}

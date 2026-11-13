@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { RequestError, requestFailure } from "@/lib/request";
@@ -10,7 +11,7 @@ import type { PpmFields } from "@/lib/screen-ppm-inspection";
 import type { LocationDetailFields } from "@/lib/location-details";
 
 export const runtime = "nodejs";
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const user = await currentUser(request.headers);
     if (!user) throw new RequestError("Sign in again.", 401);
@@ -55,3 +56,5 @@ export async function GET(request: Request) {
     } });
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);

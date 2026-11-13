@@ -1,13 +1,16 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { notFound, redirect } from "next/navigation";
 import AdminDashboard, { type Section } from "@/components/admin-dashboard";
 import { requirePage } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 const valid = new Set<Section>(["screens", "countries", "regions", "locations", "groups", "activity", "cms-support", "reports", "settings", "users"]);
-export default async function Page({ params }: { params: Promise<{ section: string }> }) {
+async function Page({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   if (section === "access") redirect("/admin/settings");
   if (!valid.has(section as Section)) notFound();
   const account = await requirePage("admin");
-  return <AdminDashboard section={section as Section} accountEmail={account.email} />;
+  return <AdminDashboard section={section as Section} accountEmail={account.email} clientId={account.clientId} clientName={account.clientName} clientLogoKey={account.clientLogoKey} />;
 }
+
+export default withWorkspace(Page);

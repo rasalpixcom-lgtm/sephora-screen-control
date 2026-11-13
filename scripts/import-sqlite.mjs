@@ -35,6 +35,7 @@ try {
     }
     console.log(`${table}: ${rows.length} rows imported`);
   }
+  await client.query("INSERT INTO client_memberships(client_id,user_id,role) SELECT 'sephora',id,role FROM auth_user WHERE role IN ('admin','controller') ON CONFLICT DO NOTHING");
   await client.query("COMMIT"); sqlite.exec("COMMIT");
   console.log("Import complete. Existing passwords are preserved; sign in again.");
 } catch (error) { await client.query("ROLLBACK"); throw error; }

@@ -1,3 +1,5 @@
+import { activeClientId } from "./client-workspace";
+import { clientIntegrations } from "./client-integrations";
 import { createHash } from "node:crypto";
 import { onSignLoops, onSignSections, validOnSignPlayerId, type OnSignDetails, type OnSignPlayer, type OnSignPlayerOption, type OnSignSection, type OnSignLoop, type OnSignSectionResult, type OnSignValue } from "./onsign-api-shared";
 import { extendedPlayerFields, relatedSelections, loopItems, loopTriggers } from "./onsign-detail-queries";
@@ -46,22 +48,24 @@ function player(value: unknown): OnSignPlayer {
   };
 }
 
-// One client per server process. Dependencies are injectable for tests; production
+// One cache per integration instance, with workspace and credential identity. Dependencies are injectable for tests; production
 // always uses the fixed HTTPS endpoint, and never sends a mutation to OnSign.
-export function createOnSignClient(environment: { token: () => string | undefined; organizationId?: () => string | undefined; fetch: typeof fetch; now: () => number }) {
+export function createOnSignClient(environment: { token: () => string | undefined; organizationId?: () => string | undefined; clientId?: () => string; fetch: typeof fetch; now: () => number }) {
   type Entry = { until: number; task: Promise<unknown> };
-  type Context = { credential: string; organizationId: string | null; identity: string };
+  type Context = { clientId: string; credential: string; organizationId: string | null; identity: string };
   const cache = new Map<string, Entry>();
   let identity = "";
   function context(): Context {
+    const clientId = environment.clientId ? environment.clientId() : activeClientId();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(clientId) || clientId.length > 80) throw unavailable();
     const value = environment.token()?.trim();
     if (!value) throw new OnSignApiError("OnSign is not configured. Add ONSIGN_API_TOKEN on the server.");
     if (/[\r\n]/.test(value)) throw new OnSignApiError("Check the OnSign API token on the server.");
     const organizationId = environment.organizationId?.()?.trim() || null;
     if (organizationId && !validOnSignPlayerId(organizationId)) throw new OnSignApiError("Check ONSIGN_ORGANIZATION_ID on the server.");
-    const next = createHash("sha256").update(JSON.stringify([value, organizationId])).digest("hex");
+    const next = createHash("sha256").update(JSON.stringify([clientId, value, organizationId])).digest("hex");
     if (identity !== next) { cache.clear(); identity = next; }
-    return { credential: value, organizationId, identity: next };
+    return { clientId, credential: value, organizationId, identity: next };
   }
   async function query(query: string, variables: Record<string, unknown>, credential: string, signal: AbortSignal) {
     try {
@@ -99,6 +103,7 @@ export function createOnSignClient(environment: { token: () => string | undefine
 
   async function organization(scope: Context) {
     if (scope.organizationId) return scope.organizationId;
+    if (scope.clientId !== "sephora") throw new OnSignApiError("Set an explicit OnSign organization ID for this client on the server.");
     return cached(scope, "organization", 300000, async () => {
       const matches = new Set<string>(), cursors = new Set<string>();
       let after: string | null = null;
@@ -127,13 +132,13 @@ export function createOnSignClient(environment: { token: () => string | undefine
   function scopedOrganization(data: ObjectValue, id: string) {
     const nodes = object(data.organizations).nodes;
     if (!Array.isArray(nodes)) throw unavailable();
-    if (!nodes.length) throw new OnSignApiError("The selected Sephora organization is unavailable. Check ONSIGN_ORGANIZATION_ID and the token's organization access.");
+    if (!nodes.length) throw new OnSignApiError("The selected OnSign organization is unavailable. Check ONSIGN_ORGANIZATION_ID and the token's organization access.");
     if (nodes.length !== 1 || object(nodes[0]).id !== id) throw unavailable();
     return object(nodes[0]);
   }
   function scopedPlayer(data: ObjectValue, organizationId: string, id: string) {
     const item = scopedOrganization(data, organizationId).player;
-    if (item === null) throw new OnSignApiError("This player was not found in the selected Sephora organization. Check its link in Edit screen.", 404);
+    if (item === null) throw new OnSignApiError("This player was not found in the selected OnSign organization. Check its link in Edit screen.", 404);
     const result = object(item);
     if (result.id !== id) throw unavailable();
     return result;
@@ -197,7 +202,7 @@ export function createOnSignClient(environment: { token: () => string | undefine
           network { name inet ssid status rssi }
         } } } }`, { organizationId, id }, scope.credential, AbortSignal.timeout(5000));
         const data = scopedOrganization(root, organizationId);
-        if (data.player === null) throw new OnSignApiError("This player was not found in the selected Sephora organization. Check its link in Edit screen.", 404);
+        if (data.player === null) throw new OnSignApiError("This player was not found in the selected OnSign organization. Check its link in Edit screen.", 404);
         const result = player(data.player);
         if (result.id !== id) throw unavailable();
         return { player: result, fetchedAt: new Date(environment.now()).toISOString() };
@@ -251,4 +256,16 @@ export function createOnSignClient(environment: { token: () => string | undefine
   };
 }
 
-export const onSignApi = createOnSignClient({ token: () => process.env.ONSIGN_API_TOKEN, organizationId: () => process.env.ONSIGN_ORGANIZATION_ID, fetch: (...args) => fetch(...args), now: Date.now });
+const clientApis = new Map<string, ReturnType<typeof createOnSignClient>>();
+function workspaceApi() {
+  const id = activeClientId();
+  let api = clientApis.get(id);
+  if (!api) {
+    api = createOnSignClient({ clientId: () => id, token: () => clientIntegrations(id).onsign?.token, organizationId: () => clientIntegrations(id).onsign?.organizationId, fetch: (...args) => fetch(...args), now: Date.now });
+    clientApis.set(id, api);
+  }
+  return api;
+}
+export const onSignApi: ReturnType<typeof createOnSignClient> = new Proxy({} as ReturnType<typeof createOnSignClient>, {
+  get(_target, key) { const api = workspaceApi(); return Reflect.get(api, key); },
+});

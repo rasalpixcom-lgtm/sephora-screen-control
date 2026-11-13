@@ -1,6 +1,8 @@
+import { withWorkspace } from "@/lib/client-workspace";
+import { inventoryLockSql } from "@/lib/client-workspace";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
-import { prepareScreenPhoto, readScreenMutation, readScreenPhoto, removeScreenPhoto } from "@/lib/screen-photo";
+import { discardPreparedScreenPhoto, prepareScreenPhoto, readScreenMutation, readScreenPhoto, removeScreenPhoto } from "@/lib/screen-photo";
 import { RequestError, requestFailure } from "@/lib/request";
 import { validPhotoCategory, photoCategoryApplies, photoCategoriesForScreen } from "@/lib/screen-gallery-shared";
 
@@ -10,7 +12,7 @@ const reply = (body: object, status = 200) => Response.json(body, { status, head
 const validId = (id: unknown): id is string => typeof id === "string" && id.length > 0 && id.length <= 256;
 const validKey = (key: unknown) => key === null || (typeof key === "string" && /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(key));
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return reply({ error: "Sign in again." }, 401);
@@ -39,7 +41,7 @@ export async function GET(request: Request) {
   } catch (error) { return requestFailure(error); }
 }
 
-export async function PUT(request: Request) {
+async function PUTHandler(request: Request) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   let prepared: string | null = null, obsolete: string | null = null, committed = false;
   try {
@@ -53,7 +55,7 @@ export async function PUT(request: Request) {
     if (file) prepared = await prepareScreenPhoto(file);
     const result = await database().transaction(async db => {
       // Use the inventory lock to serialize edits and parent/screen deletion.
-      await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+      await db.prepare(inventoryLockSql()).run();
       const screen = await db.prepare('SELECT name, photo_key AS key, screen_type AS "screenType" FROM entities WHERE id = ? AND type = \'screen\'').bind(body.screenId).first<{ name: string; key: string | null; screenType: string | null }>();
       if (!screen) throw new RequestError("Screen not found.", 404);
       if (!photoCategoryApplies(category, screen.screenType)) throw new RequestError("This photo category is not available for this screen type. Refresh photos and try again.");
@@ -70,7 +72,11 @@ export async function PUT(request: Request) {
     return result;
   } catch (error) { return requestFailure(error); }
   finally {
-    if (!committed && prepared) await removeScreenPhoto(prepared);
+    if (!committed && prepared) await discardPreparedScreenPhoto(prepared);
     if (committed && obsolete) await removeScreenPhoto(obsolete);
   }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const PUT = withWorkspace(PUTHandler);

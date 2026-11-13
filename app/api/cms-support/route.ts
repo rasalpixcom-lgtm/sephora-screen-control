@@ -1,3 +1,5 @@
+import { withWorkspace } from "@/lib/client-workspace";
+import { inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
@@ -39,7 +41,7 @@ async function readMutation(request: NextRequest) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid content details.");
   return { body, image };
 }
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     await authorize(request);
     const db = database(), params = request.nextUrl.searchParams, id = params.get("id");
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
     return reply({ updates: list.results, total: count?.total || 0, countries: countries.results.map(row => row.name), locations: locations.results.map(row => row.name) });
   } catch (error) { return requestFailure(error); }
 }
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
     const user = await authorize(request);
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
     const prepared = image ? (await normalizePrivatePhoto(image)).full : null;
     if (prepared && prepared.length > 5 * 1024 * 1024) throw new RequestError("Choose a smaller content image.", 413);
     return await database().transaction(async db => {
-      await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+      await db.prepare(inventoryLockSql()).run();
       const previous = create ? null : await db.prepare(select + " WHERE id = ? FOR UPDATE").bind(body.id).first<Row>();
       if (!create && !previous) throw new RequestError("Content update not found.", 404);
       if (previous && previous.version !== body.version) throw new RequestError("This update changed elsewhere. Reopen it before editing.", 409);
@@ -110,3 +112,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const POST = withWorkspace(POSTHandler);

@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import {createRequire} from "node:module";
+import {build} from "esbuild";
+import sharp from "sharp";
+const output=path.resolve(".server-runtime/client-logo-test.cjs");
+await build({entryPoints:["lib/client-logo.ts"],outfile:output,bundle:true,platform:"node",format:"cjs",external:["sharp"]});
+const {normalizeClientLogo,readClientLogoMutation,validLogoVersion}=createRequire(import.meta.url)(output);
+let checks=0;
+const check=(v,label)=>{assert.ok(v,label);checks++;};
+const rejects=async(work,status)=>{await assert.rejects(work,e=>e.status===status);checks++;};
+for(const format of ["png","jpeg","webp"]){
+ const bytes=await sharp({create:{width:300,height:900,channels:4,background:{r:30,g:80,b:120,alpha:.5}}})[format]().toBuffer();
+ const logo=await normalizeClientLogo(new File([bytes],"../../logo."+format,{type:"image/"+format}));
+ const meta=await sharp(logo).metadata();
+ check(meta.format==="webp" && meta.width===213 && meta.height===640,"portrait keeps full aspect ratio for "+format);
+ check(!meta.exif && !meta.icc,"metadata stripped for "+format);
+ if(format!=="jpeg")check(meta.hasAlpha,"transparency retained for "+format);
+}
+const png=await sharp({create:{width:800,height:100,channels:3,background:"red"}}).png().toBuffer();
+const file=new File([png],"logo.png",{type:"image/png"});
+check((await sharp(await normalizeClientLogo(file)).metadata()).height===80,"wide logos are not cropped");
+await rejects(()=>normalizeClientLogo(new File([],"empty.png",{type:"image/png"})),413);
+await rejects(()=>normalizeClientLogo(new File([new Uint8Array(2*1024*1024+1)],"big.png",{type:"image/png"})),413);
+await rejects(()=>normalizeClientLogo(new File(["<svg/>"],"fake.png",{type:"image/png"})),400);
+await rejects(()=>normalizeClientLogo(new File([png],"fake.svg",{type:"image/svg+xml"})),415);
+await rejects(()=>normalizeClientLogo(new File([png.subarray(0,15)],"broken.png",{type:"image/png"})),400);
+const large=await sharp({create:{width:4001,height:4001,channels:3,background:"red"}}).png().toBuffer();
+await rejects(()=>normalizeClientLogo(new File([large],"huge.png",{type:"image/png"})),400);
+const form=new FormData();form.set("metadata",JSON.stringify({action:"create",name:"Client"}));form.set("logo",file);
+const parsed=await readClientLogoMutation(new Request("http://localhost",{method:"POST",body:form}));
+check(parsed.file.size===file.size && parsed.body.name==="Client","multipart retains one logo and metadata");
+form.append("logo",file);
+await rejects(()=>readClientLogoMutation(new Request("http://localhost",{method:"POST",body:form})),400);
+await rejects(()=>readClientLogoMutation(new Request("http://localhost",{method:"POST",headers:{"Content-Type":"multipart/form-data; boundary=bad"},body:new Uint8Array(2*1024*1024+80001)})),413);
+await rejects(()=>readClientLogoMutation(new Request("http://localhost",{method:"POST",headers:{"Content-Type":"multipart/form-data; boundary=bad"},body:"invalid"})),400);
+check(validLogoVersion("12345678-1234-1234-1234-123456789abc")&&!validLogoVersion("../bad")&&!validLogoVersion(null),"version validation");
+console.log(checks+" client logo image/upload checks passed.");
+
+const backgroundBytes=await sharp({create:{width:2400,height:1200,channels:3,background:"blue"}}).png().toBuffer();
+const backgroundFile=new File([backgroundBytes],"card.png",{type:"image/png"});
+const backgroundMeta=await sharp(await normalizeClientLogo(backgroundFile,"background")).metadata();
+check(backgroundMeta.width===1600&&backgroundMeta.height===800,"background retains aspect ratio at card resolution");
+await rejects(()=>normalizeClientLogo(new File(["<svg/>"],"fake.png",{type:"image/png"}),"background"),400);
+const branding=new FormData();branding.set("metadata",JSON.stringify({clientId:"sephora"}));branding.set("logo",file);branding.set("background",backgroundFile);
+const brandingRequest=()=>new Request("http://localhost",{method:"POST",body:branding});
+const both=await readClientLogoMutation(brandingRequest(),true);
+check(both.file.size===file.size&&both.background.size===backgroundFile.size,"branding parses both uploads");
+await rejects(()=>readClientLogoMutation(brandingRequest()),400);
+branding.append("background",backgroundFile);
+await rejects(()=>readClientLogoMutation(brandingRequest(),true),400);
+console.log("Background normalization and dual-upload checks passed.");
+
+const backgroundOnly=new FormData();backgroundOnly.set("metadata",JSON.stringify({clientId:"sephora",logo:{action:"keep",expectedVersion:null},background:{action:"replace",expectedVersion:null}}));backgroundOnly.set("background",backgroundFile);
+const parsedBackgroundOnly=await readClientLogoMutation(new Request("http://localhost",{method:"POST",body:backgroundOnly}),true);
+check(parsedBackgroundOnly.file===null&&parsedBackgroundOnly.background.size===backgroundFile.size,"background-only edit accepts no logo file");
+console.log("Background-only multipart regression passed.");

@@ -649,3 +649,617 @@ Scope: pending CMS playback-period status/filter and Screens OnSign connectivity
 - Historical Cloudflare/D1 `auth.integration.mjs` is not applicable to the current runtime and was replaced for this review by `auth.server.mjs`. The one-off `migration-preservation.mjs` requires an original SQLite input and was not run; the current isolated import/rollback suite and backup/restore checks passed instead.
 
 No application code, dependency versions, database schema or production configuration was changed by this review. No commit, Git push, production branch update or company-server deployment was performed. Deployment still requires the usual company-server backup/update and smoke checks.
+
+
+## Client ownership foundation — 12 November 2026
+
+Scope: first database step of the approved multi-client plan. Added migration
+`0024_client_ownership.sql`, matching Drizzle schema, readiness checks and migration
+regression coverage. The migration creates one Sephora client and adds indexed,
+required `client_id` ownership to 22 application tables. Existing writes retain
+Sephora through a transitional database default; authentication remains global.
+No workspace picker, client management API or additional client is enabled.
+
+Verification:
+
+- Production build, TypeScript, standalone preparation and full ESLint passed.
+- All 24 existing applicable unit/logic/PDF suites passed.
+- All 10 existing isolated server suites passed (985 checks), including login,
+  inventory CRUD, CMS/PDF, hardware/PPM/photos, survey import, SQLite import,
+  controller/monitor access and alert workflows with local test providers.
+- The new ownership suite passed 213 checks on disposable databases: unchanged
+  original values across all application/authentication tables (including binary
+  PDFs/images and credentials), existing column definitions and constraints,
+  Sephora backfill/defaults/indexes, unknown/null owner rejection, restricted
+  client deletion, unchanged migration history, reruns, fresh installation,
+  health failures for incomplete schema/seed/history and transactional rollback
+  after a deliberately induced late migration failure.
+- A read-only dump of the local development database restored successfully into
+  a disposable database. Applying the new migration there preserved every
+  original value across all 29 existing public tables. Configuration and photo
+  folders were also backed up privately under ignored `.server-runtime`.
+- Applied locally only after that rehearsal. The guarded application compared
+  all original table values inside the migration transaction and committed only
+  after preservation and ownership checks passed. A normal migration rerun
+  passed. Local production-server health returned `ok`; anonymous inventory
+  access still returned 401. Test servers and disposable databases were cleaned up.
+
+Boundary for the next step: ownership metadata alone does not provide tenant
+isolation. Before enabling another client, scope authorization, every query and
+mutation, relationship ownership, background workers, integrations, file access,
+reports and singleton settings by client; replace the compatibility default with
+explicit client context. Existing global IDs and singleton behavior are preserved
+in this phase deliberately. No dependency or UI changes, Git push, production
+branch update or company-server migration/deployment was performed.
+
+
+## Client permissions gate (phase 2a) — 12 November 2026
+
+Implemented explicit client memberships with existing Sephora admin/controller
+backfill. Account creation, first-admin bootstrap and legacy import create
+memberships transactionally. Authentication checks membership and archive state
+on every application request, caps privileges by both global and membership role,
+and refuses unsupported `X-Client-Id` selection. User administration lists and
+targets only Sephora members. Existing account/password/session fields remain
+unchanged by migration. No membership management UI or other workspace is enabled.
+
+Validation: production build/TypeScript and standalone packaging, full ESLint,
+24 unit/logic/PDF suites, the 10 existing server suites (985 assertions), ownership
+migration suite (214 assertions) and permission API tests passed. Permission tests
+cover other-only membership, revocation/restoration on existing sessions,
+privilege reduction/escalation prevention, archive state, private photo/report
+endpoints, mutations and account-administration targeting. An email-suite teardown
+hit a PostgreSQL 57P01 connection termination after all assertions passed; the
+complete email suite passed when rerun alone, without application changes.
+
+A fresh backup was restored into a disposable database and migration 0025 tested
+there: every original table value was preserved and all supported accounts received
+matching Sephora roles. Applied locally with a transaction guard comparing all
+pre-existing table values before commit. Migration rerun and local production
+health/protected anonymous inventory checks passed. Backups remain private and
+ignored under `.server-runtime`. No push or company-server changes.
+
+This is the permissions stage, not completed tenant isolation. Direct worker SQL,
+queries/mutations, relationship ownership, singleton settings, monitor capabilities,
+file/report access and OnSign credentials/caches still need client scoping before
+adding another client's operational data. Existing Sephora-only behavior is retained
+until those changes can be verified independently. Do not treat this stage as a
+multi-client release.
+
+
+## Database and worker isolation (phase 2b) - 12 November 2026
+
+Implemented a fixed Sephora database boundary for this staged release. Migration
+0026 creates a restricted non-login runtime role and enables/forces RLS across all
+22 owned application tables, with matching read/write ownership policies. Every
+shared application/worker pool connection uses this role before its first query;
+DATABASE_URL startup options cannot override it. Authentication/membership records
+remain global behind the existing permission gate. Schema/migration metadata is
+read-only to the runtime. Health checks the runtime identity and migration marker.
+
+Added ownership-aware composite foreign keys for inventory hierarchy, group
+membership, hardware/photos/notes/PPM/remote access, CMS report parents and incident/
+delivery queues. PostgreSQL defers these checks to transaction commit so existing
+transactional deletion/import order remains compatible. Invalid cross-owner links
+fail without repairing/deleting records. Drizzle represents the policies, indexes
+and relationships; FORCE RLS and initially-deferred FK options are maintained in
+the authoritative SQL migration. Offline migration/import tools intentionally use
+separate privileged connections.
+
+Validation: production build/TypeScript/standalone packaging, full ESLint and 24
+unit/logic/PDF suites passed. Server verification includes the existing 10 suites
+(985 assertions), ownership (214), permissions (49) and the new query/worker suite
+(220). The new suite covers all 22 tables' read/update/delete/insert restrictions,
+forced RLS, cross-owner relationships, attempted schema/RLS bypass, concurrent
+pooled connections, overriding connection-string options, global login, private
+photo/CMS report endpoints and both inactive/configured worker paths. Injected
+senders confirm no foreign-client jobs are delivered and foreign records stay
+unchanged. The Activity suite passed all assertions but encountered the existing
+57P01 forced-database-cleanup race on the final batch run; an independent complete
+rerun exited successfully. No application changes were needed for that teardown.
+The new suite avoids force-terminating draining pools during its own cleanup.
+
+A fresh read-only backup of the local development database was restored into a
+disposable database and migrated successfully. Every original value across all
+31 public tables matched. Applied locally only after this rehearsal, with a guard
+comparing every original table value before COMMIT (excluding the new migration
+history row); all 22 RLS boundaries were confirmed. Normal migration rerun and
+local standalone health/protected anonymous inventory checks passed. The verified
+backup is private and ignored under .server-runtime.
+
+This stage does not enable multiple workspaces. Per-client singleton keys,
+OnSign credentials/caches, monitor capabilities, storage paths and client selection
+remain required before another client's operational data is added. Administrative
+migration/DBA credentials are trusted and can bypass RLS; deployment instructions
+recommend a separate least-privilege application login. No dependency/UI changes,
+Git push, production-branch update or company-server deployment was performed.
+
+
+## Client settings and integrations (phase 2c) - 12 November 2026
+
+Migration 0027 changes the primary keys of display_state, monitor_access,
+email_alert_settings and whatsapp_alert_settings to (client_id,id). It contains
+no record updates/deletes. Reads, edits and composite upserts explicitly use the
+trusted server workspace as well as the existing forced row policies. Monitor
+hashes, generations, alert revisions and display settings are retained.
+
+The server integration resolver supports optional private per-client configuration.
+Existing OnSign, Gmail and UltraMsg variables remain Sephora-only defaults. An
+explicit client entry replaces all its legacy providers; missing providers stay
+disabled. Other clients never inherit Sephora credentials or organization discovery.
+Malformed configuration fails closed. OnSign cache identity includes the client,
+credential and organization; slow older requests cannot replace newer-scope data.
+Email/WhatsApp capture credentials before asynchronous asset/PDF preparation so
+account identifiers and secrets cannot be mixed during rotation. No browser or
+PDF receives integration secrets.
+
+Display/inventory, hardware, PPM, gallery, CMS and survey import use one shared
+client-specific inventory lock. All six callers were audited together to retain
+coordination with screen deletion/type changes. Preview recording/reconciliation
+share a client/screen lock; alert/monitor locks and worker registration include
+client identity. Global account-administration and migration locks intentionally
+remain global. UI, domain field validation, provider endpoints and branding stay
+unchanged; new client workspaces are still disabled.
+
+Verification: final production build/TypeScript/standalone preparation and ESLint
+passed; all 25 maintained unit/PDF suites passed, including 49 new integration/
+transport checks with mocked providers. The dedicated settings suite passed 110
+checks: upgrade/rerun preservation, composite keys, 22 retained forced RLS policies,
+coexisting client settings, private monitor-key isolation/rotation, revision conflicts,
+foreign-row preservation, and deterministic blocking/release tests across all six
+inventory callers and both preview mutation paths. All 14 production-server
+suites passed their final assertions (1,578 total). The batch email suite encountered
+the pre-existing 57P01 forced-database-cleanup race after all 92 assertions passed;
+an independent complete rerun exited successfully. No application correction was
+needed for that test teardown. Both batch and retry logs are retained privately. Configured-secret
+scanning found no configured values in 596 maintained/packaged text files and no
+packaged .env.local. No real mail, WhatsApp or OnSign calls were made by these tests.
+
+A fresh read-only local backup restored successfully into a disposable database.
+Applying 0027 on that restored copy preserved every original value in all 31 public
+tables. The separate local development database was migrated only after a guard
+compared those values again before COMMIT; all values and 22 RLS boundaries matched.
+A subsequent application-role read-only check passed for migration, inventory,
+display and alert settings. The private verified backup remains ignored under
+.server-runtime. No company database, environment configuration or photo files were
+changed; no commit, Git push or release/deployment was performed. Storage scoping,
+workspace selection and multi-client branding remain subsequent stages.
+
+
+## Client photo storage and file access (phase 2d) - 12 November 2026
+
+Both screen and location photo services now use one private storage helper with a
+trusted server client identity. New uploads (full image and thumbnail) go under
+`<private-base>/clients/client-<clientId>/`. Screen front, gallery/reference images,
+location galleries and the optional photos in screen-detail PDFs share this
+boundary. Existing role/membership checks and forced database ownership policies
+remain required before a key reaches storage. Request headers, query parameters
+and upload fields cannot select a filesystem workspace. CMS image/report bytes
+remain in the already RLS-protected database; shared public logos/fonts are not
+private tenant uploads.
+
+Existing Sephora UUID references and flat-folder files remain untouched. Only
+Sephora may read or remove those legacy files. Other clients have no legacy
+fallback. Missing files retain the previous endpoint/PDF behavior; unsafe links
+and permission errors fail closed rather than falling back. Path traversal,
+non-canonical workspace identifiers, directory junctions/symlinks, linked files
+and replaced file handles are rejected. Configured photo bases remain absolute;
+standalone defaults stay outside the replaceable build directory.
+
+Normalization, orientation, metadata stripping, upload limits and private response
+headers are unchanged. Successful replacements/deletions still clean obsolete
+files after the database commits. Rejected uploads discard only their newly
+namespaced pair; they never remove legacy files. Exclusive writes preserve
+existing files during UUID collisions, concurrent collisions or a failed second
+write. No bulk move, schema/data migration, photo reference rewrite or permission
+change is needed for this step. Backup instructions cover the whole existing base
+folder plus its new client children, with PostgreSQL stopped for a consistent copy.
+
+Verification: the final production build, TypeScript, standalone preparation,
+ESLint and git diff whitespace checks passed. All 26 maintained unit/PDF suites
+and all 15 production-server suites passed (1,637 server assertions). New coverage
+includes 87 filesystem checks and 59 HTTP/PDF isolation checks: legacy read
+compatibility, full/thumbnail uploads, identical and colliding keys, partial write
+cleanup, rejected/stale uploads, foreign resource IDs, public URL denial,
+controller permissions, parent cascade deletion and preserved foreign rows/files.
+Existing OnSign upload/cleanup assertions now inspect actual client subfolders;
+the existing screen-detail PDF suite still reads its old flat-folder fixtures.
+
+All storage/HTTP mutation fixtures use disposable directories and databases.
+A read-only compatibility check read all 20 original local photo files through
+the new services and matched their private SHA-256 receipts; a final filesystem
+comparison confirmed all paths and bytes unchanged. No existing photo was moved,
+rewritten or deleted. Package checks found no original private photos, configured
+secrets or .env.local in deployment assets (600 maintained/packaged text files
+scanned). No real provider calls, local operational database changes, company
+server changes, commit, push or deployment were performed in this storage step.
+Client selection remains disabled in this staged rollout.
+
+
+## Client selection and request-scoped isolation — 12 November 2026
+
+Added `/workspaces` after login and a Switch client link. Cards include only
+active clients with a valid membership; selection uses an HttpOnly signed cookie
+bound to the account and login session. Account and membership roles are checked
+on every authenticated request. Global role caps prevent membership-based privilege
+elevation. Existing authorized Sephora sessions retain their fallback access.
+No example clients or memberships were added to the operational development data.
+Client creation, platform administration and membership management UI remain a
+separate step; non-Sephora admins cannot use global user administration.
+
+Migration 0028 replaces the fixed Sephora policies with role-derived client scope
+on all 22 owned tables. Each client uses a distinct restricted PostgreSQL startup
+role and pool; each request/job uses its own AsyncLocalStorage holder. Contexts,
+locks, worker registrations, provider credentials, OnSign caches, private photos,
+reports and monitor capabilities carry the verified client. Country abbreviation
+uniqueness is per client. Archived client preview queues are cleared. Drizzle
+policies/defaults match the migration. A same-origin `x-client-id` header is only
+a stale-tab guard: it cannot select a client. Monitor capabilities retain separate
+validation; existing Sephora monitor URL formats and legacy flat photos work.
+
+Verification: production build, TypeScript, standalone preparation, ESLint and
+whitespace checks passed. All 27 maintained unit/PDF suites and 16 server suites
+passed on the final implementation. The new scope/cookie suite passed 211 checks;
+new two-client HTTP coverage passed 54 checks, including 50 simultaneous requests,
+unauthorized/revoked/archived selections, stale tabs, role limits, same country
+abbreviations, cross-client photo reads, reports, integration fallback and monitor
+keys. Existing auth, OnSign, CMS, survey import, alerts, reports, storage and legacy
+SQLite import regressions passed. Browser login, picker, separate client records
+and switching passed on a disposable database with no console warnings/errors.
+
+Backup restoration and migration were rehearsed on a disposable restored copy.
+The local development database (loopback port 55432 only) was migrated under a
+transactional before/after guard: all original values in all 31 existing tables
+were preserved (only migration history gained 0028). All 20 original photo paths
+and SHA-256 values remain unchanged and readable. A scan of 614 maintained and
+packaged text files found no configured secrets or packaged `.env.local`.
+No real provider messages, company-server changes, commit, push or deployment were
+performed. Production rollout requires a separately authorized release and backup.
+
+
+## Clients management and user assignment — 12 November 2026
+
+Added a platform-only Clients page at `/admin/clients`, accessible from the
+Administration card and platform sidebar link. Client creation provisions an
+isolated empty workspace, independent default settings and creator Admin access.
+Manage access assigns existing accounts as Admin or Controller; global role caps,
+disabled-account restrictions, optimistic versions and enabled-Admin checks are
+enforced in the database function as well as the API. Client management has a
+separate audit. Client Admin access never grants platform administration.
+
+Migration 0029 adds two global tables and constrained SECURITY DEFINER functions.
+Runtime roles cannot write platform mappings or call the operator provisioner.
+Existing enabled Sephora Admins are seeded as platform administrators; fresh
+first-account activation has a guarded bootstrap. Global Users administration is
+platform-only, closing an indirect password-reset escalation path. Global account
+disabling/demotion cannot strand a client without an enabled Admin. Existing
+client membership changes do not change account passwords or provider settings.
+
+Verification: final production build, TypeScript and standalone preparation pass.
+ESLint and whitespace checks pass. All 27 maintained unit/PDF suites and all 17
+server suites pass (1,758 server assertions, including 66 client-management
+assertions). Coverage includes duplicate/concurrent creation, stale/concurrent
+membership saves, role restrictions, revoked sessions, last Admin protection,
+private runtime roles, separate settings, audit records and existing regressions.
+Browser checks on a disposable database cover creation, assignment, cancellation,
+disabled saves and desktop/mobile layouts. The mobile table keeps names readable
+and scrolls within its card; dialogs retain usable controls. No browser warnings
+or errors were logged in the final check.
+
+Backup restoration and migration were rehearsed. The local development migration
+was committed only after a transactional preservation check proved all original
+values in all 31 original tables unchanged, except the added migration marker.
+All 20 original photo paths and SHA-256 values are unchanged. Test clients and
+accounts were confined to disposable databases. No company-server change, commit,
+push or deployment was performed. Renaming, archiving and integration setup UI
+remain outside this stage.
+
+
+## Shared Admin/Controller access and common monitoring — 12 November 2026
+
+This step supersedes the assignment/platform-authorization model described in
+previous staged reviews. The only account roles are Admin and Controller. Every
+enabled account can open every active client through the existing cards page.
+Admins manage clients and global accounts; Controllers retain wall control only.
+Client selection remains signed and login-bound, with stale-tab guards. Existing
+membership/platform rows are preserved but no longer determine authorization.
+New clients need a name only and appear for both roles without assignment.
+Individual actor identity remains recorded in account/inventory/wall activity and
+client creation auditing. Disabled accounts and archived clients are rejected.
+
+Client-owned database rows, settings, integrations, provider caches, workers,
+photos and reports remain separate. Shared staff access never changes the
+selected client's data boundary. Migration 0030 replaces the bounded creation
+function, revokes the old platform bootstrap capability and adds an independent
+common-monitor capability table. It does not rewrite existing operational data.
+
+Admins can create a common read-only monitoring URL from Clients or Settings.
+Its dropdown shows active clients and loads the selected client's current wall.
+The secret is returned once in the URL fragment and stored only as a hash.
+Replacement/disable detects stale generations and revokes old common links.
+Existing Sephora/per-client links remain independent and unchanged. A common key
+cannot access staff APIs or modify wall controls. Invalid supplied keys cannot
+fall back to a logged-in session. Monitoring never changes saved wall selection.
+
+Verification: production build, TypeScript, standalone preparation and ESLint
+pass. All 17 server suites and all 27 unit/PDF suites passed. The final dedicated
+shared-access/common-monitor suite passes 82 integration assertions, including
+Controller wall changes affecting only the selected client, monitor switching,
+read-only enforcement, link replacement/revocation, restricted runtime roles,
+named audit actors, concurrent duplicate creation and Sephora data preservation.
+Browser checks on a disposable database confirmed Admin/Controller client cards,
+client creation form cancellation, shared-access Clients layout, switching back
+through cards, and the common monitor dropdown switching between two clients.
+
+A fresh database backup was restored and migration 0030 rehearsed on a disposable
+copy before applying it locally. A transaction compared all existing values in
+all 33 pre-existing tables: original values were preserved, with only the new
+migration marker added. All 22 forced row-security tables remain protected.
+All 20 existing photo paths and SHA-256 contents remain unchanged. Test clients
+and accounts were confined to disposable databases, which were removed after
+verification. A Windows build-file lock held by the disposable browser server was
+resolved by stopping that fixture; the subsequent production build passed.
+
+The company server was not changed. No commit, push or deployment was performed.
+Real provider delivery and company-server acceptance remain deployment checks.
+Client renaming, archiving and integration-configuration UI are outside this step.
+
+## Client logos and Administration navigation — 12 November 2026
+
+Clients management is now available only through Administration. Client sidebars
+retain Switch client, which returns staff to the existing cards page. Optional
+logos appear beside client names in the cards, Administration list, selected
+client sidebar and Controller header. Names remain visible, missing/unavailable
+logos use an icon, and uploaded images retain their full proportions. Admins can
+add, replace or remove a logo; cancelling leaves the saved logo unchanged.
+
+Migration 0031 stores logos separately from operational records. Uploads accept
+PNG, JPEG or WebP up to 2 MB, validate and decode the actual image, and normalize
+to a bounded WebP. Reads require a staff session; writes require an enabled Admin
+and same-origin requests. Version checks reject stale edits, and audit entries
+record the individual actor. Optional logo creation is atomic with client creation.
+No new upload folder or environment variable is required; database backups include
+logos. Public/common monitoring capabilities cannot retrieve staff logo assets.
+
+Verification: production build, TypeScript, standalone preparation and ESLint
+pass. All 17 server suites and 28 unit/PDF suites passed. The expanded client
+management suite passes 126 assertions and the image/upload unit suite passes 20.
+Coverage includes authorization, image validation, concurrency, cancellation,
+existing client compatibility, audit records and private asset access. Browser
+checks using disposable data confirmed desktop/mobile layouts, image previews,
+saving, cancelled removals, Admin-only Administration access, Controller branding,
+client switching and removal of Clients from client sidebars. The final browser
+check logged no warnings or errors.
+
+A fresh local database backup was restored and migration 0031 rehearsed before
+local application. A transactional comparison verified every existing value in
+all 34 pre-existing tables was preserved, except the new migration marker. All
+22 forced row-security tables remain protected. All 20 original photo paths and
+SHA-256 contents remain unchanged. Real Sephora logos were not added or changed;
+logo testing used disposable databases, which were removed after verification.
+No company-server changes, commits, pushes or deployments were performed.
+
+## Controller-driven common monitoring — 13 November 2026
+
+The common monitoring link now follows the client opened in Controller and that
+client's saved wall selection and rotation settings. The common wall has no
+client dropdown and ignores client overrides in its URL. Admin workspace browsing
+never changes the common wall. If multiple Controllers are opened, the most
+recently opened Controller selects the client; routine polling from older tabs
+does not take control back. Individual client monitoring links remain independent.
+
+Migration 0032 adds a separate common-wall client pointer, initially Sephora.
+Controller activation requires an enabled Admin/Controller, an authenticated
+workspace and a same-origin POST. It ignores client IDs supplied in the body and
+records the individual actor. Common links remain read-only, retain their existing
+key lifecycle and cannot authenticate staff APIs. Archived targets are rejected
+until an active client is opened in Controller.
+
+Verification: production build, TypeScript, standalone preparation and ESLint
+passed. The dedicated shared-client/common-monitor suite passed 152 integration
+checks; client selection, ownership, permissions, query isolation, settings,
+photo access and authentication regression suites also passed. Browser checks on
+a disposable database confirmed automatic client and country changes on the
+already-open common wall without reloading, no client dropdown, and no logged
+browser warnings or errors. Individual-link independence, key preservation,
+stale-tab guards, revoked keys and disabled accounts were covered by integration
+checks.
+
+A fresh local database backup was restored into a disposable copy and migration
+0032 rehearsed, preserving every row in all 35 pre-existing public tables except
+the new migration marker. Reapplying the migration was idempotent. After backup
+verification, the local development migration preserved existing operational
+records, individual/common monitoring keys and logos. All 20 existing photo paths
+and SHA-256 contents remained unchanged. Temporary browser/server fixtures were
+removed. The company server was not changed; no commit, push or deployment was
+performed.
+
+
+## Full pre-push review - 13 November 2026
+
+Reviewed the current main working tree, including earlier uncommitted multi-client
+work and the latest branding/card changes. Existing work was retained. Scope
+covered the 38 API route files, page routing, authentication and global roles,
+workspace cookies and stale-tab guards, database pools/RLS and migrations,
+inventory CRUD and cascading deletes, scoped photos and filesystem paths,
+branding uploads/concurrency, Controller/common and individual monitor links,
+OnSign/provider boundaries, incident/alert workers, CMS and report validation,
+PDF exports, client request state/error handling, and build/release configuration.
+An additional source-control scan covered 385 source/config/documentation files
+for common private-key/token patterns and tracked environment files; none were
+found. This is a targeted scan, not proof against every possible secret format.
+All API route files use the request-local workspace wrapper. The build resolves
+TypeScript imports and application route paths.
+
+Review corrections:
+
+- Health readiness now requires migration 0033 and the background storage columns.
+  Previously a release missing that migration could pass health while client
+  selection/Administration failed. Regression checks cover missing migration
+  history, missing background storage and recovery when restored.
+- The migration-preservation test now excludes the new client_backgrounds table
+  from its comparison of pre-existing columns. It still compares the types,
+  defaults, nullability, constraints and values of all original tables.
+- Corrected malformed ellipsis and separator characters in Controller/monitor UI.
+- Updated the current authentication documentation to describe the Controller-led
+  common wall without a dropdown, and deployment instructions to require all
+  migrations through 0033 and the Edit branding flow.
+
+Final verification:
+
+- 27 unit/PDF suites and 17 PostgreSQL/server suites passed: all 44 current suites.
+  The ownership suite includes 217 migration/readiness checks; management includes
+  177 shared-client/branding/common-monitor checks. Tests exercise the actual
+  standalone server using disposable databases and mocked provider transports.
+- The separate LCD/Video Wall migration preservation test passed in a fresh
+  disposable database. A read-only snapshot backup was restored to another
+  disposable database and every row in all 37 public tables matched the source,
+  including existing branding, client settings, accounts and monitoring keys.
+- PDF text/privacy, pagination, margins and image-proportion checks passed using
+  the bundled Python interpreter with pdfplumber/pypdf. First/last rendered pages
+  of representative CMS, screen-details and WhatsApp exports were inspected.
+- ESLint, production webpack build/TypeScript, standalone preparation and
+  git diff --check passed. The reviewed build was restarted locally; health and
+  login return 200, and signed-out Administration redirects to login.
+- The two private photo bases remain readable (20 files total); their path/size/
+  SHA-256 inventory is recorded privately under .server-runtime. Test uploads use
+  isolated temporary directories.
+- Earlier browser verification for the same tile implementation confirmed
+  desktop/mobile light/dark layouts, centered full-card artwork, plain
+  Administration, missing/broken-logo name fallbacks, keyboard selection and the
+  Opening state. The review's code changes affect health readiness and corrected
+  text, without changing that layout or permission flow.
+
+The first PDF test attempt selected a system Python without pdfplumber; rerunning
+with the bundled interpreter passed. The initial ownership failure was the stale
+new-table exclusion described above; the final complete run is green.
+The historical Miniflare/D1 auth.integration.mjs and the original-SQLite
+migration-preservation CLI are not tests of this Node/PostgreSQL application;
+auth.server.mjs and the PostgreSQL ownership/import suites cover those current
+paths. The LCD and backup tests were run separately as described above.
+
+Remaining items and verification limits:
+
+- npm audit --omit=dev reports zero known production dependency vulnerabilities.
+  The full audit reports seven moderate development-tool findings through
+  minimatch/@typescript-eslint, with zero high/critical findings. npm's compatible
+  automatic fix did not clear them; its unrelated updates were reverted and the
+  original package lock preserved. Resolve through a separately verified tooling
+  upgrade or compatible upstream fix; no forced framework/dependency overrides
+  were introduced during this review.
+- Real OnSign service access and Gmail/UltraMsg delivery were not exercised by the
+  test suite. Target IIS/HTTPS, Windows service recovery, Docker runtime and actual
+  OnSign player acceptance require their respective hosting/device environments.
+  The local database restore does not validate an off-server scheduled backup
+  service, and database backups do not include the private photo files.
+
+No blocking functional regression remains in the reviewed/tested paths. Existing
+Sephora operational data was not rewritten by review tests; backup/restore was
+read-only against the source. Local runtime logs, backups, test outputs and actual
+environment settings remain ignored by Git. No commit, push, production merge,
+company-server migration or deployment was performed.
+
+
+## Second pre-push pass - 13 November 2026
+
+Rechecked the current working tree and traced additional failure paths through
+branding/client creation, session validation, stale-tab protection, Controller
+activation, photo cleanup, database transactions/pools and alert-worker scope.
+No new blocking application defect was identified. The previously verified
+production source/build remains unchanged during this second pass.
+
+Expanded the client-management regression suite to force a database exception
+on background INSERT/UPDATE after the logo write. This proved transaction-wide
+rollback of the first asset and its audit event, controlled 503 responses and
+non-disclosure of the internal database error. The same injected failure during
+new-client creation proved rollback of the new identity, settings through their
+foreign keys, management audit records and PostgreSQL runtime-role provisioning.
+These triggers/functions exist only in a random disposable test database and are
+removed before the rest of the suite runs. No live client branding is changed.
+
+The expanded management suite passed all 185 checks. ESLint and diff whitespace
+validation passed again. The prior complete run of 44 current unit/PDF/server
+suites, plus independent backup/restore and LCD/Video Wall migration checks,
+remains applicable; the only subsequent executable change is this added test
+coverage. A private SHA-256 source manifest is saved under .server-runtime to
+identify changes that would invalidate the reviewed state before a later push.
+
+The seven moderate development-tool dependency advisories and unverified real
+provider/target-hosting acceptance checks from the preceding review remain open.
+No claim is made that tests prove the absence of every possible defect. The
+reviewed local app remains available; no commit, push or deployment occurred.
+
+
+## Compact responsive client grid - 13 November 2026
+
+Reduced the client card size and top spacing in client-selection.css. Cards use
+reserved grid slots and stay at or below 260 CSS pixels instead of expanding to
+fill a sparse row. The shared content width is capped at 1660px. Browser checks
+with 12 disposable tiles verified 6 columns at 1920px, 5 at 1536px, 4 at 1280px,
+2 at 768px and 390px, and 1 at 320px. Additional clients wrap to later rows.
+There was no horizontal overflow at those sizes. Phones use smaller square tiles;
+Administration stays plain, and no-logo/broken-logo names remain centered and
+readable in light and dark modes. Keyboard selection opens the correct client.
+
+ESLint, the production webpack/TypeScript build, whitespace checks and all 185
+management/branding/common-monitor regression assertions passed. The expanded
+layout fixture and its extra clients were confined to a disposable database and
+removed afterward. The updated build was restarted locally and returned health
+200. This step changes only layout CSS; operational data, routes and permissions
+are unchanged. No commit, push, production merge or deployment was performed.
+
+## Final verification before GitHub push - 13 November 2026
+
+Kept the approved client selection layout and heading unchanged. All 401 files
+in the private source review manifest match the reviewed state. No application
+code or dependency changes were required in this pass.
+
+ESLint, diff whitespace checks and the production webpack/TypeScript build pass.
+All 44 current unit/PDF/server suites pass against the newly completed build,
+including all 185 management/branding/common-monitor assertions. The first run
+had a PostgreSQL connection-termination error during screen-details test teardown
+after all 23 assertions passed. Its isolated rerun and the complete fresh-build
+run both exited cleanly. A separate confirmation attempted during the build was
+invalid because the build was replacing standalone output; it was superseded by
+the clean full run. No application fix was inferred from those test-run issues.
+
+The independent LCD/Video Wall migration regression passes. A new read-only local
+database snapshot restored exactly across all 37 public tables into a disposable
+database. There are no pending local migrations; the Sephora inventory remains
+3 countries, 5 regions, 9 stores, 18 screens and 2 groups. All 20 private photo
+files are readable. Test databases were disposable; live branding/data were not
+rewritten by review tests. Environment files, backups and uploads remain ignored.
+
+The rebuilt local app was restarted: health and login return 200, signed-out
+Administration redirects to login, and branding reads/writes require sign-in.
+The local error log is empty. The unchanged responsive layout retains the prior
+six-width browser verification. Production dependency audit reports zero known
+vulnerabilities; the full audit still reports seven moderate development-tool
+advisories and no high/critical advisories. Real external-provider delivery and
+company hosting/device acceptance remain outside local test coverage.
+
+No commit, push, production merge or deployment was performed.
+
+## Additional source review - 13 November 2026
+
+Reviewed the security and failure paths again through session/workspace resolution,
+client management and branding, inventory updates/deletion, photo preparation and
+cleanup, account mutations, CMS/PDF exports, monitor capabilities, per-client
+provider caches/workers, PostgreSQL ownership/provisioning policies and deployment
+startup/assets. No new blocking finding was identified and no application code
+was changed. The approved client selection layout remains unchanged.
+
+A source/configuration audit enumerated 297 files and all 38 API route files.
+Every API route has a workspace wrapper; every exported mutation route has an
+origin check in its module. TypeScript resolution found no unresolved local
+imports, and the credential-pattern scan found no matching private key/common
+access-token patterns. These mechanical checks support the manual critical-path
+review; they do not prove that every branch or possible runtime failure is safe.
+
+All 401 manifest files still match the state used by the clean 44-suite test run
+and successful production build. No executable changes invalidate those results,
+so the unchanged full suite/build was not needlessly repeated in this pass.
+Whitespace checks pass. The previously documented seven moderate development-tool
+advisories, transient test-teardown failure (superseded by clean reruns), and
+unverified live-provider/company-hosting/device acceptance remain disclosed.
+No commit, push or deployment was performed.

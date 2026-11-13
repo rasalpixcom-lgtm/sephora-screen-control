@@ -1,3 +1,4 @@
+import { inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { createHash, randomUUID } from "node:crypto";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database, type ServerDatabase } from "@/lib/database";
@@ -48,7 +49,7 @@ async function handle(request: Request, saving: boolean) {
     const screenId = body.screenId, text = body.text;
     return await database().transaction(async db => {
       // Shared with inventory, hardware edits, photo edits and PPM edits.
-      await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+      await db.prepare(inventoryLockSql()).run();
       const state = await snapshot(db, screenId), { result, survey } = preview(screenId, text, state);
       if (!saving) return reply({ preview: result });
       if (body.fingerprint !== result.fingerprint) throw new RequestError("These details changed since preview. Preview the survey again before saving.", 409);
@@ -80,5 +81,5 @@ async function handle(request: Request, saving: boolean) {
     });
   } catch (error) { return requestFailure(error); }
 }
-export const POST = (request: Request) => handle(request, false);
-export const PUT = (request: Request) => handle(request, true);
+export const POST = withWorkspace((request: Request) => handle(request, false));
+export const PUT = withWorkspace((request: Request) => handle(request, true));

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import type { Entity } from "@/lib/store";
-import { clientFetch } from "@/lib/client-fetch";
+import { clientFetch, workspaceRequestHeaders } from "@/lib/client-fetch";
 import LocationPicker from "@/components/location-picker";
 import { validLocationFilters } from "@/lib/location-filters";
 import { REPORT_DURATION_OPTIONS, type PreviewReportRow } from "@/lib/preview-report-shared";
@@ -77,7 +77,7 @@ export default function PreviewReportsPanel({entities,refreshKey=0}:{entities:En
   async function download() {
     setDownloading(true); setDownloadError("");
     try {
-      const response=await fetch("/api/reports/preview/pdf?"+queryParams(filters,1),{cache:"no-store",signal:AbortSignal.timeout(60000)});
+      const response=await fetch("/api/reports/preview/pdf?"+queryParams(filters,1),{cache:"no-store",headers:workspaceRequestHeaders("/api/reports/preview/pdf"),signal:AbortSignal.timeout(60000)});
       if(response.status===401){window.location.replace("/login?next=/admin/reports");return;}
       if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error||"Could not create the PDF.");}
       const url=URL.createObjectURL(await response.blob());

@@ -1,28 +1,18 @@
-import path from "node:path";
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import sharp from "sharp";
+import { activeClientId } from "./client-workspace";
+import { privatePhotoStorage } from "./private-photo-storage";
 import { readObject, RequestError } from "./request";
 import { screenPhotoLimit, screenPhotoTypes } from "./screen-photo-shared";
 
-const validKey = (key: string) => /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(key);
-function photoPath(key: string, thumbnail: boolean) {
-  if (!validKey(key)) throw new RequestError("Invalid photo reference.");
-  const configured = process.env.SCREEN_PHOTO_DIR?.trim();
-  if (configured && !path.isAbsolute(configured)) throw new Error("SCREEN_PHOTO_DIR must be absolute.");
-  // Next's generated standalone server changes cwd to .next/standalone. Keep
-  // the default outside that replaceable build directory in both run modes.
-  const cwd = process.cwd();
-  const root = path.basename(cwd) === "standalone" && path.basename(path.dirname(cwd)) === ".next" ? path.resolve(cwd, "../..") : cwd;
-  return path.join(configured || path.join(root, "uploads/screen-photos"), `${key}${thumbnail ? "-thumb" : ""}.webp`);
+const storage = () => privatePhotoStorage("screen", activeClientId());
+async function cleanupScreenPhoto(key: string, prepared: boolean) {
+  try { await (prepared ? storage().discard(key) : storage().remove(key)); }
+  catch (error) { console.error("Screen photo cleanup failed", (error as NodeJS.ErrnoException).code || "unavailable"); }
 }
-export async function removeScreenPhoto(key: string) {
-  for (const thumbnail of [false, true]) {
-    try { await unlink(photoPath(key, thumbnail)); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("Screen photo cleanup failed", (error as NodeJS.ErrnoException).code || "unavailable"); }
-  }
-}
-export const readScreenPhoto = (key: string, thumbnail: boolean) => readFile(photoPath(key, thumbnail));
+export const removeScreenPhoto = (key: string) => cleanupScreenPhoto(key, false);
+// A rejected upload owns only its new namespaced files, never legacy files.
+export const discardPreparedScreenPhoto = (key: string) => cleanupScreenPhoto(key, true);
+export const readScreenPhoto = (key: string, thumbnail: boolean) => storage().read(key, thumbnail);
 
 export async function normalizePrivatePhoto(file: File): Promise<{ full: Buffer; thumbnail: Buffer }> {
   if (!file.size || file.size > screenPhotoLimit) throw new RequestError("Choose a photo up to 5 MB.", 413);
@@ -46,13 +36,7 @@ export async function normalizePrivatePhoto(file: File): Promise<{ full: Buffer;
 
 export async function prepareScreenPhoto(file: File): Promise<string> {
   const { full, thumbnail } = await normalizePrivatePhoto(file);
-  const key = randomUUID(), fullPath = photoPath(key, false);
-  try {
-    await mkdir(path.dirname(fullPath), { recursive: true, mode: 0o700 });
-    await writeFile(fullPath, full, { flag: "wx", mode: 0o600 });
-    await writeFile(photoPath(key, true), thumbnail, { flag: "wx", mode: 0o600 });
-  } catch (error) { await removeScreenPhoto(key); throw error; }
-  return key;
+  return storage().save(full, thumbnail);
 }
 
 export async function readScreenMutation(request: Request) {

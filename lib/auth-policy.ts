@@ -1,5 +1,5 @@
 export type Role = "admin" | "controller";
-export type AuthUser = { id: string; name: string; email: string; role: Role };
+export type AuthUser = { id: string; name: string; email: string; role: Role; clientId?: string; clientName?: string; clientLogoKey?: string | null };
 export const roles: Role[] = ["admin", "controller"];
 export const roleNames: Record<Role, string> = { admin: "Admin", controller: "Controller" };
 export function roleHome(role: Role) { return role === "admin" ? "/admin" : "/controller"; }

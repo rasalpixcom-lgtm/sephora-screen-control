@@ -107,3 +107,120 @@ Local backup restoration was tested against a disposable database, with all 11 t
 The health endpoint checks authentication configuration and key schema access as well as database connectivity. Public AUTH_URL requires HTTPS. Loopback HTTP works locally; private IPv4 HTTP testing additionally requires ALLOW_LAN_HTTP=true. Keep that flag false for production deployment. See LAN-TESTING.md for the current private-network setup.
 
 This is local verification, not a claim that the company server's HTTPS, IIS proxy, or Windows service recovery has been tested.
+
+
+## Staged client isolation: migration 0026
+
+Phase 2b originally served only Sephora; migration 0028 below supersedes that limit.
+Back up and verify restoration first, stop the app and workers, run migrations
+with the existing privileged migration login, build, then restart and check health.
+Do not start the new application before migration 0026 succeeds. The migration is
+transactional: inconsistent cross-client relationships fail and roll back; do not
+delete or reassign existing data to force it through.
+
+The migration creates `pixcom_sephora_runtime` as a non-login role with no
+superuser, database/role creation, replication, inheritance or RLS-bypass rights.
+It grants only the table operations needed by the existing application. If the
+migration login cannot create/grant roles, a DBA must pre-create this role with
+those exact attributes and grant it to the migration/application login before
+running the migration. Existing unsafe role attributes cause the migration to fail.
+In a separate PostgreSQL cluster, provision the role before restoring a backup
+that includes its grants/policies; `pg_dump` does not back up cluster roles.
+
+Application and worker connections explicitly switch to the restricted role at
+startup, including when DATABASE_URL contains an `options` parameter (that parameter
+is reserved for the fixed role). Migration and offline import scripts use their
+own privileged connections. For least privilege in deployment, use a dedicated
+application login that can SET ROLE to `pixcom_sephora_runtime`, with no table
+ownership or RLS-bypass privileges, and a separate privileged migration login.
+The application's DATABASE_URL must use the application login in that arrangement;
+run migrations in a separate shell with the migration connection. Never expose
+migration credentials to users. Existing single-login deployments remain compatible
+with the startup role switch, but the login itself retains its administrative powers.
+
+All 22 owned tables enforce the selected client policy; authentication tables
+remain global behind application permissions. No company-server change is applied
+by local verification. Release and company deployment still require authorization.
+
+
+## Staged client settings: migration 0027
+
+Phase 2c originally served Sephora only; migration 0028 below enables selection. Back up the database, `.env.local` and all
+configured photo folders and verify migration on a restored copy first. Stop all
+application and background worker processes before migration/build; restart every
+process after the build so no old worker or cached account remains in memory.
+Run `npm run db:migrate` with the privileged migration connection before starting
+the new application. The current build requires all migrations through 0033. Do not run the old build after applying
+the composite settings keys; rollback requires a coordinated code/database plan.
+
+The migration changes keys, not stored values: display selection, alert recipients,
+revisions and existing monitor links are preserved. Legacy integration variables
+continue to work for Sephora without environment edits. Optional client JSON is
+server-only; an explicit client entry replaces every legacy provider for that
+client. Omitted providers are disabled, never inherited from another client. Keep
+configuration private and do not put credentials in source control or client PDFs.
+This configuration does not enable other workspaces. Use `npm run test:client-settings`
+on a development PostgreSQL cluster; its database fixtures and transports are isolated.
+
+
+Client-scoped photos: keep `SCREEN_PHOTO_DIR` and `LOCATION_PHOTO_DIR` pointed at
+the same private base folders as before. New uploads use
+`clients/client-sephora/<photo-key>.webp` and `<photo-key>-thumb.webp` within each
+base. Old flat files stay untouched and remain Sephora-only. No database migration
+or manual file move is required for this storage-only step. Do not flatten the
+client folders or point the environment settings at a client subfolder. Back up
+and restore each entire base directory (legacy files **and** all client folders)
+with its matching PostgreSQL backup. The server account requires inherited
+write/Modify access for new subfolders; do not grant broad public access. New
+client routing is enabled only by the migration 0028 selection stage below.
+
+
+## Client selection: migration 0028
+
+Back up PostgreSQL, `.env.local` and both complete photo base folders. Verify a
+restore and migration on a copy, stop every application/worker process, migrate,
+build, then restart and check health before using `/workspaces`. Do not start this
+build before migration 0028 succeeds. Existing Sephora values and files are retained;
+no company-server migration is performed by local development verification.
+
+The privileged migration login provisions one restricted NOLOGIN runtime role per
+active client and grants that role to itself. If using a separate application login,
+a DBA must grant each provisioned role to that login as well. Keep migration/DBA
+credentials private. Migrations 0029/0030 add bounded Admin client creation. Manual operator
+provisioning remains available. Account roles govern all active clients.
+
+`pg_dump` does not include cluster roles. Before restoring into another cluster,
+provision the same runtime roles or arrange a DBA-managed restore/provisioning plan.
+Restart all processes after configuration changes. Each active client has its own
+pool (maximum `DATABASE_POOL_SIZE`, default 10) and preview/alert workers; provision
+PostgreSQL connections and external-provider capacity accordingly. Other clients
+never inherit Sephora provider credentials. Existing Sephora public monitor links
+retain their format; new client monitor links carry a client ID plus a secret in
+the URL fragment.
+
+
+## Shared client access and common monitor: migration 0030
+
+Use the backup, restored-copy verification, stop, migrate, build and restart sequence above. Health requires 0030. Run all migration files in order, including 0029; 0030 supersedes its assignment/platform-role behavior. Existing permission rows remain but are no longer used for access. Existing Sephora records, passwords, settings, monitor hashes and photos are preserved.
+
+Every enabled Admin and Controller can open all active clients from the existing cards page. Admins create clients and manage all accounts; Controllers retain wall-control permissions. No per-client assignments are needed. New clients start empty with disabled alerts and no inherited provider credentials. Use individually named accounts for audit attribution.
+
+The new common monitoring link is optional and independent. Create it from Administration / Clients or Settings / Monitoring, then save the one-time URL privately. Its read-only wall follows the client most recently opened in Controller, with no client dropdown. Run `npm run db:migrate` to apply `0032_common_monitor_display.sql` before restarting; it initializes the common wall to Sephora without altering existing client wall settings or keys. Replacing/disabling it leaves legacy Sephora/per-client links unchanged. Verify both link types after restart, along with Admin/Controller switching and normal Sephora operations.
+
+The owner of the SECURITY DEFINER management function is the privileged migration
+login and must retain the provisioning privileges required by migration 0028,
+including role creation and access through forced row-security policies. Keep
+this login separate from the application login where configured; do not grant
+CREATEROLE or direct access to the operator provisioner to runtime roles. The
+bounded management function grants a newly provisioned runtime role to the
+application connection's session user. Existing roles still need the DBA grants
+described above if the application login differs from the migration login.
+
+Run `npm run test:client-management` only on the development PostgreSQL cluster.
+It creates disposable databases and UUID-named roles and cleans up its fixtures.
+Client renaming, archiving and integration-settings UI are outside this stage.
+
+
+Client logos (migration `0031_client_logos.sql`) are stored as small validated WebP images in PostgreSQL. The database backup includes them; no new folder or environment variable is required. Run migrations before starting the updated application. Admins manage logos under Administration → Clients → Edit branding. Existing client identity rows, integration settings, inventory and photo folders are preserved.
+
+Client card backgrounds require migration `0033_client_backgrounds.sql`. Apply it before starting this build; health checks reject missing background storage or migration records. Optional logos and backgrounds are managed together through Administration → Clients → Edit branding and are both included in PostgreSQL backups. Client cards show centered logos over full-card backgrounds, with client names as fallbacks. Workspace navigation remains logo-only.

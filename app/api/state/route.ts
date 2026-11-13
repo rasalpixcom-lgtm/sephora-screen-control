@@ -1,3 +1,5 @@
+import { withWorkspace } from "@/lib/client-workspace";
+import { activeClientId, inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { database, readState, type EntityType, type Selection } from "@/lib/store";
 import { currentUser, sameOrigin } from "@/lib/auth";
@@ -6,8 +8,8 @@ import { requestFailure } from "@/lib/request";
 import { wallActivityDescription } from "@/lib/activity-description";
 import { OnSignApiError, onSignApi } from "@/lib/onsign-api";
 import { validOnSignPlayerId } from "@/lib/onsign-api-shared";
-import { prepareScreenPhoto, readScreenMutation, removeScreenPhoto } from "@/lib/screen-photo";
-import { parseLocationPhotos, prepareLocationPhoto, readLocationMutation, removeLocationPhoto } from "@/lib/location-photo";
+import { discardPreparedScreenPhoto, prepareScreenPhoto, readScreenMutation, removeScreenPhoto } from "@/lib/screen-photo";
+import { discardPreparedLocationPhoto, parseLocationPhotos, prepareLocationPhoto, readLocationMutation, removeLocationPhoto } from "@/lib/location-photo";
 
 import { parseLocationDetails } from "@/lib/location-details";
 import { RequestError } from "@/lib/request";
@@ -19,7 +21,7 @@ const parentType: Partial<Record<EntityType, EntityType>> = { region: "country",
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const validName = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 80;
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
   } catch (error) { return requestFailure(error); }
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return bad("Invalid request origin.", 403);
   let preparedPhoto: string | null = null, committed = false;
   const preparedLocationPhotos = new Map<number, string>();
@@ -73,7 +75,7 @@ export async function POST(request: NextRequest) {
   const result = await database().transaction(async (db) => {
     // Validation and writes share the lock across every Node process.
     // This prevents duplicate names and children being created during parent deletion.
-    await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+    await db.prepare(inventoryLockSql()).run();
     const state = await readState(db, false, user.role === "admin");
     const entity = (id: unknown) => state.entities.find((item) => item.id === id);
     const now = new Date().toISOString();
@@ -166,7 +168,7 @@ export async function POST(request: NextRequest) {
         else delete selection.screenIds;
       }
       if (JSON.stringify(selection) !== JSON.stringify(state.display.selection)) {
-        await db.prepare("UPDATE display_state SET selection = ?, updated_at = ? WHERE id = 'main'").bind(JSON.stringify(selection), now).run();
+        await db.prepare(`UPDATE display_state SET selection = ?, updated_at = ? WHERE client_id='${activeClientId()}' AND id = 'main'`).bind(JSON.stringify(selection), now).run();
       }
       audit = { action: "deleted", type: existing.type, id: existing.id, name: existing.name };
     } else if (body.action === "member") {
@@ -192,7 +194,7 @@ export async function POST(request: NextRequest) {
       const autoAdvance = body.autoAdvance === false ? 0 : 1;
       const interval = body.intervalSeconds === undefined ? 10 : body.intervalSeconds;
       if (typeof interval !== "number" || !Number.isInteger(interval) || interval < 5 || interval > 60) return bad("Rotation must be a whole number from 5 to 60 seconds.");
-      await db.prepare("INSERT INTO display_state (id, selection, auto_advance, interval_seconds, updated_at) VALUES ('main', ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET selection = excluded.selection, auto_advance = excluded.auto_advance, interval_seconds = excluded.interval_seconds, updated_at = excluded.updated_at")
+      await db.prepare(`INSERT INTO display_state (client_id, id, selection, auto_advance, interval_seconds, updated_at) VALUES ('${activeClientId()}', 'main', ?, ?, ?, ?) ON CONFLICT(client_id,id) DO UPDATE SET selection = excluded.selection, auto_advance = excluded.auto_advance, interval_seconds = excluded.interval_seconds, updated_at = excluded.updated_at`)
         .bind(JSON.stringify(selection), autoAdvance, interval, now).run();
       audit = { action: JSON.stringify(selection) === JSON.stringify(state.display.selection) ? "changed wall settings" : "changed wall selection", type: null, id: null, name: wallActivityDescription(selection, state.entities, !!autoAdvance, interval) };
     } else return bad("Unknown action.");
@@ -209,9 +211,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof OnSignApiError) return bad(error.message, error.status);
     return requestFailure(error);
   } finally {
-    if (preparedPhoto && !committed) await removeScreenPhoto(preparedPhoto);
+    if (preparedPhoto && !committed) await discardPreparedScreenPhoto(preparedPhoto);
     if (committed) for (const key of obsoletePhotos) await removeScreenPhoto(key);
-    if (!committed) for (const key of preparedLocationPhotos.values()) await removeLocationPhoto(key);
+    if (!committed) for (const key of preparedLocationPhotos.values()) await discardPreparedLocationPhoto(key);
     if (committed) for (const key of obsoleteLocationPhotos) await removeLocationPhoto(key);
   }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const POST = withWorkspace(POSTHandler);

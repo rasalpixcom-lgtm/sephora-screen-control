@@ -1,14 +1,25 @@
+import { activeClientId, clientDatabaseRole } from "./client-workspace";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
-const shared = globalThis as typeof globalThis & { sephoraPool?: Pool };
-export function getPool() {
+const shared = globalThis as typeof globalThis & { pixcomScopedPools?: Map<string, Pool> };
+export function getPool(clientId = activeClientId()) {
+  const role = clientDatabaseRole(clientId);
+  const pools = shared.pixcomScopedPools ??= new Map<string, Pool>();
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not configured.");
-  if (shared.sephoraPool) return shared.sephoraPool;
+  const existing = pools.get(role);
+  if (existing) return existing;
   const max = Number(process.env.DATABASE_POOL_SIZE || 10);
   if (!Number.isInteger(max) || max < 1 || max > 100) throw new Error("DATABASE_POOL_SIZE must be between 1 and 100.");
+  // URL options override Pool options in node-postgres; pin the role in the URL
+  // too, so an existing connection-string option cannot bypass this boundary.
+  const connectionUrl = new URL(process.env.DATABASE_URL);
+  connectionUrl.searchParams.set("options", `-c role=${role}`);
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connectionUrl.href,
     application_name: "sephora-screen-control",
+    // Applied by PostgreSQL before the connection can execute its first query.
+    // Never use the privileged migration identity for application/worker queries.
+    options: `-c role=${role}`,
     max,
     connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000,
     statement_timeout: 15000,
@@ -17,7 +28,7 @@ export function getPool() {
   // PostgreSQL restarts can emit errors on idle connections. Handle them so
   // the process survives and the pool can establish replacement connections.
   pool.on("error", (error) => console.error("Idle database connection failed", (error as { code?: string }).code || "unavailable"));
-  shared.sephoraPool = pool;
+  pools.set(role, pool);
   return pool;
 }
 
@@ -39,7 +50,7 @@ export class ServerDatabase {
   constructor(readonly connection: Connection = getPool()) {}
   prepare(sql: string) { return new Statement(sql, this.connection); }
   async transaction<T>(work: (db: ServerDatabase) => Promise<T>): Promise<T> {
-    const client = await getPool().connect();
+    const client = await (this.connection as Pool).connect();
     try {
       await client.query("BEGIN");
       const result = await work(new ServerDatabase(client));

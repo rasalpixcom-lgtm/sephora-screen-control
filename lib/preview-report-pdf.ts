@@ -1,3 +1,4 @@
+import { activeClientName } from "./client-workspace";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -24,7 +25,7 @@ function durationText(start:string, end:string) {
 function dateText(value:string | null) { return value ? new Date(value).toLocaleString("en-GB", GST) : "No successful preview recorded"; }
 
 export async function renderPreviewReportPdf(report:Report, filters:PreviewReportFilters) {
-  const doc = new PDFDocument({ size:"A4", layout:"landscape", margins:{top:36,right:36,bottom:42,left:36}, bufferPages:true, info:{Title:"Preview availability report", Author:"Sephora Screen Control"} });
+  const doc = new PDFDocument({ size:"A4", layout:"landscape", margins:{top:36,right:36,bottom:42,left:36}, bufferPages:true, info:{Title:"Preview availability report", Author:`${activeClientName()} Screen Control`} });
   const chunks:Buffer[] = [];
   doc.on("data", chunk => chunks.push(Buffer.from(chunk)));
   const finished = new Promise<Buffer>((resolve,reject) => { doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });

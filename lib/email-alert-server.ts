@@ -1,3 +1,4 @@
+import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-workspace";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPool } from "./database";
@@ -12,7 +13,7 @@ type SettingsRow={enabled:boolean;threshold_minutes:number;grouping_minutes:numb
 type IncidentRow=AlertMailRow & {id:string;screenId:string;sourceFingerprint:string;liveUrl:string|null;resolutionReason:string|null;previewStatus:string|null;stateFingerprint:string|null;stateCheckedAt:string|null;recoveryQueuedAt:string|null;newerIncident:boolean};
 const settingsFrom=(row:SettingsRow):EmailAlertSettings=>({enabled:row.enabled,thresholdMinutes:row.threshold_minutes,groupingMinutes:row.grouping_minutes,recoveryEmail:row.recovery_email,recipients:row.recipients,revision:row.revision,updatedAt:row.updated_at.toISOString()});
 async function settingsFor(client:PoolClient) {
-  const row=(await client.query<SettingsRow>("SELECT * FROM email_alert_settings WHERE id='main'")).rows[0];
+  const row=(await client.query<SettingsRow>(`SELECT * FROM email_alert_settings WHERE client_id='${activeClientId()}' AND id='main'`)).rows[0];
   if (!row) throw new EmailAlertServiceError("Email alert settings are unavailable.",503);
   return settingsFrom(row);
 }
@@ -29,7 +30,7 @@ export async function saveEmailAlertSettings(settings:EmailAlertSettings,actor:s
   const client=await getPool().connect();
   try {
     await client.query("BEGIN");
-    const updated=await client.query("UPDATE email_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE id='main' AND revision=$7 RETURNING id",[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
+    const updated=await client.query(`UPDATE email_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE client_id='${activeClientId()}' AND id='main' AND revision=$7 RETURNING id`,[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
     if (!updated.rowCount) throw new EmailAlertServiceError("Settings changed in another window. Reload and try again.",409);
     await client.query("INSERT INTO activity_log (id,action,entity_type,entity_name,actor,created_at) VALUES ($1,'Updated email alert settings','settings','Email alerts',$2,$3)",[crypto.randomUUID(),actor,new Date().toISOString()]);
     await client.query("COMMIT");
@@ -86,14 +87,14 @@ async function delivery(client:PoolClient,kind:AlertMail["kind"],recipients:stri
 async function withDeliveryLock<T>(work:(client:PoolClient)=>Promise<T>):Promise<T|null> {
   const client=await getPool().connect();let locked=false;
   try {
-    locked=(await client.query("SELECT pg_try_advisory_lock(724020) AS locked")).rows[0].locked;
+    locked=(await client.query(`SELECT pg_try_advisory_lock(724020,hashtext('${activeClientId()}')) AS locked`)).rows[0].locked;
     if (!locked) return null;
     // A prior sender crashed after claiming a delivery. Do not risk sending it twice.
     await client.query("UPDATE email_alert_delivery SET status='uncertain',error_code='uncertain',finished_at=now() WHERE status='sending'");
     await client.query("UPDATE email_alert_queue SET status='uncertain' WHERE status='sending'");
     return await work(client);
   } finally {
-    try {if(locked) await client.query("SELECT pg_advisory_unlock(724020)");} finally {client.release();}
+    try {if(locked) await client.query(`SELECT pg_advisory_unlock(724020,hashtext('${activeClientId()}'))`);} finally {client.release();}
   }
 }
 export async function processEmailAlerts(options:{now?:Date;send?:Sender}={}) {
@@ -179,10 +180,11 @@ export async function sendManualAlert(confirmationToken:string,options:{now?:Dat
   return result;
 }
 
-const shared=globalThis as typeof globalThis & {sephoraEmailAlerts?:{timer?:ReturnType<typeof setTimeout>;error:boolean}};
-export function startEmailAlertWorker() {
-  if(shared.sephoraEmailAlerts||process.env.EMAIL_ALERT_WORKER_DISABLED==="true") return;
-  const service={error:false,timer:undefined as ReturnType<typeof setTimeout>|undefined};shared.sephoraEmailAlerts=service;
+const shared=globalThis as typeof globalThis & {pixcomEmailAlerts?:Map<string,{timer?:ReturnType<typeof setTimeout>;error:boolean}>};
+function startEmailAlertWorkerInScope() {
+  const workers=shared.pixcomEmailAlerts??=new Map();
+  if(workers.has(activeClientId())||process.env.EMAIL_ALERT_WORKER_DISABLED==="true") return;
+  const service={error:false,timer:undefined as ReturnType<typeof setTimeout>|undefined};workers.set(activeClientId(),service);
   const tick=async()=>{
     try {await processEmailAlerts();service.error=false;}
     catch {if(!service.error) console.error("Email alert worker unavailable");service.error=true;}
@@ -190,3 +192,5 @@ export function startEmailAlertWorker() {
   };
   void tick();
 }
+
+export function startEmailAlertWorker() { return runWithWorkspace(activeWorkspace(), startEmailAlertWorkerInScope); }

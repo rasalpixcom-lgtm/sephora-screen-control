@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { OnSignApiError, onSignApi } from "@/lib/onsign-api";
@@ -6,7 +7,7 @@ import { onSignSections, onSignLoops, type OnSignSection, type OnSignLoop } from
 
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "no-store", Vary: "Cookie" };
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return Response.json({ error: "Sign in again." }, { status: 401, headers });
@@ -38,3 +39,5 @@ export async function GET(request: Request) {
     return requestFailure(error);
   }
 }
+
+export const GET = withWorkspace(GETHandler);

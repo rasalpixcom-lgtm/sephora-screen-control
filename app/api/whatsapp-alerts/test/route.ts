@@ -1,8 +1,9 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { readObject, requestFailure } from "@/lib/request";
 import { WhatsAppServiceError, queueWhatsAppSend } from "@/lib/whatsapp-alert-server";
 export const runtime="nodejs";
-export async function POST(request:Request) {
+async function POSTHandler(request:Request) {
   const headers={"Cache-Control":"no-store",Vary:"Cookie"};
   if(!sameOrigin(request))return Response.json({error:"Invalid request origin."},{status:403,headers});
   try {
@@ -18,3 +19,5 @@ export async function POST(request:Request) {
     return requestFailure(error);
   }
 }
+
+export const POST = withWorkspace(POSTHandler);

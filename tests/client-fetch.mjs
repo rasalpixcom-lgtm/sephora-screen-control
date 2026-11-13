@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { clientFetch } from "../lib/client-fetch.ts";
+import { clientFetch, workspaceRequestHeaders } from "../lib/client-fetch.ts";
 
 const originalFetch = globalThis.fetch;
 const originalTimeout = AbortSignal.timeout;
@@ -42,8 +42,20 @@ try {
   };
   assert.equal(await (await clientFetch("https://example.test", { method: "POST", body: "example" })).text(), "ok");
   assert.equal(await (await clientFetch(request, { signal: null, method: "POST", body: "example" })).text(), "ok", "an explicit null signal overrides the Request signal");
+  globalThis.document = { querySelector: () => ({ dataset: { clientWorkspace: "example" } }) };
+  globalThis.window = { location: new URL("https://app.example.test/admin") };
+  assert.equal(workspaceRequestHeaders("/api/state").get("x-client-id"), "example");
+  assert.equal(workspaceRequestHeaders("/api/state", { "x-client-id": "sephora", "content-type": "application/json" }).get("x-client-id"), "example", "the rendered workspace controls the stale-tab guard");
+  assert.equal(workspaceRequestHeaders(new Request("https://app.example.test/api/state", { headers: { authorization: "Bearer example" } })).get("authorization"), "Bearer example");
+  assert.equal(workspaceRequestHeaders("https://external.example.test/api/state").has("x-client-id"), false, "client identity is never added to external requests");
+  assert.equal(workspaceRequestHeaders("/workspaces").has("x-client-id"), false);
+  assert.equal(workspaceRequestHeaders("/api/state", { "content-type": "application/json" }).get("content-type"), "application/json");
+  delete globalThis.document;
+  delete globalThis.window;
   console.log("Client fetch checks passed: caller and Request cancellation, pre-aborted signals, timeout, network errors, and successful requests.");
 } finally {
   globalThis.fetch = originalFetch;
   AbortSignal.timeout = originalTimeout;
+  delete globalThis.document;
+  delete globalThis.window;
 }

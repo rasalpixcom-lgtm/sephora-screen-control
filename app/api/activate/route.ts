@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 const env = process.env;
 import { hashPassword } from "@/lib/password";
 import { sameOrigin, tokenHash } from "@/lib/auth";
@@ -5,7 +6,7 @@ import { validPassword } from "@/lib/auth-policy";
 import { database } from "@/lib/store";
 import { readObject, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   if (!sameOrigin(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   try {
   const db = database(); const now = Date.now();
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
       db.prepare("INSERT INTO auth_bootstrap (id) VALUES ('main')"),
       db.prepare("INSERT INTO auth_user (id, name, email, email_verified, created_at, updated_at, role, disabled) SELECT ?, 'Administrator', ?, false, ?, ?, 'admin', false WHERE NOT EXISTS (SELECT 1 FROM auth_user)").bind(id, env.AUTH_ADMIN_EMAIL.toLowerCase(), new Date(now), new Date(now)),
       db.prepare("INSERT INTO auth_account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES (?, ?, 'credential', ?, ?, ?, ?)").bind(crypto.randomUUID(), id, id, password, new Date(now), new Date(now)),
+      db.prepare("INSERT INTO client_memberships (client_id, user_id, role) VALUES ('sephora', ?, 'admin')").bind(id),
       db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, 'created first Admin', 'user', NULL, ?, ?, ?)").bind(crypto.randomUUID(), env.AUTH_ADMIN_EMAIL, env.AUTH_ADMIN_EMAIL, new Date(now).toISOString()),
     ]);
   } catch (error) {
@@ -32,3 +34,5 @@ export async function POST(request: Request) {
   return Response.json({ success: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
+
+export const POST = withWorkspace(POSTHandler);

@@ -1,3 +1,5 @@
+import { withWorkspace } from "@/lib/client-workspace";
+import { inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
@@ -8,7 +10,7 @@ export const runtime = "nodejs";
 const reply = (body: object, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const validId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 256;
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return reply({ error: "Sign in again." }, 401);
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
   } catch (error) { return requestFailure(error); }
 }
 
-export async function PUT(request: NextRequest) {
+async function PUTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
     const user = await currentUser(request.headers);
@@ -41,7 +43,7 @@ export async function PUT(request: NextRequest) {
     catch (error) { return reply({ error: error instanceof Error ? error.message : "Enter valid hardware details." }, 400); }
     const result = await database().transaction(async db => {
       // Serialize with screen-type changes and inventory deletion.
-      await db.prepare("SELECT pg_advisory_xact_lock(724017)").run();
+      await db.prepare(inventoryLockSql()).run();
       const screen = await db.prepare('SELECT name, screen_type AS "screenType" FROM entities WHERE id = ? AND type = \'screen\'').bind(body.screenId).first<{ name: string; screenType: string | null }>();
       if (!screen) return reply({ error: "Screen not found." }, 404);
       if (!hardwareSectionsForType(screen.screenType).includes(section)) return reply({ error: screen.screenType ? "This hardware section does not apply to the current screen type. Refresh the page before editing again." : "Choose a screen type in Edit screen before adding hardware details." }, 400);
@@ -57,3 +59,7 @@ export async function PUT(request: NextRequest) {
     return result;
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const PUT = withWorkspace(PUTHandler);

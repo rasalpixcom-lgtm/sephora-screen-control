@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, CircleHelp, Expand, MapPin, Monitor, Pause, Play, Plus, UserRound, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
+import ClientLogo from "@/components/client-logo";
 import SignOut from "@/components/sign-out";
 import type { AuthUser } from "@/lib/auth-policy";
 import ControllerPanel from "@/components/controller-panel";
@@ -18,7 +19,7 @@ import MonitorPreviewStatus from "@/components/monitor-preview-summary";
 import type { MonitorPreviewSummary } from "@/lib/monitor-preview-summary";
 import { unavailableMinutes } from "@/lib/preview-timing";
 
-type State = { entities: Entity[]; members: Member[]; display: Display; previewIncidents?: Record<string, string>; previewSummary?: MonitorPreviewSummary; previewObservedAt?: string };
+type State = { clientId?: string; clientName?: string; entities: Entity[]; members: Member[]; display: Display; previewIncidents?: Record<string, string>; previewSummary?: MonitorPreviewSummary; previewObservedAt?: string };
 type View = "controller" | "admin" | "monitor";
 type WebModelContext = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => Promise<unknown> }, options: { signal: AbortSignal }) => void | Promise<void> };
 const empty: State = { entities: [], members: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" } };
@@ -46,7 +47,7 @@ function ScreenCard({ screen, entities, getFreshness, unavailableSince, observed
   </article>;
 }
 
-export default function Workspace({ view, account, monitorKey = "" }: { view: View; account?: AuthUser; monitorKey?: string }) {
+export default function Workspace({ view, account, monitorKey = "", commonMonitor = false }: { view: View; account?: AuthUser; monitorKey?: string; commonMonitor?: boolean }) {
   const [state, setState] = useState<State>(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,6 +60,8 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
   const [assignGroup, setAssignGroup] = useState<string | null>(null);
   const pending = useRef(false);
   const reading = useRef(false);
+  const controllerActivated = useRef(false);
+  const monitorClient = useRef<string | undefined>(undefined);
   const revision = useRef(0);
   const wallGridRef = useRef<HTMLDivElement>(null);
   const previewFreshness = useRef(new Map<string, PreviewFreshness>());
@@ -85,15 +88,28 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
     const startedAt = revision.current;
     if (showLoading) setLoading(true);
     try {
-      const response = await clientFetch(view === "monitor" ? "/api/monitor-state" : "/api/state", { cache: "no-store", ...(view === "monitor" && monitorKey ? { headers: { Authorization: `Bearer ${monitorKey}` } } : {}) });
+      if (view === "controller" && !controllerActivated.current) {
+        const activation = await clientFetch("/api/controller-client", { method: "POST" });
+        if (activation.status === 401) { window.location.replace("/login?next=/controller"); return; }
+        if (!activation.ok) { const body = await activation.json(); throw new Error(body.error || "Could not select the Controller client."); }
+        controllerActivated.current = true;
+      }
+      const response = await clientFetch(view === "monitor" ? "/api/monitor-state" + (commonMonitor ? "?scope=all" : monitorKey && typeof window !== "undefined" ? window.location.search : "") : "/api/state", { cache: "no-store", ...(view === "monitor" && monitorKey ? { headers: { Authorization: `Bearer ${monitorKey}` } } : {}) });
       if (response.status === 401 && view !== "monitor") { window.location.replace("/login?next=/controller"); return; }
       if (response.status === 401 && view === "monitor") { setState(empty); setError("This monitor link is missing or inactive. Ask an Admin for the current link."); return; }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not load screen data.");
-      if (startedAt === revision.current) { setState(result); setError(""); }
+      if (startedAt === revision.current) {
+        if (commonMonitor && result.clientId !== monitorClient.current) {
+          monitorClient.current = result.clientId;
+          previewFreshness.current.clear();
+          setPage(0); setLocalPause(false);
+        }
+        setState(result); setError("");
+      }
     } catch (cause) { if (startedAt === revision.current) setError(cause instanceof Error ? cause.message : "Could not load screen data."); }
     finally { reading.current = false; setLoading(false); }
-  }, [view, monitorKey]);
+  }, [view, monitorKey, commonMonitor]);
 
   useEffect(() => { void Promise.resolve().then(() => load(true)); const timer = window.setInterval(() => void load(), 3000); return () => window.clearInterval(timer); }, [load]);
   useEffect(() => {
@@ -199,11 +215,11 @@ export default function Workspace({ view, account, monitorKey = "" }: { view: Vi
     await mutate({ action: "delete", id: item.id });
   }
 
-  return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`} data-wall-theme={view === "monitor" ? "dark" : undefined}>
-    {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label="Sephora Screen Control home"><span className="brand-mark">S</span><span className="brand-name">SEPHORA <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link>{account?.role === "admin" && <Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link>}</nav><Link href="/account" className="icon-button" aria-label="Your account" title="Your account"><UserRound size={17}/></Link><SignOut compact className="icon-button"/><ThemeToggle className="workspace-theme-toggle"/></header>}
+  return <div className={`app-shell ${view === "monitor" ? "app-shell-monitor" : ""}`} data-client-workspace={account?.clientId} data-wall-theme={view === "monitor" ? "dark" : undefined}>
+    {view !== "monitor" && <header className="topbar"><Link href="/controller" className="brand" aria-label={`${account?.clientName || "Sephora"} Screen Control home`}><ClientLogo clientId={account?.clientId || "sephora"} version={account?.clientLogoKey} fallback={<span className="brand-mark">{(account?.clientName || "Sephora").slice(0,1).toUpperCase()}</span>}/><span className="brand-name">{(account?.clientName || "Sephora").toUpperCase()} <span>CONTROL</span></span></Link><div className="topbar-divider"/><nav className="topnav" aria-label="Main navigation"><Link className={view === "controller" ? "active" : ""} href="/controller"><SlidersHorizontal size={16}/> Controller</Link>{account?.role === "admin" && <Link className={view === "admin" ? "active" : ""} href="/admin"><Settings2 size={16}/> Admin</Link>}</nav><Link href={view === "controller" ? "/workspaces?next=/controller" : "/workspaces"}>Switch client</Link><Link href="/account" className="icon-button" aria-label="Your account" title="Your account"><UserRound size={17}/></Link><SignOut compact className="icon-button"/><ThemeToggle className="workspace-theme-toggle"/></header>}
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
-      <div className="monitor-heading"><div className="monitor-overview"><div className="monitor-identity"><span className="monitor-wordmark">SEPHORA</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || (selection.screenIds?.length ? "Selected screens" : "All locations")}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><MonitorPreviewStatus summary={error ? undefined : state.previewSummary} byCountry={!selection.countryId && !selection.regionId && !selection.storeId && !selection.groupId && !selection.screenIds?.length}/></div><div className="monitor-actions">{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
+      <div className="monitor-heading"><div className="monitor-overview"><div className="monitor-identity"><span className="monitor-wordmark">{state.clientName || account?.clientName || "Sephora"}</span><span className="monitor-separator" aria-hidden="true"/><h1>{[country?.name, region?.name, store?.name, group?.name].filter(Boolean).join(" / ") || (selection.screenIds?.length ? "Selected screens" : "All locations")}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><MonitorPreviewStatus summary={error ? undefined : state.previewSummary} byCountry={!selection.countryId && !selection.regionId && !selection.storeId && !selection.groupId && !selection.screenIds?.length}/></div><div className="monitor-actions">{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
       {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities} getFreshness={getFreshness} unavailableSince={state.previewIncidents?.[screen.id]} observedAt={state.previewObservedAt}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>{error ? "Monitor unavailable" : "No screens selected"}</h2></div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>

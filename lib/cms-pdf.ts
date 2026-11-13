@@ -1,3 +1,4 @@
+import { activeClientName } from "./client-workspace";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -6,7 +7,7 @@ import { cmsVideoUrl, cmsTime, type CmsPayload } from "./cms-support";
 
 export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, reference: string, generatedAt: string, draft = false, selection?: { description: string; total: number }): Promise<Buffer> {
   const jpeg = image ? await sharp(image).flatten({ background: "#ffffff" }).jpeg({ quality: 88 }).toBuffer() : null;
-  const doc = new PDFDocument({ size: "A4", layout: "portrait", margins: { top: 36, right: 36, bottom: 42, left: 36 }, bufferPages: true, info: { Title: `CMS Upload Report - ${payload.contentName}`, Author: "Sephora Screen Control" } });
+  const doc = new PDFDocument({ size: "A4", layout: "portrait", margins: { top: 36, right: 36, bottom: 42, left: 36 }, bufferPages: true, info: { Title: `CMS Upload Report - ${payload.contentName}`, Author: `${activeClientName()} Screen Control` } });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => { doc.on("data", chunk => chunks.push(Buffer.from(chunk))); doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });
   const font = [path.join(process.cwd(), "report-font.ttf"), path.join(process.cwd(), "node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf"), path.join(process.cwd(), ".next/standalone/report-font.ttf")].find(file => fs.existsSync(file));
@@ -45,7 +46,12 @@ export async function renderCmsPdf(payload: CmsPayload, image: Buffer | null, re
   function pageHead(continued = false) {
     doc.rect(0, 0, doc.page.width, doc.page.height).fill("#f3f4f3");
     doc.rect(0, 0, doc.page.width, 60).fill("#111111");
-    text("SEPHORA", left, 23, 105, 12, "#ffffff");
+    let brand = activeClientName().toUpperCase(), brandSize = 12;
+    doc.font(regular).fontSize(brandSize);
+    while (brandSize > 8 && doc.widthOfString(brand) > 105) doc.fontSize(--brandSize);
+    while (brand.length && doc.widthOfString(brand + "…") > 105) brand = brand.slice(0, -1);
+    if (brand !== activeClientName().toUpperCase()) brand += "…";
+    text(brand, left, 23, 105, brandSize, "#ffffff");
     doc.moveTo(left + 110, 19).lineTo(left + 110, 41).strokeColor("#79807b").lineWidth(.6).stroke();
     text("CMS UPLOAD REPORT", left + 127, 20, width - 127, 18, "#ffffff", "Helvetica-Bold");
     const label = `${draft ? "DRAFT PREVIEW | " : ""}${reference} | ${cmsTime(generatedAt)}`;

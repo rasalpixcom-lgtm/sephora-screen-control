@@ -1,40 +1,23 @@
-import path from "node:path";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { activeClientId } from "./client-workspace";
+import { privatePhotoStorage, validPhotoKey } from "./private-photo-storage";
 import { normalizePrivatePhoto } from "./screen-photo";
 import { screenPhotoLimit } from "./screen-photo-shared";
 import { locationPhotoLabelMax, locationPhotoMax } from "./location-photo-shared";
 import { readObject, RequestError } from "./request";
 
-const validKey = (key: string) => /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(key);
-
-function photoPath(key: string, thumbnail: boolean) {
-  if (!validKey(key)) throw new RequestError("Invalid location photo reference.");
-  const configured = process.env.LOCATION_PHOTO_DIR?.trim();
-  if (configured && !path.isAbsolute(configured)) throw new Error("LOCATION_PHOTO_DIR must be absolute.");
-  const cwd = process.cwd();
-  const root = path.basename(cwd) === "standalone" && path.basename(path.dirname(cwd)) === ".next" ? path.resolve(cwd, "../..") : cwd;
-  return path.join(configured || path.join(root, "uploads/location-photos"), `${key}${thumbnail ? "-thumb" : ""}.webp`);
+const validKey = validPhotoKey;
+const storage = () => privatePhotoStorage("location", activeClientId());
+export const readLocationPhoto = (key: string, thumbnail: boolean) => storage().read(key, thumbnail);
+async function cleanupLocationPhoto(key: string, prepared: boolean) {
+  try { await (prepared ? storage().discard(key) : storage().remove(key)); }
+  catch (error) { console.error("Location photo cleanup failed", (error as NodeJS.ErrnoException).code || "unavailable"); }
 }
-
-export const readLocationPhoto = (key: string, thumbnail: boolean) => readFile(photoPath(key, thumbnail));
-
-export async function removeLocationPhoto(key: string) {
-  for (const thumbnail of [false, true]) {
-    try { await unlink(photoPath(key, thumbnail)); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("Location photo cleanup failed", (error as NodeJS.ErrnoException).code || "unavailable"); }
-  }
-}
-
+export const removeLocationPhoto = (key: string) => cleanupLocationPhoto(key, false);
+// A rejected upload owns only its new namespaced files, never legacy files.
+export const discardPreparedLocationPhoto = (key: string) => cleanupLocationPhoto(key, true);
 export async function prepareLocationPhoto(file: File) {
   const { full, thumbnail } = await normalizePrivatePhoto(file);
-  const key = randomUUID(), fullPath = photoPath(key, false);
-  try {
-    await mkdir(path.dirname(fullPath), { recursive: true, mode: 0o700 });
-    await writeFile(fullPath, full, { flag: "wx", mode: 0o600 });
-    await writeFile(photoPath(key, true), thumbnail, { flag: "wx", mode: 0o600 });
-  } catch (error) { await removeLocationPhoto(key); throw error; }
-  return key;
+  return storage().save(full, thumbnail);
 }
 
 export type LocationPhotoInput = { id?: string; uploadIndex?: number; label: string };

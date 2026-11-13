@@ -10,7 +10,7 @@ The migrated local database already has an Admin; use the existing login ID and 
 
 ## Everyday use
 
-1. Sign in at /login.
+1. Sign in at /login, then choose a client card. Both roles can open every active client. Switch client returns to the cards.
 2. Admin → Users → Add user. Enter name, login ID, password (12–128 characters), and role.
 3. Share credentials privately. Users can change their own password at /account.
 4. Admin can edit account details, change roles/status, reset passwords, or revoke sessions. Saving account edits signs out the affected user. The server protects the last enabled Admin even across concurrent requests.
@@ -19,11 +19,10 @@ The migrated local database already has an Admin; use the existing login ID and 
 | --- | --- | --- | --- |
 | Admin | Manage | Control | View |
 | Controller | No access | Control | View |
-| Wall device | No access | No access | View |
 
 Admin and Controller sessions have no application timeout. They remain in PostgreSQL until sign-out or revocation; authenticated API use renews a protected, host-only browser cookie with a 400-day maximum age. Browsers may impose shorter retention, and clearing cookies or switching hosts requires another sign-in. Still-valid older sessions upgrade on use; expired/revoked sessions are never revived. Password resets, account edits, account disable, and sign-out revoke sessions. Self password changes still require the current password and revoke other sessions, without requiring a fresh login solely because the session is old. The UI then signs out the current session. OnSign players use the private link described below instead of an interactive account login. This policy is intended for the team's trusted computers.
 
-## Private monitor link for OnSign
+## Monitoring links for OnSign
 
 Admin → Settings → Private monitor link → Create monitor link. Copy the complete URL, including its `#key=…` fragment, into OnSign's Website Link App. Only one link is active. It has no automatic expiry and survives app/player restarts and normal updates. Use HTTPS on the company server.
 
@@ -32,6 +31,8 @@ The URL is shown once. Save it privately in OnSign before leaving Settings. Only
 The monitor shell opens without a login prompt, but its data requires either the active private key or a signed-in staff session. The key is sent in an Authorization header, not a query string or cookie. It grants only the current wall selection and required location labels, with no user accounts, activity history, inventory editing, or Controller access. Anyone holding the link can view that wall; it is not tied to a hardware ID.
 
 The monitor route permits embedding for OnSign. Admin, Controller, account, and API routes retain framing protection. Test the URL on the actual player/WebView, including its handling of URL fragments and the OnSign image connection. The device must allow outbound WSS to app.onsign.tv. OnSign cards use the existing configured preview token; the private wall key is never sent to OnSign. In IIS/access logging, do not log Authorization headers. If the hosting address changes, update the URL prefix saved in OnSign; the same key remains valid.
+
+A **Common monitoring link** is also available in Administration / Clients and Settings / Monitoring. It follows the active client and wall selection most recently opened in Controller, with no client dropdown. Admin browsing and ordinary polling do not change that client. Its key is independent of per-client keys. Replacement/disable affects only the common link. No separate Wall or Platform Admin account role is used; the only roles are Admin and Controller. Legacy membership/platform records remain stored but are not authorization inputs after migration 0030.
 
 ## Security and configuration
 

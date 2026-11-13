@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { NextRequest } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { database } from "@/lib/database";
@@ -6,7 +7,7 @@ import { renderCmsPdf } from "@/lib/cms-pdf";
 import { RequestError, requestFailure } from "@/lib/request";
 import { cmsResultFilterDescription, filterCmsResults, parseCmsResultFilters } from "@/lib/cms-result-filters";
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     const user = await currentUser(request.headers);
     if (!user) throw new RequestError("Sign in again.", 401);
@@ -42,3 +43,5 @@ export async function GET(request: NextRequest) {
     return new Response(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `${reportId ? "attachment" : "inline"}; filename="${filename}"`, "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);

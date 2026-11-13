@@ -1,3 +1,4 @@
+import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-workspace";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPool } from "./database";
@@ -14,7 +15,7 @@ type Row=AlertMailRow&{id:string;liveUrl:string|null;fingerprint:string;status:s
 type Job={id:string;recipient:string;kind:WhatsAppMessage["kind"];incident_ids:string[]};
 type Sender=(message:WhatsAppMessage)=>Promise<{providerId:string|null}>;
 async function settingsFor(client:PoolClient):Promise<WhatsAppAlertSettings>{
-  const row=(await client.query<SettingsRow>("SELECT * FROM whatsapp_alert_settings WHERE id='main'")).rows[0];
+  const row=(await client.query<SettingsRow>(`SELECT * FROM whatsapp_alert_settings WHERE client_id='${activeClientId()}' AND id='main'`)).rows[0];
   if(!row)throw new WhatsAppServiceError("WhatsApp alert settings are unavailable.",503);
   return {enabled:row.enabled,thresholdMinutes:row.threshold_minutes,groupingMinutes:row.grouping_minutes,recoveryEmail:row.recovery_email,recipients:row.recipients,revision:row.revision,updatedAt:row.updated_at.toISOString()};
 }
@@ -44,7 +45,7 @@ export async function saveWhatsAppSettings(settings:WhatsAppAlertSettings,actor:
   if(settings.enabled&&!whatsAppSender().configured)throw new WhatsAppServiceError("Configure UltraMsg on the server before enabling WhatsApp alerts.");
   const client=await getPool().connect();try{
     await client.query("BEGIN");
-    const result=await client.query("UPDATE whatsapp_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE id='main' AND revision=$7 RETURNING id",[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
+    const result=await client.query(`UPDATE whatsapp_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE client_id='${activeClientId()}' AND id='main' AND revision=$7 RETURNING id`,[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
     if(!result.rowCount)throw new WhatsAppServiceError("Settings changed in another window. Reload and try again.",409);
     await client.query("INSERT INTO activity_log(id,action,entity_type,entity_name,actor,created_at) VALUES($1,'Updated WhatsApp alert settings','settings','WhatsApp alerts',$2,$3)",[crypto.randomUUID(),actor,new Date().toISOString()]);
     await client.query("COMMIT");
@@ -65,7 +66,7 @@ async function insertJob(client:PoolClient,kind:Job["kind"],recipient:string,ids
 export async function queueWhatsAppSend(kind:"test"|"manual",confirmationToken?:string,options:{now?:Date}={}){
   if(!whatsAppSender().configured)throw new WhatsAppServiceError("Configure the UltraMsg instance and token on the server first.");
   const client=await getPool().connect();try{
-    await client.query("BEGIN");await client.query("SELECT pg_advisory_xact_lock(724021)");
+    await client.query("BEGIN");await client.query(`SELECT pg_advisory_xact_lock(724021,hashtext('${activeClientId()}'))`);
     const settings=await settingsFor(client),now=options.now||new Date();
     if(!settings.recipients.length)throw new WhatsAppServiceError("Save at least one WhatsApp number first.");
     if((await client.query("SELECT id FROM whatsapp_alert_delivery WHERE kind=$1 AND queued_at>$2::timestamptz-interval '60 seconds' LIMIT 1",[kind,now])).rowCount)throw new WhatsAppServiceError("Wait 60 seconds before sending this message again.",429);
@@ -142,7 +143,7 @@ async function deliverJob(client:PoolClient,job:Job,now:Date,send:Sender){
 export async function processWhatsAppAlerts(options:{now?:Date;send?:Sender}={}){
   const client=await getPool().connect();let locked=false;
   try{
-    locked=(await client.query("SELECT pg_try_advisory_lock(724022) AS locked")).rows[0].locked;if(!locked)return;
+    locked=(await client.query(`SELECT pg_try_advisory_lock(724022,hashtext('${activeClientId()}')) AS locked`)).rows[0].locked;if(!locked)return;
     await client.query("UPDATE whatsapp_alert_delivery SET status='uncertain',error_code='uncertain',finished_at=now() WHERE status='sending'");
     await client.query("UPDATE whatsapp_alert_queue q SET status='uncertain' FROM whatsapp_alert_delivery d WHERE q.delivery_id=d.id AND q.status='scheduled' AND d.status='uncertain'");
     if(!whatsAppSender().configured)return;
@@ -150,11 +151,14 @@ export async function processWhatsAppAlerts(options:{now?:Date;send?:Sender}={})
     const jobs=(await client.query<Job>("SELECT id,recipient,kind,incident_ids FROM whatsapp_alert_delivery WHERE status='pending' ORDER BY queued_at,id LIMIT 3")).rows;
     // Three independent recipients per tick; each DB transaction stays sequential.
     for(const job of jobs)await deliverJob(client,job,options.now||new Date(),options.send||sendWhatsAppMessage);
-  }finally{try{if(locked)await client.query("SELECT pg_advisory_unlock(724022)");}finally{client.release();}}
+  }finally{try{if(locked)await client.query(`SELECT pg_advisory_unlock(724022,hashtext('${activeClientId()}'))`);}finally{client.release();}}
 }
-const shared=globalThis as typeof globalThis&{sephoraWhatsAppWorker?:boolean};
-export function startWhatsAppAlertWorker(){
-  if(shared.sephoraWhatsAppWorker||process.env.WHATSAPP_ALERT_WORKER_DISABLED==="true")return;
-  shared.sephoraWhatsAppWorker=true;let reported=false;
+const shared=globalThis as typeof globalThis&{pixcomWhatsAppWorkers?:Set<string>};
+function startWhatsAppAlertWorkerInScope(){
+  const workers=shared.pixcomWhatsAppWorkers??=new Set();
+  if(workers.has(activeClientId())||process.env.WHATSAPP_ALERT_WORKER_DISABLED==="true")return;
+  workers.add(activeClientId());let reported=false;
   const tick=async()=>{try{await processWhatsAppAlerts();reported=false;}catch{if(!reported)console.error("WhatsApp alert worker unavailable");reported=true;}finally{const timer=setTimeout(tick,10000);timer.unref();}};void tick();
 }
+
+export function startWhatsAppAlertWorker() { return runWithWorkspace(activeWorkspace(), startWhatsAppAlertWorkerInScope); }

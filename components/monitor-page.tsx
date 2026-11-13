@@ -13,5 +13,5 @@ export default function MonitorPage() {
   const ready = useSyncExternalStore(subscribeReady, () => true, () => false);
   const key = useSyncExternalStore(subscribe, readKey, () => "");
   if (!ready) return <div className="app-shell app-shell-monitor" data-wall-theme="dark"><div className="loading-panel">Starting monitor…</div></div>;
-  return <Workspace key={key} view="monitor" monitorKey={key} />;
+  return <Workspace key={key} view="monitor" monitorKey={key} commonMonitor={new URLSearchParams(window.location.search).get("scope") === "all"} />;
 }

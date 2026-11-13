@@ -1,3 +1,5 @@
+import { selectWorkspace } from "@/lib/client-workspace";
+import { workspaceCookie, verifyWorkspace } from "@/lib/workspace-cookie";
 const env = process.env;
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
@@ -12,6 +14,7 @@ import { getPool } from "@/lib/database";
 import type { ServerDatabase } from "@/lib/database";
 import { canOpen, roleHome, roles, type AuthUser } from "@/lib/auth-policy";
 import { configuredAuthOrigins, matchesAuthOrigin } from "@/lib/network-origin";
+import { RequestError } from "@/lib/request";
 import { hashPassword, verifyPassword } from "@/lib/password";
 
 // The database requires a date; this sentinel represents a session without an app deadline.
@@ -28,7 +31,7 @@ export function auth() {
   const origins = configuredAuthOrigins(env.AUTH_URL!, env.AUTH_ADDITIONAL_ORIGINS, env.ALLOW_LAN_HTTP === "true");
   return betterAuth({
     appName: "Sephora Screen Control", secret: env.AUTH_SECRET!, baseURL: origins.length === 1 ? origins[0] : { allowedHosts: origins.map(origin => new URL(origin).host), fallback: origins[0], protocol: origins[0].startsWith("https:") ? "https" : "http" },
-    database: drizzleAdapter(drizzle(getPool(), { schema }), { provider: "pg", schema, transaction: true }),
+    database: drizzleAdapter(drizzle(getPool("sephora"), { schema }), { provider: "pg", schema, transaction: true }),
     trustedOrigins: origins,
     emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 12, maxPasswordLength: 128, password: { hash: hashPassword, verify: verifyPassword } },
     user: { additionalFields: { role: { type: "string", defaultValue: "controller", input: false }, disabled: { type: "boolean", defaultValue: true, input: false } } },
@@ -43,7 +46,7 @@ export function auth() {
   });
 }
 
-export async function currentUser(requestHeaders: Headers, renewCookie = true): Promise<AuthUser | null> {
+export async function sessionUser(requestHeaders: Headers, renewCookie = true) {
   const instance = auth();
   const result = await instance.api.getSession({ headers: requestHeaders });
   if (!result) return null;
@@ -65,11 +68,26 @@ export async function currentUser(requestHeaders: Headers, renewCookie = true): 
       }
     }
   }
-  return { id: user.id, name: user.name, email: user.email, role: user.role };
+  return { user: { id: user.id, name: user.name, email: user.email, role: user.role }, sessionId: result.session.id };
+}
+export async function currentUser(requestHeaders: Headers, renewCookie = true): Promise<AuthUser | null> {
+  const session = await sessionUser(requestHeaders, renewCookie);
+  if (!session) return null;
+  const value = parseCookies(requestHeaders.get("cookie") || "").get(workspaceCookie);
+  const clientId = value ? verifyWorkspace(value, session.user.id, session.sessionId, env.AUTH_SECRET!) : "sephora";
+  if (!clientId) throw new RequestError("Choose your client again.", 403);
+  // This header is a stale-tab guard, never a workspace selector.
+  if (requestHeaders.has("x-client-id") && requestHeaders.get("x-client-id") !== clientId) throw new RequestError("The client changed in another tab. Reload this page before continuing.", 403);
+  const client = await database().prepare(`SELECT c.id,c.name,CASE WHEN l.image IS NOT NULL THEN l.version END AS "logoKey" FROM clients c LEFT JOIN client_logos l ON l.client_id=c.id WHERE c.id=? AND c.archived_at IS NULL`).bind(clientId).first<{ id: string; name: string; logoKey: string | null }>();
+  if (!client) return null;
+  selectWorkspace(client);
+  return { ...session.user, clientId, clientName: client.name, clientLogoKey: client.logoKey };
 }
 export async function requirePage(page: "admin" | "controller" | "monitor") {
-  const user = await currentUser(new Headers(await headers()));
-  if (!user) redirect(`/login?next=/${page}`);
+  let user: AuthUser | null;
+  try { user = await currentUser(new Headers(await headers())); }
+  catch (error) { if (error instanceof RequestError && error.status === 403) redirect("/workspaces"); throw error; }
+  if (!user) redirect("/workspaces");
   if (!canOpen(user.role, page)) redirect(roleHome(user.role));
   return user;
 }

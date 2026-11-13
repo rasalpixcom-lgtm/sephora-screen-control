@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 const reply = (body: object, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const validId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 256;
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return reply({ error: "Sign in again." }, 401);
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   } catch (error) { return requestFailure(error); }
 }
 
-export async function PUT(request: NextRequest) {
+async function PUTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
     const user = await currentUser(request.headers);
@@ -50,3 +51,7 @@ export async function PUT(request: NextRequest) {
     return result;
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const PUT = withWorkspace(PUTHandler);

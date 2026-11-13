@@ -21,13 +21,13 @@ try {
   const file = new File([bytes], "../../private.png", { type: "image/png" });
   const key = await prepareScreenPhoto(file);
   check(/^[a-f0-9-]{36}$/.test(key), "storage references are generated independently of uploaded filenames");
-  check((await fs.readdir(directory)).length === 2, "each saved photo has a normalized image and thumbnail");
+  check((await fs.readdir(path.join(directory, "clients/client-sephora"))).length === 2, "each saved photo has a normalized image and thumbnail");
   check((await sharp(await readScreenPhoto(key, true)).metadata()).width === 320, "thumbnail is limited to 320 pixels wide");
   await rejects(() => readScreenPhoto("../../secret", true), 400);
   await rejects(() => prepareScreenPhoto(new File([], "empty.png", { type: "image/png" })), 413);
   await rejects(() => prepareScreenPhoto(new File([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])], "broken.png", { type: "image/png" })), 400);
   await removeScreenPhoto(key); await removeScreenPhoto(key);
-  check((await fs.readdir(directory)).length === 0, "removal deletes both images and is repeatable");
+  check((await fs.readdir(path.join(directory, "clients/client-sephora"))).length === 0, "removal deletes both images and is repeatable");
   const form = new FormData(); form.set("metadata", JSON.stringify({ action: "create", type: "screen" })); form.set("photo", file);
   const parsed = await readScreenMutation(new Request("http://localhost", { method: "POST", body: form }));
   check(parsed.file.size === file.size && parsed.body.type === "screen", "bounded multipart request retains metadata and a single image");
@@ -42,7 +42,7 @@ try {
   delete process.env.SCREEN_PHOTO_DIR;
   const standalone = path.join(directory, ".next", "standalone"); await fs.mkdir(standalone, { recursive: true }); process.chdir(standalone);
   const durableKey = await prepareScreenPhoto(file);
-  check((await fs.stat(path.join(directory, "uploads/screen-photos", durableKey + ".webp"))).isFile(), "standalone default storage is outside the replaceable build folder");
+  check((await fs.stat(path.join(directory, "uploads/screen-photos/clients/client-sephora", durableKey + ".webp"))).isFile(), "standalone default storage is outside the replaceable build folder");
   await removeScreenPhoto(durableKey);
   console.log(`${checks} screen photo storage/upload checks passed.`);
 } finally {

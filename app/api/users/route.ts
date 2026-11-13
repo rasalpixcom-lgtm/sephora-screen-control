@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { hashPassword } from "@/lib/password";
 import { auditUser, currentUser, sameOrigin } from "@/lib/auth";
 import { roles, validPassword, type Role } from "@/lib/auth-policy";
@@ -6,7 +7,7 @@ import { readObject, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
 async function list() { return (await database().prepare("SELECT u.id, u.name, u.email, u.role, u.disabled, (SELECT COUNT(*)::int FROM auth_session s WHERE s.user_id = u.id AND s.expires_at > ?) AS sessions FROM auth_user u WHERE u.role IN ('admin', 'controller') ORDER BY u.created_at").bind(new Date()).all()).results; }
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   return Response.json({ users: await list() }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   if (!sameOrigin(request)) return bad("Invalid request origin.", 403);
   try {
   const actor = await currentUser(request.headers);
@@ -77,3 +78,7 @@ export async function POST(request: Request) {
     return requestFailure(error);
   }
 }
+
+export const GET = withWorkspace(GETHandler);
+
+export const POST = withWorkspace(POSTHandler);

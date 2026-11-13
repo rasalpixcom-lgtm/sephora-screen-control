@@ -1,3 +1,4 @@
+import { activeClientName } from "./client-workspace";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -25,7 +26,7 @@ export async function renderWhatsAppAlertPdf(report: WhatsAppPdfReport): Promise
   if (!Number.isFinite(report.generatedAt.getTime())) throw new Error("Invalid report time");
   const rows = [...report.rows].sort((a, b) => elapsed(b, report.generatedAt) - elapsed(a, report.generatedAt) || a.screenName.localeCompare(b.screenName));
   const doc = new PDFDocument({ size: "A4", margins: { top: 36, right: 40, bottom: 32, left: 40 }, bufferPages: true, compress: true,
-    info: { Title: report.kind === "test" ? "WhatsApp PDF test - sample data" : "Sephora preview availability report", Author: "Sephora Screen Control" } });
+    info: { Title: report.kind === "test" ? "WhatsApp PDF test - sample data" : `${activeClientName()} preview availability report`, Author: `${activeClientName()} Screen Control` } });
   const chunks: Buffer[] = [];
   doc.on("data", chunk => chunks.push(Buffer.from(chunk)));
   const finished = new Promise<Buffer>((resolve, reject) => { doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });
@@ -42,7 +43,11 @@ export async function renderWhatsAppAlertPdf(report: WhatsAppPdfReport): Promise
     const logo = path.join(process.cwd(), "public/images/pixcom-report-logo.png");
     const brand = () => {
       doc.rect(left, 30, width, 3).fill(accent);
-      doc.font(bold).fontSize(12).fillColor(colors.ink).text("SEPHORA", left, 50, { characterSpacing: 2 });
+      let clientLabel = activeClientName().toUpperCase();
+      doc.font(bold).fontSize(12);
+      while (clientLabel.length && doc.widthOfString(clientLabel + "…", { characterSpacing: 2 }) > width - 120) clientLabel = clientLabel.slice(0, -1);
+      if (clientLabel !== activeClientName().toUpperCase()) clientLabel += "…";
+      doc.fillColor(colors.ink).text(clientLabel, left, 50, { characterSpacing: 2, lineBreak: false });
       doc.font(regular).fontSize(8).fillColor(colors.muted).text("SCREEN CONTROL", left, 68, { characterSpacing: 1.1 });
       if (fs.existsSync(logo)) {
         const scale = 96 / 1228;

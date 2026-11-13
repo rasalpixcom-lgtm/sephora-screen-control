@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { notFound } from "next/navigation";
 import AdminDashboard from "@/components/admin-dashboard";
 import { requirePage } from "@/lib/auth";
@@ -6,7 +7,7 @@ import type { Entity } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ screenId: string }> }) {
+async function Page({ params }: { params: Promise<{ screenId: string }> }) {
   const account = await requirePage("admin");
   const { screenId } = await params;
   if (!screenId || screenId.length > 256) notFound();
@@ -21,5 +22,7 @@ export default async function Page({ params }: { params: Promise<{ screenId: str
     WHERE e.id = ? AND e.type = 'screen'
   `).bind(screenId).first<Entity & { location: string }>();
   if (!screen) notFound();
-  return <AdminDashboard section="screens" accountEmail={account.email} screenDetails={{ screen, location: screen.location }}/>;
+  return <AdminDashboard section="screens" accountEmail={account.email} clientId={account.clientId} clientName={account.clientName} clientLogoKey={account.clientLogoKey} screenDetails={{ screen, location: screen.location }}/>;
 }
+
+export default withWorkspace(Page);

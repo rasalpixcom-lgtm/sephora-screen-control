@@ -1,0 +1,125 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import net from 'node:net';
+import path from 'node:path';
+import pg from 'pg';
+import fs from 'node:fs/promises';
+import sharp from 'sharp';
+import {migrate} from '../scripts/migrate-postgres.mjs';
+const name='sephora_selection_test_'+crypto.randomBytes(8).toString('hex');
+const adminUrl=new URL(process.env.DATABASE_URL); adminUrl.pathname='/postgres';
+const testUrl=new URL(process.env.DATABASE_URL); testUrl.pathname='/'+name;
+const admin=new pg.Pool({connectionString:adminUrl.href}), pool=new pg.Pool({connectionString:testUrl.href});
+const photoDir=await fs.mkdtemp(path.resolve('.server-runtime/client-selection-photos-'));
+let server,created=false,logs='',checks=0;
+const check=(value,label)=>{assert.ok(value,label);checks++;console.log('PASS '+label)};
+
+try {
+ await admin.query(`CREATE DATABASE "${name}"`);created=true;await migrate(pool);await migrate(pool);
+ const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
+ const origin=`http://127.0.0.1:${port}`,token=crypto.randomBytes(32).toString('hex'),password='CMS-UI-Test-2026!';
+ server=spawn(process.execPath,[path.resolve('.next/standalone/server.js')],{env:{...process.env,SCREEN_PHOTO_DIR:path.join(photoDir,'screen'),LOCATION_PHOTO_DIR:path.join(photoDir,'location'),PORT:String(port),HOSTNAME:'127.0.0.1',DATABASE_URL:testUrl.href,AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:'',AUTH_SECRET:crypto.randomBytes(48).toString('hex'),AUTH_ADMIN_EMAIL:'cms-admin@example.test',AUTH_BOOTSTRAP_HASH:crypto.createHash('sha256').update(token).digest('hex'),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),ONSIGN_API_TOKEN:'',PIXCOM_CLIENT_INTEGRATIONS:'{"sephora":{},"other":{}}',EMAIL_ALERT_WORKER_DISABLED:'true',WHATSAPP_ALERT_WORKER_DISABLED:'true',ALERT_EMAIL_USER:'',ALERT_EMAIL_APP_PASSWORD:'',ULTRAMSG_TOKEN:''},windowsHide:true,stdio:['ignore','pipe','pipe']});
+ server.stdout.on('data',b=>logs+=b);server.stderr.on('data',b=>logs+=b);
+ let ready=false;for(let i=0;i<100;i++){try{if((await fetch(origin+'/api/health')).ok){ready=true;break}}catch{} await new Promise(r=>setTimeout(r,250));}
+ assert.ok(ready,'server health: '+logs.slice(-2000));
+ const request=(route,body,cookie='',extra={})=>fetch(origin+route,{method:body===undefined?'GET':'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ check((await request('/api/cms-support')).status===401,'list requires a session');
+ check((await request('/api/cms-support',{action:'create'})).status===401,'write requires a session');
+ assert.ok((await request('/api/activate',{token,password})).ok);
+ const login=await request('/api/auth/sign-in/email',{email:'cms-admin@example.test',password});assert.ok(login.ok);const cookie=login.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
+
+ const adminId=(await pool.query("SELECT id FROM auth_user WHERE email='cms-admin@example.test'")).rows[0].id;
+ await pool.query("INSERT INTO clients(id,slug,name) VALUES('other','other','Other Client'),('unassigned','unassigned','Private Client')");
+ await pool.query("SELECT pixcom_provision_client('other')");
+ await pool.query("SELECT pixcom_provision_client('unassigned')");
+ await pool.query("INSERT INTO client_memberships(client_id,user_id,role) VALUES('other',$1,'admin')",[adminId]);
+ const select=async(id,session=cookie)=>{const r=await request('/api/workspaces',{clientId:id},session);assert.ok(r.ok,await r.clone().text());return session+'; '+r.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');};
+ check((await fetch(origin+'/workspaces',{redirect:'manual'})).status===307,'picker requires sign in');
+ const picker=await (await fetch(origin+'/workspaces',{headers:{Cookie:cookie}})).text();
+ check(picker.includes('Sephora')&&picker.includes('Other Client')&&picker.includes('Private Client'),'picker lists every active client');
+ check((await request('/api/workspaces',{clientId:'unassigned'},cookie)).status===200,'client selection needs no individual assignment');
+ check((await fetch(origin+'/api/workspaces',{method:'POST',headers:{Origin:'https://evil.example','Content-Type':'application/json',Cookie:cookie},body:'{"clientId":"other"}'})).status===403,'selection requires same origin');
+ for(const id of ['../other','other\\path','OTHER',"other' OR true--",'x'.repeat(65)])check((await request('/api/workspaces',{clientId:id},cookie)).status===400,'invalid selector is rejected');
+ const sephora=await select('sephora'),other=await select('other');
+ const selected=await request('/api/workspaces',{clientId:'other'},cookie);
+ check(selected.headers.getSetCookie().some(x=>x.includes('HttpOnly')&&x.includes('SameSite=lax')),'selection cookie is private and same-site');
+ for(const [session,label] of [[sephora,'Sephora only'],[other,'Other only']])check((await request('/api/state',{action:'create',type:'country',name:label,shortName:'UAE'},session)).ok,'create in '+label);
+ check((await request('/api/state',{action:'create',type:'country',name:'Duplicate abbreviation',shortName:'uae'},other)).status===400,'country abbreviations are unique within each client, not across clients');
+ const names=async(c)=> (await (await request('/api/state',undefined,c)).json()).entities.map(x=>x.name);
+ check((await names(sephora)).includes('Sephora only')&&!(await names(sephora)).includes('Other only'),'Sephora reads only its data');
+ check((await names(other)).includes('Other only')&&!(await names(other)).includes('Sephora only'),'other client reads only its data');
+ check((await pool.query("SELECT client_id FROM entities WHERE name='Other only'")).rows[0].client_id==='other','new rows receive selected client ownership');
+ check((await request('/api/state',{action:'create',type:'country',name:'Stale tab'},other,{'x-client-id':'sephora'})).status===403,'stale tab cannot write after client switch');
+ check((await request('/api/state',undefined,cookie,{'x-client-id':'other'})).status===403,'header cannot select another client');
+ const forged=other.replace(/pixcom-workspace=[^;]+/,'pixcom-workspace=other.'+'0'.repeat(64));
+ check((await request('/api/state',undefined,forged)).status===403,'forged selection cookie rejected');
+ const resetAccount=await fetch(origin+'/account',{headers:{Cookie:forged},redirect:'manual'});
+ check(resetAccount.status===307&&resetAccount.headers.get('location')==='/workspaces','account page returns invalid selection to picker instead of an error page');
+ // Parallel interleaving must never reuse another request context/pool.
+ const mixed=await Promise.all(Array.from({length:50},async(_,i)=>{const isOther=i%2===1;const list=await names(isOther?other:sephora);return list.includes(isOther?'Other only':'Sephora only')&&!list.includes(isOther?'Sephora only':'Other only');}));
+ check(mixed.every(Boolean),'50 simultaneous requests retain independent ownership');
+ const otherPage=await (await fetch(origin+'/admin',{headers:{Cookie:other}})).text();
+ check(otherPage.includes('OTHER CLIENT')&&otherPage.includes('data-client-workspace="other"')&&otherPage.includes('Switch client'),'workspace renders correct client identity and switch link');
+ check((await request('/api/users',undefined,other)).status===200,'Admin can manage accounts from any selected client');
+ const monitor=await (await request('/api/monitor-link',{action:'create'},other)).json();
+ check(monitor.link.includes('/monitor?client=other#key='),'new monitor link carries client without exposing secret in query');
+ const key=new URL(monitor.link).hash.slice(5);
+ const monitorRequest=(client)=>fetch(origin+'/api/monitor-state'+client,{headers:{Authorization:'Bearer '+key}});
+ check((await monitorRequest('?client=other')).ok,'capability opens only its client monitor');
+ check((await monitorRequest('')).status===401,'other client key cannot open legacy Sephora monitor');
+ const sephoraMonitor=await (await request('/api/monitor-link',{action:'create'},sephora)).json();
+ check(sephoraMonitor.link.includes('/monitor#key='),'legacy Sephora monitor link format retained');
+ const image=await sharp({create:{width:30,height:60,channels:3,background:'#13765c'}}).webp().toBuffer();
+ for(const [id,session] of [['sephora',sephora],['other',other]]){
+   await pool.query("INSERT INTO entities(id,type,name,created_at,client_id,screen_type) VALUES($1,'screen',$2,now(),$3,'LED')",[id+'-screen',id+' screen',id]);
+   const form=new FormData();form.set('metadata',JSON.stringify({action:'replace',screenId:id+'-screen',category:'media_player',expectedKey:null}));form.set('photo',new Blob([image],{type:'image/webp'}),'photo.webp');
+   const uploaded=await fetch(origin+'/api/screen-gallery',{method:'PUT',headers:{Cookie:session,Origin:origin},body:form});
+   check(uploaded.ok,id+' can save its media player photo: '+(uploaded.ok?'ok':await uploaded.text()));
+   const row=(await pool.query("SELECT photo_key FROM screen_reference_photos WHERE screen_id=$1",[id+'-screen'])).rows[0];
+   check(!!row&&await fs.stat(path.join(photoDir,'screen','clients','client-'+id,row.photo_key+'.webp')).then(()=>true),id+' upload uses its own folder');
+   const photo=await request('/api/screen-gallery?screenId='+id+'-screen&category=media_player&v='+row.photo_key,undefined,session);
+   check(photo.ok,id+' can view its own media player photo');
+   const foreign=await request('/api/screen-gallery?screenId='+id+'-screen&category=media_player&v='+row.photo_key,undefined,id==='other'?sephora:other);
+   check(foreign.status===404,'another client cannot view '+id+' photo');
+ }
+ const ownId=(await pool.query("SELECT id FROM entities WHERE client_id='other' AND type='country'")).rows[0].id;
+ check((await request('/api/state',{action:'update',type:'country',id:ownId,name:'Foreign edit'},sephora)).status===404,'foreign ID cannot be edited');
+ check((await request('/api/reports/screens/pdf',undefined,other)).headers.get('content-type')?.includes('application/pdf'),'other client can download its scoped PDF');
+ check((await (await request('/api/onsign',undefined,other)).json()).configured===false,'other client does not inherit Sephora integration');
+ await pool.query("UPDATE client_memberships SET role='controller' WHERE client_id='other' AND user_id=$1",[adminId]);
+ check((await request('/api/state',{action:'create',type:'country',name:'Still Admin'},other)).status===200,'legacy membership role does not override global Admin');
+ await pool.query("UPDATE client_memberships SET role='admin' WHERE client_id='other' AND user_id=$1",[adminId]);
+ await pool.query("DELETE FROM client_memberships WHERE client_id='other' AND user_id=$1",[adminId]);
+ check((await request('/api/state',undefined,other)).status===200,'legacy membership removal does not block global account');
+ check((await request('/api/workspaces',{clientId:'other'},cookie)).status===200,'global account can reselect without membership');
+ check((await request('/api/state',undefined,sephora)).ok,'other revocation leaves Sephora access working');
+ await pool.query("INSERT INTO client_memberships(client_id,user_id,role) VALUES('other',$1,'admin')",[adminId]);
+ await pool.query("UPDATE clients SET archived_at=now() WHERE id='other'");
+ check((await request('/api/state',undefined,other)).status===401,'archived client rejected on current session');
+ check((await request('/api/workspaces',{clientId:'other'},cookie)).status===403,'archived client cannot be selected');
+ check((await request('/api/state',undefined,sephora)).ok,'archiving another client leaves Sephora working');
+ await pool.query("UPDATE clients SET archived_at=NULL WHERE id='other'");
+ check((await request('/api/state',undefined,other)).ok,'unarchive restores authorized selection');
+ const nextSession=await request('/api/auth/sign-in/email',{email:'cms-admin@example.test',password});
+ const nextCookie=nextSession.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
+ const oldSelection=other.split('; ').find(x=>x.startsWith('pixcom-workspace='));
+ check((await request('/api/state',undefined,nextCookie+'; '+oldSelection)).status===403,'selection is bound to its login session');
+ // A user with no Sephora membership can still choose the client they belong to.
+ const made=await request('/api/users',{action:'create',name:'Other controller',email:'only-other@example.test',role:'controller',password},sephora);assert.ok(made.ok);
+ const onlyId=(await pool.query("SELECT id FROM auth_user WHERE email='only-other@example.test'")).rows[0].id;
+ await pool.query("DELETE FROM client_memberships WHERE user_id=$1",[onlyId]);await pool.query("INSERT INTO client_memberships(client_id,user_id,role) VALUES('other',$1,'admin')",[onlyId]);
+ const loginOnly=await request('/api/auth/sign-in/email',{email:'only-other@example.test',password});const onlyCookie=loginOnly.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
+ check((await request('/api/session',undefined,onlyCookie)).ok,'other-only account can complete login');
+ const only=await select('other',onlyCookie);
+ check((await names(only)).includes('Other only'),'other-only account can open its permitted workspace');
+ check((await request('/api/state',{action:'create',type:'country',name:'No elevation'},only)).status===403,'client membership cannot elevate global controller');
+ check((await request('/api/workspaces',{clientId:'sephora'},onlyCookie)).status===200,'Controller can select Sephora without assignment');
+ check((await pool.query("SELECT count(*)::int AS n FROM entities WHERE name IN ('Stale tab','Foreign edit','Denied','No elevation')")).rows[0].n===0,'all rejected writes leave original data unchanged');
+ console.log(checks+' client selection integration checks passed.');
+} finally {
+ if(server && server.exitCode===null){const exit=once(server,'exit');server.kill();await exit;}
+ await fs.rm(photoDir,{recursive:true,force:true});
+ await pool.end();if(created)await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();
+}

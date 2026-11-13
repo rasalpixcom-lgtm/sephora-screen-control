@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { readLocationPhoto } from "@/lib/location-photo";
@@ -6,7 +7,7 @@ import { requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" };
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return Response.json({ error: "Sign in again." }, { status: 401, headers });
@@ -22,3 +23,5 @@ export async function GET(request: Request) {
     return new Response(new Uint8Array(bytes), { headers: { ...headers, "Content-Type": "image/webp", "Content-Length": String(bytes.length), "Content-Disposition": 'inline; filename="location-photo.webp"' } });
   } catch (error) { return requestFailure(error); }
 }
+
+export const GET = withWorkspace(GETHandler);

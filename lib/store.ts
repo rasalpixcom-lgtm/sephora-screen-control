@@ -1,3 +1,4 @@
+import { activeClientId } from "@/lib/client-workspace";
 import { database, type ServerDatabase } from "@/lib/database";
 export { database } from "@/lib/database";
 
@@ -19,7 +20,7 @@ export async function readState(db: ServerDatabase = database(), includeActivity
   const locationDetails = Object.fromEntries(locationDetailsResult.results.map(({ locationId, fields, version }) => [locationId, { fields, version }]));
   const membersResult = await db.prepare("SELECT group_id AS \"groupId\", screen_id AS \"screenId\" FROM group_members").all<Member>();
   const locationPhotosResult = includeLocationPhotos ? await db.prepare("SELECT id, location_id AS \"locationId\", position, label FROM location_photos ORDER BY location_id, position").all<LocationPhoto>() : { results: [] as LocationPhoto[] };
-  const displayResult = await db.prepare("SELECT selection, auto_advance AS \"autoAdvance\", interval_seconds AS \"intervalSeconds\", updated_at AS \"updatedAt\" FROM display_state WHERE id = 'main'").first<{selection:string;autoAdvance:number;intervalSeconds:number;updatedAt:string}>();
+  const displayResult = await db.prepare(`SELECT selection, auto_advance AS "autoAdvance", interval_seconds AS "intervalSeconds", updated_at AS "updatedAt" FROM display_state WHERE client_id='${activeClientId()}' AND id = 'main'`).first<{selection:string;autoAdvance:number;intervalSeconds:number;updatedAt:string}>();
   const activityResult = includeActivity ? await db.prepare("SELECT id, action, entity_type AS \"entityType\", entity_id AS \"entityId\", entity_name AS \"entityName\", actor, created_at AS \"createdAt\" FROM activity_log ORDER BY created_at DESC LIMIT 60").all<Activity>() : { results: [] as Activity[] };
   const display: Display = displayResult ? {
     selection: JSON.parse(displayResult.selection), autoAdvance: !!displayResult.autoAdvance,

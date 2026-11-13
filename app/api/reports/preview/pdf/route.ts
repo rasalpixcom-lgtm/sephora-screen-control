@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { fetchPreviewReport, parsePreviewReportQuery, PreviewReportQueryError } from "@/lib/preview-report";
@@ -5,7 +6,7 @@ import { renderPreviewReportPdf } from "@/lib/preview-report-pdf";
 import { requestFailure } from "@/lib/request";
 
 export const runtime = "nodejs";
-export async function GET(request:NextRequest) {
+async function GETHandler(request:NextRequest) {
   const noStore = {"Cache-Control":"no-store",Vary:"Cookie"};
   try {
     const user = await currentUser(request.headers);
@@ -21,3 +22,5 @@ export async function GET(request:NextRequest) {
     return requestFailure(error);
   }
 }
+
+export const GET = withWorkspace(GETHandler);

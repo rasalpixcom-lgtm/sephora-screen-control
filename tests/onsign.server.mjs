@@ -18,6 +18,8 @@ let server, logs = "", created = false, checks = 0;
 const uiFinished = path.resolve(".server-runtime/onsign-ui-finished");
 const photoDirectory = path.resolve(".server-runtime", databaseName + "-photos");
 const locationPhotoDirectory = path.resolve(".server-runtime", databaseName + "-location-photos");
+const screenClientDirectory = path.join(photoDirectory, "clients/client-sephora");
+const locationClientDirectory = path.join(locationPhotoDirectory, "clients/client-sephora");
 const check = (value, message) => { assert.ok(value, message); checks++; console.log("PASS " + message); };
 try {
   await adminPool.query(`CREATE DATABASE "${databaseName}"`); created = true;
@@ -93,17 +95,17 @@ try {
   check(!fullInfo.exif && !fullInfo.orientation && !fullInfo.xmp, "saved photo strips EXIF and location metadata");
   check(full.headers.get("cache-control") === "private, no-store" && full.headers.get("x-content-type-options") === "nosniff", "photo responses remain private and non-sniffable");
   check((await request(photoUrl())).status === 401 && (await request(photoUrl("full", "../../secret"), undefined, cookie)).status === 404, "private photos cannot be read anonymously or through arbitrary file paths");
-  const beforeFailedSave = fs.readdirSync(photoDirectory).length;
-  check((await upload({ ...photoUpdate, name: "", photoExpectedKey: key })).status === 400 && fs.readdirSync(photoDirectory).length === beforeFailedSave, "failed inventory validation removes newly prepared photo files");
+  const beforeFailedSave = fs.readdirSync(screenClientDirectory).length;
+  check((await upload({ ...photoUpdate, name: "", photoExpectedKey: key })).status === 400 && fs.readdirSync(screenClientDirectory).length === beforeFailedSave, "failed inventory validation removes newly prepared photo files");
   const replaced = await upload({ ...photoUpdate, photoExpectedKey: key });
   const nextKey = (await replaced.json()).entities.find(item => item.id === screen.id).photoKey;
-  check(replaced.ok && nextKey !== key && !fs.existsSync(path.join(photoDirectory, key + ".webp")), "replacement removes old image files only after successful save");
-  check((await upload({ ...photoUpdate, photoExpectedKey: key })).status === 409 && fs.readdirSync(photoDirectory).length === beforeFailedSave, "stale photo changes are rejected and staged files cleaned up");
+  check(replaced.ok && nextKey !== key && !fs.existsSync(path.join(screenClientDirectory, key + ".webp")), "replacement removes old image files only after successful save");
+  check((await upload({ ...photoUpdate, photoExpectedKey: key })).status === 409 && fs.readdirSync(screenClientDirectory).length === beforeFailedSave, "stale photo changes are rejected and staged files cleaned up");
   key = nextKey;
   const noPhotoChange = await request("/api/state", { action: "update", type: "screen", id: screen.id, name: screen.name, parentId: location.id, liveUrl: screen.liveUrl }, cookie);
   check(noPhotoChange.ok && (await noPhotoChange.json()).entities.find(item => item.id === screen.id).photoKey === key, "older clients and ordinary edits preserve the saved photo");
   const removedPhoto = await request("/api/state", { ...photoUpdate, photoAction: "remove", photoExpectedKey: key }, cookie);
-  check(removedPhoto.ok && (await request(photoUrl(), undefined, cookie)).status === 404 && !fs.existsSync(path.join(photoDirectory, key + ".webp")), "removal revokes image access and deletes the stored image pair");
+  check(removedPhoto.ok && (await request(photoUrl(), undefined, cookie)).status === 404 && !fs.existsSync(path.join(screenClientDirectory, key + ".webp")), "removal revokes image access and deletes the stored image pair");
   const finalPhoto = await upload(photoUpdate); key = (await finalPhoto.json()).entities.find(item => item.id === screen.id).photoKey;
   check(finalPhoto.ok, "a new photo can be saved after removal");
   const photoCreate = await upload({ action: "create", type: "screen", name: "Photo-only Screen", parentId: location.id, photoAction: "replace", photoExpectedKey: null });
@@ -127,11 +129,11 @@ try {
   const serialImage = await request(galleryBase + `&category=serial&v=${serial}&size=full`, undefined, cookie);
   check(serialImage.ok && serialImage.headers.get("content-type") === "image/webp", "gallery serves protected full-size normalized images");
   check((await request(galleryBase + `&category=issues&v=${serial}`, undefined, cookie)).status === 404, "gallery cannot read a photo under a different category");
-  const filesBeforeConflict = fs.readdirSync(photoDirectory).length;
-  check((await galleryChange("serial", null)).status === 409 && fs.readdirSync(photoDirectory).length === filesBeforeConflict, "stale gallery edits are rejected and staged files cleaned up");
+  const filesBeforeConflict = fs.readdirSync(screenClientDirectory).length;
+  check((await galleryChange("serial", null)).status === 409 && fs.readdirSync(screenClientDirectory).length === filesBeforeConflict, "stale gallery edits are rejected and staged files cleaned up");
   const serialReplacement = await galleryChange("serial", serial), replacementKey = (await serialReplacement.json()).key;
-  check(serialReplacement.ok && replacementKey !== serial && !fs.existsSync(path.join(photoDirectory, serial + ".webp")), "gallery replacement cleans old files after saving");
-  check((await galleryChange("serial", replacementKey, "remove")).ok && !fs.existsSync(path.join(photoDirectory, replacementKey + ".webp")), "gallery removal deletes the saved image pair");
+  check(serialReplacement.ok && replacementKey !== serial && !fs.existsSync(path.join(screenClientDirectory, serial + ".webp")), "gallery replacement cleans old files after saving");
+  check((await galleryChange("serial", replacementKey, "remove")).ok && !fs.existsSync(path.join(screenClientDirectory, replacementKey + ".webp")), "gallery removal deletes the saved image pair");
   const issuesResponse = await galleryChange("issues", null), issuesKey = (await issuesResponse.json()).key;
   check(issuesResponse.ok && issuesKey, "issues photo saves independently");
   const frontResponse = await galleryChange("front", photoOnly.photoKey), frontKey = (await frontResponse.json()).key;
@@ -147,14 +149,14 @@ try {
     ledKeys.push(savedKey);
     check((await request(galleryBase + `&category=${category}&v=${savedKey}&size=full`, undefined, cookie)).ok, `LED ${category} full image is viewable`);
   }
-  const beforeLedConflict = fs.readdirSync(photoDirectory).length;
-  check((await galleryChange("sending_card", null)).status === 409 && fs.readdirSync(photoDirectory).length === beforeLedConflict, "LED photo conflicts clean staged files");
+  const beforeLedConflict = fs.readdirSync(screenClientDirectory).length;
+  check((await galleryChange("sending_card", null)).status === 409 && fs.readdirSync(screenClientDirectory).length === beforeLedConflict, "LED photo conflicts clean staged files");
   await pool.query("UPDATE entities SET screen_type = 'LCD' WHERE id = $1", [photoOnly.id]);
   const lcdGallery = await (await request(galleryBase, undefined, cookie)).json();
   check(Object.keys(lcdGallery.photos).length === 5 && lcdGallery.photos.media_player === ledKeys[3] && lcdGallery.photos.connection_diagram === null && (await request(galleryBase + `&category=back_cabling&v=${ledKeys[0]}`, undefined, cookie)).status === 400, "LCD gallery exposes five categories including the saved media player and blocks LED-only image access");
   check((await request(galleryBase + `&category=media_player&v=${ledKeys[3]}&size=full`, undefined, cookie)).ok, "LCD media player photo opens full-size");
   const lcdPlayerPhoto = await galleryChange("media_player", ledKeys[3]), lcdPlayerKey = (await lcdPlayerPhoto.json()).key;
-  check(lcdPlayerPhoto.ok && !fs.existsSync(path.join(photoDirectory, ledKeys[3] + ".webp")), "LCD media player replacement cleans previous files");
+  check(lcdPlayerPhoto.ok && !fs.existsSync(path.join(screenClientDirectory, ledKeys[3] + ".webp")), "LCD media player replacement cleans previous files");
   check((await galleryChange("media_player", ledKeys[3])).status === 409, "LCD media player photo rejects stale edits");
   check((await galleryChange("media_player", lcdPlayerKey, "remove")).ok, "LCD optional media player photo can be removed");
   const lcdPlayerNew = await galleryChange("media_player", null); ledKeys[3] = (await lcdPlayerNew.json()).key;
@@ -163,8 +165,8 @@ try {
   check(connectionResponse.ok && (await request(galleryBase + `&category=connection_diagram&v=${connectionKey}&size=full`, undefined, cookie)).ok, "LCD connection diagram uploads and opens full-size");
   check((await galleryChange("connection_diagram", null)).status === 409, "LCD diagram rejects stale changes");
   const replacedConnection = await galleryChange("connection_diagram", connectionKey), replacedConnectionKey = (await replacedConnection.json()).key;
-  check(replacedConnection.ok && !fs.existsSync(path.join(photoDirectory, connectionKey + ".webp")), "LCD diagram replacement cleans old files");
-  check((await galleryChange("connection_diagram", replacedConnectionKey, "remove")).ok && !fs.existsSync(path.join(photoDirectory, replacedConnectionKey + ".webp")), "LCD diagram removal cleans files");
+  check(replacedConnection.ok && !fs.existsSync(path.join(screenClientDirectory, connectionKey + ".webp")), "LCD diagram replacement cleans old files");
+  check((await galleryChange("connection_diagram", replacedConnectionKey, "remove")).ok && !fs.existsSync(path.join(screenClientDirectory, replacedConnectionKey + ".webp")), "LCD diagram removal cleans files");
   const retainedConnection = (await (await galleryChange("connection_diagram", null)).json()).key;
   check((await galleryChange("power_network", ledKeys[4])).status === 400, "screen-type changes block stale LED uploads");
   await pool.query("UPDATE entities SET screen_type = 'Video Wall' WHERE id = $1", [photoOnly.id]);
@@ -173,10 +175,10 @@ try {
   check((await request(galleryBase + `&category=connection_diagram&v=${retainedConnection}`, undefined, cookie)).status === 400 && (await galleryChange("connection_diagram", retainedConnection)).status === 400, "Video Wall blocks LCD-only photo reads and writes");
   for (const [category, index] of [["back_cabling", 0], ["looping_diagram", 1], ["media_player", 3]]) {
     const wallResponse = await galleryChange(category, ledKeys[index]), wallKey = (await wallResponse.json()).key;
-    check(wallResponse.ok && (await request(galleryBase + `&category=${category}&v=${wallKey}&size=full`, undefined, cookie)).ok && !fs.existsSync(path.join(photoDirectory, ledKeys[index] + ".webp")), `Video Wall ${category} replaces and opens full-size`);
+    check(wallResponse.ok && (await request(galleryBase + `&category=${category}&v=${wallKey}&size=full`, undefined, cookie)).ok && !fs.existsSync(path.join(screenClientDirectory, ledKeys[index] + ".webp")), `Video Wall ${category} replaces and opens full-size`);
     ledKeys[index] = wallKey;
   }
-  check((await galleryChange("looping_diagram", ledKeys[1], "remove")).ok && !fs.existsSync(path.join(photoDirectory, ledKeys[1] + ".webp")), "Video Wall loop diagram removal cleans files");
+  check((await galleryChange("looping_diagram", ledKeys[1], "remove")).ok && !fs.existsSync(path.join(screenClientDirectory, ledKeys[1] + ".webp")), "Video Wall loop diagram removal cleans files");
   ledKeys[1] = (await (await galleryChange("looping_diagram", null)).json()).key;
   await pool.query("UPDATE entities SET screen_type = 'LCD' WHERE id = $1", [photoOnly.id]);
   check((await (await request(galleryBase, undefined, cookie)).json()).photos.connection_diagram === retainedConnection, "LCD diagram is preserved across screen-type changes");
@@ -185,10 +187,10 @@ try {
   check(Object.keys(restoredLed.photos).length === 8 && (await galleryChange("connection_diagram", null)).status === 400, "LED keeps eight categories and rejects LCD-only uploads");
   check(restoredLed.photos.back_cabling === ledKeys[0] && (await request(galleryBase + `&category=back_cabling&v=${ledKeys[0]}`, undefined, cookie)).ok, "changing back to LED restores existing photos without data loss");
   const replacedLed = await galleryChange("sending_card", ledKeys[2]), replacedLedKey = (await replacedLed.json()).key;
-  check(replacedLed.ok && !fs.existsSync(path.join(photoDirectory, ledKeys[2] + ".webp")), "LED photo replacement cleans previous files");
+  check(replacedLed.ok && !fs.existsSync(path.join(screenClientDirectory, ledKeys[2] + ".webp")), "LED photo replacement cleans previous files");
   ledKeys[2] = replacedLedKey;
-  check((await galleryChange("media_player", ledKeys[3], "remove")).ok && !fs.existsSync(path.join(photoDirectory, ledKeys[3] + ".webp")), "LED photo removal deletes its files");
-  check((await request("/api/state", { action: "delete", id: photoOnly.id }, cookie)).ok && !fs.existsSync(path.join(photoDirectory, frontKey + ".webp")) && !fs.existsSync(path.join(photoDirectory, issuesKey + ".webp")) && !fs.existsSync(path.join(photoDirectory, retainedConnection + ".webp")) && ledKeys.every(photoKey => !fs.existsSync(path.join(photoDirectory, photoKey + ".webp"))), "screen deletion removes common, LED, Video Wall and hidden LCD photos");
+  check((await galleryChange("media_player", ledKeys[3], "remove")).ok && !fs.existsSync(path.join(screenClientDirectory, ledKeys[3] + ".webp")), "LED photo removal deletes its files");
+  check((await request("/api/state", { action: "delete", id: photoOnly.id }, cookie)).ok && !fs.existsSync(path.join(screenClientDirectory, frontKey + ".webp")) && !fs.existsSync(path.join(screenClientDirectory, issuesKey + ".webp")) && !fs.existsSync(path.join(screenClientDirectory, retainedConnection + ".webp")) && ledKeys.every(photoKey => !fs.existsSync(path.join(screenClientDirectory, photoKey + ".webp"))), "screen deletion removes common, LED, Video Wall and hidden LCD photos");
   const locationUpload = (metadata, count = 1, session = cookie, originHeader = origin, bytes = photoBytes, type = "image/png") => {
     const form = new FormData(); form.set("metadata", JSON.stringify(metadata));
     for (let index = 0; index < count; index++) form.set(`locationPhoto${index}`, new Blob([bytes], { type }), `location-${index}.png`);
@@ -212,14 +214,14 @@ try {
   gallery = (await (await request("/api/state", undefined, cookie)).json()).locationPhotos.filter(item => item.locationId === photoLocation.id);
   check(gallery.length === 5, "location gallery contains exactly five images");
   check((await request("/api/state", locationUpdate([...gallery.map(({ id, label }) => ({ id, label })), { id: gallery[0].id, label: "Sixth" }]), cookie)).status === 400, "server rejects a sixth location photo");
-  const beforeRejectedLocationSave = fs.readdirSync(locationPhotoDirectory).length;
-  check((await locationUpload(locationUpdate([{ uploadIndex: 0, label: "New" }], []))).status === 409 && fs.readdirSync(locationPhotoDirectory).length === beforeRejectedLocationSave, "stale location gallery saves are rejected and staged files removed");
+  const beforeRejectedLocationSave = fs.readdirSync(locationClientDirectory).length;
+  check((await locationUpload(locationUpdate([{ uploadIndex: 0, label: "New" }], []))).status === 409 && fs.readdirSync(locationClientDirectory).length === beforeRejectedLocationSave, "stale location gallery saves are rejected and staged files removed");
   check((await locationUpload(locationUpdate([{ uploadIndex: 0, label: "Bad" }]), 1, cookie, origin, photoBytes, "image/gif")).status === 415, "unsupported location photo formats are rejected");
   const removedLocationPhoto = gallery[0].id;
   const remainingGallery = gallery.slice(1).reverse().map(({ id, label }) => ({ id, label }));
   const galleryReorder = await request("/api/state", locationUpdate(remainingGallery), cookie);
   gallery = (await galleryReorder.json()).locationPhotos.filter(item => item.locationId === photoLocation.id);
-  check(galleryReorder.ok && gallery.length === 4 && gallery[0].id === remainingGallery[0].id && !fs.existsSync(path.join(locationPhotoDirectory, removedLocationPhoto + ".webp")), "reordering and removing location photos persists and cleans obsolete files");
+  check(galleryReorder.ok && gallery.length === 4 && gallery[0].id === remainingGallery[0].id && !fs.existsSync(path.join(locationClientDirectory, removedLocationPhoto + ".webp")), "reordering and removing location photos persists and cleans obsolete files");
   check(screen.onsignPlayerId === "player-1", "creating a screen validates and saves its player link");
   const detailsResponse = await request("/api/onsign?screenId=" + screen.id, undefined, cookie), details = await detailsResponse.json();
   check(detailsResponse.ok && details.player.isConnected && details.player.name === "Dubai Player", "screen details resolve the saved player ID");
@@ -240,7 +242,7 @@ try {
   check((await section("extended", "", "")).status === 401, "expanded information requires authentication");
   const update = extra => request("/api/state", { action: "update", type: "screen", id: screen.id, name: screen.name, parentId: location.id, liveUrl: screen.liveUrl, ...extra }, cookie);
   const otherBrand = await update({ onsignPlayerId: "other-brand-player" });
-  check(otherBrand.status === 404 && (await otherBrand.json()).error.includes("Sephora"), "Admin cannot link a player outside the selected Sephora organization");
+  check(otherBrand.status === 404 && (await otherBrand.json()).error.includes("OnSign"), "Admin cannot link a player outside the selected OnSign organization");
   await pool.query("UPDATE entities SET onsign_player_id = 'other-brand-player' WHERE id = $1", [screen.id]);
   check((await request("/api/onsign?screenId=" + screen.id, undefined, cookie)).status === 404, "legacy player links cannot expose details outside Sephora");
   await pool.query("UPDATE entities SET onsign_player_id = 'player-1' WHERE id = $1", [screen.id]);
@@ -279,7 +281,7 @@ try {
   check((await request(photoUrl(), undefined, controllerCookie)).status === 403 && (await upload({ ...photoUpdate, photoExpectedKey: key }, photoBytes, "image/png", controllerCookie)).status === 403, "Controller accounts cannot view or upload private screen photos");
   check((await request(locationPhotoUrl(gallery[0].id), undefined, controllerCookie)).status === 403 && (await locationUpload(locationUpdate([{ uploadIndex: 0, label: "Blocked" }]), 1, controllerCookie)).status === 403, "Controller accounts cannot view or upload private location photos");
   check((await request("/api/state", undefined, controllerCookie).then(response => response.json())).locationPhotos.length === 0, "Controller state omits private location photo metadata");
-  check((await request("/api/state", { action: "delete", id: photoLocation.id }, cookie)).ok && !fs.existsSync(path.join(locationPhotoDirectory, gallery[0].id + ".webp")), "deleting a location removes its gallery files");
+  check((await request("/api/state", { action: "delete", id: photoLocation.id }, cookie)).ok && !fs.existsSync(path.join(locationClientDirectory, gallery[0].id + ".webp")), "deleting a location removes its gallery files");
   check((await request("/api/onsign?screenId=" + location.id, undefined, cookie)).status === 404, "locations cannot expose device information");
   await assert.rejects(() => pool.query("UPDATE entities SET onsign_player_id = 'bad id' WHERE id = $1", [screen.id])); checks++;
   check(true, "database enforces player ID constraints");

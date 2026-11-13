@@ -1,3 +1,4 @@
+import { activeClientId } from "./client-workspace";
 import crypto from "node:crypto";
 import { getPool } from "./database";
 import { onSignToken } from "./onsign-stream";
@@ -24,7 +25,7 @@ export async function recordPreviewResult(result: PreviewResult) {
       await client.query("COMMIT");
       return;
     }
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [result.screenId]);
+    await client.query("SELECT pg_advisory_xact_lock(724019,hashtext($1))", [`${activeClientId()}:${result.screenId}`]);
     const state = (await client.query<{ source_fingerprint:string; last_success_at:Date | null; last_checked_at:Date }>(
       "SELECT source_fingerprint, last_success_at, last_checked_at FROM preview_screen_state WHERE screen_id = $1 FOR UPDATE",
       [result.screenId],
@@ -80,7 +81,7 @@ export async function reconcilePreviewInventory(at = new Date()) {
     for (const candidate of open.rows) {
       await client.query("BEGIN");
       const screen = (await client.query<{live_url:string | null}>("SELECT live_url FROM entities WHERE id = $1 FOR SHARE", [candidate.screen_id])).rows[0];
-      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [candidate.screen_id]);
+      await client.query("SELECT pg_advisory_xact_lock(724019,hashtext($1))", [`${activeClientId()}:${candidate.screen_id}`]);
       const incident = (await client.query<{id:string; source_fingerprint:string}>("SELECT id, source_fingerprint FROM preview_incident WHERE screen_id = $1 AND resolved_at IS NULL FOR UPDATE", [candidate.screen_id])).rows[0];
       const token = screen?.live_url ? onSignToken(screen.live_url) : null;
       if (incident && (!token || previewSourceFingerprint(token) !== incident.source_fingerprint)) {

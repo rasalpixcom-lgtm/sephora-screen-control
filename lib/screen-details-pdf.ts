@@ -1,3 +1,4 @@
+import { activeClientName } from "./client-workspace";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -18,7 +19,7 @@ const day = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFin
 
 export async function renderScreenDetailsPdf(report: ScreenDetailsReport, generatedAt = new Date()): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margins: { top: 42, bottom: 42, left: 42, right: 42 }, bufferPages: true,
-    info: { Title: `${report.name} - Screen Details Report`, Author: "PIXCOM | Sephora Screen Control" } });
+    info: { Title: `${report.name} - Screen Details Report`, Author: `PIXCOM | ${activeClientName()} Screen Control` } });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => { doc.on("data", chunk => chunks.push(Buffer.from(chunk))); doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });
   const fontPairs = [
@@ -155,7 +156,7 @@ export async function renderScreenDetailsPdf(report: ScreenDetailsReport, genera
     for (let i = 0; i < pages.count; i++) {
       doc.switchToPage(i); doc.page.margins.bottom = 10;
       doc.moveTo(left, doc.page.height - 42).lineTo(left + width, doc.page.height - 42).strokeColor(border).lineWidth(.5).stroke();
-      draw(`Sephora Screen Control | Generated ${generated}`, left, doc.page.height - 30, width - 80, 7, muted);
+      draw(`${activeClientName()} Screen Control | Generated ${generated}`, left, doc.page.height - 30, width - 80, 7, muted);
       draw(`Page ${i + 1} of ${pages.count}`, left + width - 65, doc.page.height - 30, 65, 7, muted);
     }
     doc.end();

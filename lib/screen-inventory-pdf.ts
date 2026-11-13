@@ -1,3 +1,4 @@
+import { activeClientName } from "./client-workspace";
 import { onSignFilterLabels, onSignFilterValueLabel, type OnSignScreenFilterKey } from "./onsign-screen-filters";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,7 +9,7 @@ import type { ScreenInventoryFilters } from "@/lib/screen-inventory-report";
 type Row = { screen: Entity; location: string; region: string; country: string };
 
 export async function renderScreenInventoryPdf(rows: Row[], filters: ScreenInventoryFilters, filterNames: { country?: string; region?: string; location?: string } = {}, generatedAt = new Date()) {
-  const doc = new PDFDocument({ size: "A4", layout: "landscape", margins: { top: 36, right: 36, bottom: 40, left: 36 }, bufferPages: true, info: { Title: "Screens report", Author: "Sephora Screen Control" } });
+  const doc = new PDFDocument({ size: "A4", layout: "landscape", margins: { top: 36, right: 36, bottom: 40, left: 36 }, bufferPages: true, info: { Title: "Screens report", Author: `${activeClientName()} Screen Control` } });
   const chunks: Buffer[] = [];
   doc.on("data", chunk => chunks.push(Buffer.from(chunk)));
   const finished = new Promise<Buffer>((resolve, reject) => { doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });

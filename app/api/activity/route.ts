@@ -1,3 +1,4 @@
+import { withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { database, type Activity } from "@/lib/store";
@@ -5,7 +6,7 @@ import { ACTIVITY_PAGE_SIZE, ActivityQueryError, parseActivityQuery } from "@/li
 import { requestFailure } from "@/lib/request";
 
 export const runtime = "nodejs";
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     const user = await currentUser(request.headers);
     if (!user) return NextResponse.json({ error: "Sign in again." }, { status:401, headers:{"Cache-Control":"no-store"} });
@@ -27,3 +28,5 @@ export async function GET(request: NextRequest) {
     return requestFailure(error);
   }
 }
+
+export const GET = withWorkspace(GETHandler);
