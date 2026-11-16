@@ -5,7 +5,7 @@ import { database } from "@/lib/database";
 import type { Entity } from "@/lib/store";
 import { screenInventoryRows, screenReportDay, type ScreenInventoryFilters } from "@/lib/screen-inventory-report";
 import { renderScreenInventoryPdf } from "@/lib/screen-inventory-pdf";
-import { onSignApi } from "@/lib/onsign-api";
+import { onSignApi } from "@/lib/onsign-runtime";
 import { matchesOnSignScreen, validOnSignScreenFilters, type OnSignScreenFilters } from "@/lib/onsign-screen-filters";
 import { requestFailure } from "@/lib/request";
 

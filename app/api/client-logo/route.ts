@@ -24,7 +24,7 @@ export const POST = withWorkspace(async(request:Request)=>{
     const {body,file}=await readClientLogoMutation(request);
     if(typeof body.clientId!=="string" || !validClientId(body.clientId)) throw new RequestError("Choose a client.");
     if(body.expectedVersion!==null && !validLogoVersion(body.expectedVersion)) throw new RequestError("Reload the client logo before saving.");
-    if(!["replace","remove"].includes(String(body.action)) || (body.action==="replace")!==!!file) throw new RequestError("Choose a valid logo change.");
+    if(typeof body.action!=="string" || !["replace","remove"].includes(body.action) || (body.action==="replace")!==!!file) throw new RequestError("Choose a valid logo change.");
     const image=file?await normalizeClientLogo(file):null;
     const result=await getPool("sephora").query<{version:string}>("SELECT pixcom_set_client_logo($1,$2,$3,$4::bytea) AS version",[session.user.id,body.clientId,body.expectedVersion,image]);
     return Response.json({version:result.rows[0].version},{headers:{"Cache-Control":"no-store"}});

@@ -77,10 +77,10 @@ async function POSTHandler(request: NextRequest) {
     const user = await authorize(request);
     const { body, image } = await readMutation(request);
     const create = body.action === "create", finalize = body.action === "finalize";
-    if (!["create", "update", "finalize"].includes(String(body.action))) throw new RequestError("Choose a valid content action.");
+    if (typeof body.action !== "string" || !["create", "update", "finalize"].includes(body.action)) throw new RequestError("Choose a valid content action.");
     if (!create && (!cmsId(body.id) || !cmsId(body.version))) throw new RequestError("Refresh this update before editing.");
     const imageAction = body.imageAction ?? "keep";
-    if (!["keep", "remove", "replace"].includes(String(imageAction)) || (imageAction === "replace") !== Boolean(image) || (finalize && image)) throw new RequestError("Choose a valid content image change.");
+    if (typeof imageAction !== "string" || !["keep", "remove", "replace"].includes(imageAction) || (imageAction === "replace") !== Boolean(image) || (finalize && image)) throw new RequestError("Choose a valid content image change.");
     const prepared = image ? (await normalizePrivatePhoto(image)).full : null;
     if (prepared && prepared.length > 5 * 1024 * 1024) throw new RequestError("Choose a smaller content image.", 413);
     return await database().transaction(async db => {

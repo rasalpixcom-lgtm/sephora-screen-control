@@ -170,6 +170,15 @@ try {
  check((await brandingSave(initialBrand,{logo:logoBytes,background:backgroundBytes})).ok,'Admin saves both branding assets');
  const firstBrand=await currentBrand();
  check(firstBrand.logoKey!==brand.logoKey&&firstBrand.backgroundKey,'both assets receive versions');
+ const brandingRows=async()=>JSON.stringify((await pool.query("SELECT to_jsonb(t) AS row FROM client_logos t WHERE client_id='sephora' UNION ALL SELECT to_jsonb(t) AS row FROM client_backgrounds t WHERE client_id='sephora'")).rows);
+ const originalBrandingRows=await brandingRows(),originalBrandingAudit=(await pool.query('SELECT count(*)::int AS n FROM client_management_activity')).rows[0].n;
+ for(const kind of ['logo','background'])for(const action of [['keep'],['remove'],['replace'],{},null,123]){
+  const malformed=brandingMeta(firstBrand,'keep','keep');malformed[kind].action=action;
+  check((await brandingSave(malformed)).status===400,'branding rejects non-string '+kind+' actions');
+ }
+ for(const action of [['remove'],['replace'],{},null,123])check((await request('/api/client-logo',{clientId:'sephora',expectedVersion:firstBrand.logoVersion,action},cookie)).status===400,'legacy logo endpoint rejects non-string actions');
+ check(await brandingRows()===originalBrandingRows,'malformed branding actions preserve both image bytes and versions');
+ check((await pool.query('SELECT count(*)::int AS n FROM client_management_activity')).rows[0].n===originalBrandingAudit,'malformed branding actions create no audit events');
  // Exercise database failures after the first asset/provisioning write, not only
  // validation failures before the transaction begins. Disposable database only.
  const brandingAuditBefore=(await pool.query('SELECT count(*)::int AS n FROM client_management_activity')).rows[0].n;

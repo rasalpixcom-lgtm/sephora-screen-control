@@ -65,6 +65,12 @@ try{
  await pool.query("UPDATE entities SET photo_key=$1 WHERE id='sephora-screen'",[ownFront]);
  const upload=(route,metadata,session=cookie,requestOrigin=origin)=>{const form=new FormData();form.set("metadata",JSON.stringify(metadata));form.set("photo",new Blob([image],{type:"image/webp"}),"photo.webp");return fetch(origin+route,{method:route==="/api/state"?"POST":"PUT",headers:{Cookie:session,Origin:requestOrigin},body:form});};
  const mutation={action:"replace",screenId:"sephora-screen",category:"media_player",expectedKey:ownRef};
+ const galleryRowsBefore=JSON.stringify((await pool.query('SELECT to_jsonb(t) AS row FROM screen_reference_photos t ORDER BY screen_id,category')).rows);
+ const galleryAuditBefore=(await pool.query('SELECT count(*)::int AS n FROM activity_log')).rows[0].n;
+ for(const action of [["remove"],["replace"],{},null,123])check((await json("/api/screen-gallery",{...mutation,action},cookie,{},"PUT")).status===400,"gallery rejects non-string actions");
+ check(JSON.stringify((await pool.query('SELECT to_jsonb(t) AS row FROM screen_reference_photos t ORDER BY screen_id,category')).rows)===galleryRowsBefore,"malformed gallery actions preserve photo references");
+ check(JSON.stringify(await diskSnapshot())===JSON.stringify(beforeDisk),"malformed gallery actions preserve every existing photo file");
+ check((await pool.query('SELECT count(*)::int AS n FROM activity_log')).rows[0].n===galleryAuditBefore,"malformed gallery actions create no audit events");
  check((await upload("/api/screen-gallery",mutation,"",origin)).status===401,"anonymous upload denied");
  check((await upload("/api/screen-gallery",mutation,cookie,"https://attacker.test")).status===403,"cross-origin upload denied");
  check((await upload("/api/screen-gallery",{...mutation,screenId:"other-screen",expectedKey:foreignKey})).status===404,"foreign gallery replacement denied");

@@ -37,7 +37,7 @@ async function legacyStructure(pool) {
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
     LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
-    WHERE n.nspname='public' AND c.relkind='r' AND c.relname NOT IN ('clients','client_memberships','platform_administrators','client_management_activity','common_monitor_access','common_monitor_display','client_logos','client_backgrounds') AND a.attname<>'client_id'
+    WHERE n.nspname='public' AND c.relkind='r' AND c.relname NOT IN ('clients','client_memberships','platform_administrators','client_management_activity','common_monitor_access','common_monitor_display','client_logos','client_backgrounds','client_onsign_settings') AND a.attname<>'client_id'
     ORDER BY c.relname,a.attnum`)).rows;
 }
 async function checkReadiness(pool) {
@@ -69,6 +69,13 @@ async function checkReadiness(pool) {
     check(await status()===503,'health refuses missing background storage');
     await pool.query('ALTER TABLE client_backgrounds_test_hidden RENAME TO client_backgrounds');
     check(await status()===200,'health recovers after background storage is restored');
+    const onsignMigration=(await pool.query("DELETE FROM server_migrations WHERE name='0034_client_onsign_settings.sql' RETURNING *")).rows[0];
+    check(await status()===503,'health refuses a missing OnSign settings migration');
+    await pool.query('INSERT INTO server_migrations(name,checksum,applied_at) VALUES($1,$2,$3)',[onsignMigration.name,onsignMigration.checksum,onsignMigration.applied_at]);
+    await pool.query('ALTER TABLE client_onsign_settings RENAME TO client_onsign_settings_hidden');
+    check(await status()===503,'health refuses missing OnSign settings storage');
+    await pool.query('ALTER TABLE client_onsign_settings_hidden RENAME TO client_onsign_settings');
+    check(await status()===200,'health recovers after OnSign settings storage is restored');
     await pool.query('TRUNCATE '+owned.map(t=>'"'+t+'"').join(',')+' CASCADE');
     await pool.query("DELETE FROM common_monitor_display WHERE id='main'");
     await pool.query("DELETE FROM clients WHERE id='sephora'");

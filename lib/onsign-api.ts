@@ -1,5 +1,4 @@
 import { activeClientId } from "./client-workspace";
-import { clientIntegrations } from "./client-integrations";
 import { createHash } from "node:crypto";
 import { onSignLoops, onSignSections, validOnSignPlayerId, type OnSignDetails, type OnSignPlayer, type OnSignPlayerOption, type OnSignSection, type OnSignLoop, type OnSignSectionResult, type OnSignValue } from "./onsign-api-shared";
 import { extendedPlayerFields, relatedSelections, loopItems, loopTriggers } from "./onsign-detail-queries";
@@ -59,7 +58,7 @@ export function createOnSignClient(environment: { token: () => string | undefine
     const clientId = environment.clientId ? environment.clientId() : activeClientId();
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(clientId) || clientId.length > 80) throw unavailable();
     const value = environment.token()?.trim();
-    if (!value) throw new OnSignApiError("OnSign is not configured. Add ONSIGN_API_TOKEN on the server.");
+    if (!value) throw new OnSignApiError("OnSign is not configured. Open Administration → Clients → OnSign API.");
     if (/[\r\n]/.test(value)) throw new OnSignApiError("Check the OnSign API token on the server.");
     const organizationId = environment.organizationId?.()?.trim() || null;
     if (organizationId && !validOnSignPlayerId(organizationId)) throw new OnSignApiError("Check ONSIGN_ORGANIZATION_ID on the server.");
@@ -145,6 +144,25 @@ export function createOnSignClient(environment: { token: () => string | undefine
   }
   return {
     configured: () => !!environment.token()?.trim(),
+    organizations: async () => {
+      const scope = context();
+      const organizations = new Map<string, OnSignPlayerOption>(), cursors = new Set<string>();
+      let after: string | null = null;
+      const signal = AbortSignal.timeout(5000);
+      for (let page = 0; page < 100; page++) {
+        const root = await query(`query Organizations($after: String) { organizations(first: 100, after: $after) { nodes { id name } pageInfo { hasNextPage endCursor } } }`, { after }, scope.credential, signal);
+        const list = connection(root.organizations);
+        for (const node of list.nodes) {
+          const item = option(node);
+          organizations.set(item.id, item);
+        }
+        if (!list.pageInfo.hasNextPage) return { organizations: [...organizations.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)) };
+        const cursor = list.pageInfo.endCursor;
+        if (!cursor || cursors.has(cursor)) throw unavailable();
+        cursors.add(cursor); after = cursor;
+      }
+      throw new OnSignApiError("The organization list is too large. Enter the organization ID manually or contact your OnSign administrator.");
+    },
     list: async () => {
       const scope = context();
       return cached(scope, "players", 300000, async () => {
@@ -255,17 +273,3 @@ export function createOnSignClient(environment: { token: () => string | undefine
     },
   };
 }
-
-const clientApis = new Map<string, ReturnType<typeof createOnSignClient>>();
-function workspaceApi() {
-  const id = activeClientId();
-  let api = clientApis.get(id);
-  if (!api) {
-    api = createOnSignClient({ clientId: () => id, token: () => clientIntegrations(id).onsign?.token, organizationId: () => clientIntegrations(id).onsign?.organizationId, fetch: (...args) => fetch(...args), now: Date.now });
-    clientApis.set(id, api);
-  }
-  return api;
-}
-export const onSignApi: ReturnType<typeof createOnSignClient> = new Proxy({} as ReturnType<typeof createOnSignClient>, {
-  get(_target, key) { const api = workspaceApi(); return Reflect.get(api, key); },
-});

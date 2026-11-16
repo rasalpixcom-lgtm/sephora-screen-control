@@ -1263,3 +1263,225 @@ Whitespace checks pass. The previously documented seven moderate development-too
 advisories, transient test-teardown failure (superseded by clean reruns), and
 unverified live-provider/company-hosting/device acceptance remain disclosed.
 No commit, push or deployment was performed.
+
+## Final OnSign and client action layout review - 16 November 2026
+
+Reviewed the pending settings API, encryption, migration/setter permissions,
+environment fallback, organization discovery, cache refresh and all affected
+player/state/PDF callers, plus the responsive client action buttons. No blocking
+finding was identified and no application changes were needed during this pass.
+The preceding browser verification confirmed side-by-side 44px buttons on desktop,
+stacking below 768px, correct dialogs for Sephora, and the empty-search table cell.
+The application source has not changed since those browser checks.
+
+Fresh ESLint, TypeScript and production build checks pass. All 46 active
+unit/PDF/server suites pass, including 81 OnSign settings integration assertions
+and 220 ownership/migration assertions. The independent LCD migration check passes.
+The historical D1/Miniflare authentication and SQLite comparison scripts do not
+apply to this PostgreSQL build; current authentication/import suites were run.
+A fresh backup restored all 38 local tables exactly into a disposable database.
+Before/after fingerprints also confirm all 38 original tables, 20 photos and
+.env.local remain unchanged. OnSign overrides remain empty, preserving Sephora's
+original server configuration. No configured credentials were found in 78 browser
+JavaScript bundles. Production dependency audit: zero known vulnerabilities;
+seven moderate development-tool advisories remain, with none high or critical.
+
+Provider regression calls use mocks; real token/organization access still needs
+the dashboard Test connection check. Preserve the original AUTH_SECRET with
+database backups for encrypted tokens. Company server/database untouched.
+No commit, push or deployment was performed.
+
+
+## Per-client OnSign administration - 16 November 2026
+
+Added an Admin-only OnSign API editor per client with organization ID, write-only
+API token, read-only connection test, immediate save, disable and restoration of
+server configuration. Blank token keeps the effective token; replacing a broken
+encrypted token does not require decrypting it. Existing environment values and
+Sephora inventory/settings are not rewritten. Other clients never inherit the
+legacy Sephora token. Email, WhatsApp, branding and monitoring links are unchanged.
+
+Migration 0034 adds an initially empty credential table and a bounded SECURITY DEFINER
+setter with enabled-Admin authorization, a shared account-management
+lock, expected-version conflicts and atomic secret-free audits. Runtime roles
+cannot write the table directly; non-root client roles cannot read it. Tokens
+use AES-256-GCM with fresh nonces, client-ID authentication and a purpose-derived
+key from AUTH_SECRET. Preserve that secret with database backups. No token or
+ciphertext is returned through settings GET responses or audit payloads.
+
+OnSign runtime methods resolve one credential snapshot per call and separate
+caches by client and credential identity. Rotation, disabling and fallback changes
+apply without restarting, including across server processes. Unreadable tokens
+fail closed rather than using cached/legacy credentials. The old picker hint now
+points to Administration instead of incorrectly recommending Sephora's legacy
+single-client environment variable.
+
+Lint, TypeScript and production build pass. All 46 current unit/PDF/server suites
+pass against the new build. The expanded dedicated settings suite additionally
+passes 50 integration assertions with a local mocked provider: permissions/origin
+checks, encrypted storage, no token disclosure, legacy/global and per-client JSON
+fallbacks, same-client concurrent saves, runtime-role restrictions, forced audit
+failure rollback, tampered credentials, immediate cache changes and preservation
+of inventory/email settings. Encryption unit checks cover random nonces, wrong
+keys, wrong clients and tampering. Real provider access is not exercised by these
+fixtures; an Admin can use Test connection with a real token in the local app.
+
+Browser checks verified testing/saving a disposable client's connection, blank
+saved-token fields, Sephora environment fallback, light/dark desktop layout and
+390px/320px phone layouts with scrolling and no horizontal dialog overflow.
+Disposable browser fixtures/databases/roles were removed after verification.
+
+Before local migration, a private PostgreSQL backup restored exactly across all
+37 public tables. Applying 0034 locally preserved identical row counts and data
+fingerprints across all 36 pre-existing non-migration tables, leaving OnSign
+overrides empty. The local app was restarted and returns health 200; outgoing
+email/WhatsApp workers are disabled for this local test process only. Company
+server configuration and database have not been accessed or changed. No commit,
+push or deployment was performed.
+
+## OnSign settings review follow-up - 16 November 2026
+
+Reviewed all OnSign settings changes, including the new migration/schema,
+credential storage and encryption, Admin/origin authorization, strict input
+validation, write concurrency, audit rollback, environment fallback precedence,
+provider cache invalidation, downstream player/details/filter/PDF paths, editor
+loading/error/secret handling and deployment/backup documentation.
+
+Found and fixed an action-validation defect: coercing a JSON array such as
+["test"] to a string let it pass the allowlist, while subsequent strict comparisons
+could route it to saving. The endpoint now accepts only actual string actions.
+Added five malformed-action cases and verification that no credential row is
+created. No other blocking application defect was identified in this review.
+
+Strengthened preservation coverage: the dedicated suite now seeds an existing
+Sephora hierarchy/screen, notes, display selection, monitor capability and alert
+recipients instead of comparing only an empty inventory. It verifies these and
+branding/common-monitor settings remain identical through OnSign mutations.
+Disabled Admin reads/writes are also rejected. The dedicated integration suite
+passes all 66 assertions against the final build; the ownership/migration suite
+passes 220 checks with populated legacy records.
+
+All 46 current unit/PDF/server suites pass against the rebuilt application.
+ESLint, standalone webpack build, TypeScript and whitespace checks pass. The
+independent hardware migration and fresh local database backup/restore checks
+also pass. One earlier CMS fixture failed account setup after an 888-second
+pause, exceeding its ten-minute bootstrap expiry; it passed in four seconds on
+the final fresh-fixture run. Historical Miniflare/SQLite suites are not applicable
+to this PostgreSQL runtime; the active preservation/ownership/import tests pass.
+
+Before and after review testing, fingerprints matched across all 38 local public
+tables, all 20 private photo files and the exact .env.local bytes. The local OnSign
+override table remains empty, retaining existing Sephora environment settings.
+The latest backup restored all 38 tables exactly into a disposable database.
+All 78 browser JavaScript bundles were scanned without finding configured
+credentials. No company server or company database was accessed or modified.
+
+Production dependency audit: zero known vulnerabilities. Full audit: seven
+moderate development-tool advisories, zero high/critical. Real provider calls
+remain mocked in tests; a real token/organization still needs Test connection.
+AUTH_SECRET must be preserved with backups to decrypt dashboard tokens. An
+in-flight read may finish with its captured credentials; later calls resolve the
+new saved settings. No guarantee is made against every possible runtime failure.
+
+The final build was restarted locally with outgoing email/WhatsApp workers
+disabled for the local process only. No commit, push or deployment was performed.
+
+## Load OnSign organizations - 16 November 2026
+
+Added Load organizations to the per-client OnSign API editor. Admins can use a
+newly entered token or the effective saved/server token to read all accessible
+organization names/IDs, then explicitly select the correct organization. Selection
+fills the ID field; no organization is automatically chosen and no credentials or
+settings are saved by discovery. Manual IDs remain available. Editing a token
+clears the previous result list, and unavailable current IDs remain visible.
+
+Discovery uses the same authenticated, same-origin, version-checked endpoint,
+a fixed read-only provider query, a shared five-second timeout, bounded pagination,
+ID deduplication, name sorting and cursor-loop rejection. Only id/name DTOs are
+returned with private no-store headers. Error details/tokens stay server-side.
+No database migration or credential-storage change is required beyond 0034.
+
+All 46 current unit/PDF/server suites pass, including 81 dedicated OnSign settings
+checks. Lint, TypeScript, the production build and credential scan of 78 browser
+JavaScript files pass. Browser verification used a disposable app and mocked
+provider: paginated organization names appeared without an auto-selection,
+choosing one filled its ID, Test connection succeeded, and changing the token
+cleared old results. Desktop and 390px phone layouts fit, with vertical scrolling
+on phones. No real provider credentials were used during browser verification.
+
+A first concurrent suite/browser fixture run collided during cleanup because its
+environment-client fixture used a fixed global PostgreSQL role. The fixture now
+uses a random client ID/role per run; final suite cleanup passes. All original
+local data fingerprints (38 tables), 20 photo files and .env.local bytes remain
+identical before/after testing. Local app restarted with outgoing alert workers
+disabled for the local process only. Company server untouched. No commit, push
+or deployment was performed.
+
+## Final combined OnSign review - 16 November 2026
+
+Re-reviewed the complete OnSign settings and organization discovery diff,
+including authorization/origin checks, request validation, encrypted token
+handling, environment fallback, optimistic versions, SQL permissions/atomic
+audits, read-only discovery/test operations, bounded pagination, runtime cache
+isolation, player/filter/PDF callers and editor save/error/token behavior.
+No new blocking finding was identified; no application code changed in this pass.
+
+Fresh verification: all 46 active unit/PDF/server suites pass with no failures,
+including 81 OnSign settings assertions and 220 ownership/migration checks.
+ESLint, TypeScript, webpack production build and whitespace checks pass. The
+independent LCD/Video Wall migration check also passes. A fresh local backup
+restored all 38 tables exactly in a disposable database. Browser bundle scan of
+78 JavaScript files found no configured credentials. The earlier desktop/mobile
+browser checks still apply because the UI has not changed in this review.
+
+Before/after fingerprints confirm all 38 local tables, all 20 photo files and
+.env.local are unchanged by the review. OnSign overrides remain empty locally;
+Sephora retains its original server fallback. Original client-integrations,
+authentication and database-pool modules have no changes in this feature diff.
+The company server/database were not accessed. The final build was restarted
+locally with outgoing alert workers disabled for the local process only.
+
+Remaining limits: provider API calls use mocks in regression tests, so real
+credentials/access need the Admin Test connection check. Preserve AUTH_SECRET
+with backups for encrypted dashboard tokens. Audit reports zero runtime
+vulnerabilities and seven moderate development-tool advisories (no high/critical).
+No commit, push or deployment was performed.
+
+## Broader project review and malformed-action fix - 16 November 2026
+
+Expanded review beyond the OnSign diff to authentication/session handling,
+Admin/Controller authorization, origin checks, workspace cookies and PostgreSQL
+roles, inventory mutations, monitoring capabilities, private photo paths and
+uploads, CMS/report endpoints, preview persistence, alert-worker scoping and
+Windows/standalone deployment paths. Static API references all resolve to routes;
+no configured credentials or private environment/upload/runtime paths appear in
+publishable source. This is a review and regression check, not a guarantee that
+all possible bugs have been eliminated.
+
+Found and fixed an input-validation defect in client-branding, client-logo,
+screen-gallery and CMS support. String(action) allowed arrays such as ["keep"]
+to pass action validation while strict downstream comparisons interpreted a
+different operation. In branding/gallery this could remove an image through a
+malformed Admin request; in CMS it could turn a malformed action into an update.
+The normal dashboard submits strings. These routes now require string actions
+before any mutation. A new disposable-database regression failed against the
+previous build and passes after the fix. Additional assertions verify unchanged
+image bytes, versions, files and audits when malformed requests are rejected.
+No migration or stored-data rewrite was needed for this fix.
+
+Fresh verification on the final source: all 46 active unit/PDF/server suites
+passed, with 204 client-management, 67 private-photo and 74 CMS integration checks,
+as well as the existing 81 OnSign and 220 ownership checks. Lint, TypeScript,
+production build, whitespace checks and the independent LCD migration check
+passed. A fresh backup restored all 38 tables exactly into a disposable database.
+The before/after comparison verified all 38 local tables, 20 photo files and
+.env.local unchanged. The browser bundle scan passed for 78 JavaScript files.
+The responsive action layout source was unchanged from the verified desktop,
+767/768px breakpoint and mobile browser checks.
+
+No further blocking issue was identified in the reviewed scope. The current
+lockfile and dependency audit are unchanged: no known production vulnerabilities,
+seven moderate development-tool advisories, none high or critical. Real provider
+permissions still need an Admin Test connection check; preserve AUTH_SECRET with
+backups for encrypted tokens. Company server and database were untouched.
+No commit, push or deployment was performed.

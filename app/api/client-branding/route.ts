@@ -19,7 +19,7 @@ export const POST = withWorkspace(async (request: Request) => {
       if (!change || typeof change !== "object" || Array.isArray(change)) throw new RequestError("Choose a valid branding change.");
       const { action, expectedVersion } = change as Record<string, unknown>;
       if (expectedVersion !== null && !validLogoVersion(expectedVersion)) throw new RequestError("Reload the branding before saving.");
-      if (!["keep", "replace", "remove"].includes(String(action)) || (action === "replace") !== !!upload) throw new RequestError("Choose a valid branding change.");
+      if (typeof action !== "string" || !["keep", "replace", "remove"].includes(action) || (action === "replace") !== !!upload) throw new RequestError("Choose a valid branding change.");
       changes.push({ kind, action, expectedVersion, image: upload ? await normalizeClientLogo(upload, kind) : null });
     }
     if (changes.every(change => change.action === "keep")) throw new RequestError("Choose a branding change.");

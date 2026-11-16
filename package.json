@@ -33,6 +33,7 @@
     "test:client-management": "node tests/client-logo.mjs && node --env-file=.env.local tests/client-management.server.mjs",
     "test:client-selection": "node tests/client-workspace.mjs && node --env-file=.env.local tests/client-selection.server.mjs",
     "test:client-photos": "node tests/client-photo-storage.mjs && node --env-file=.env.local tests/client-photos.server.mjs",
+    "test:client-onsign": "node tests/integration-secret.mjs && node --env-file=.env.local tests/client-onsign.server.mjs",
     "test:client-settings": "node tests/client-integrations.mjs && node --env-file=.env.local tests/client-settings.server.mjs",
     "test:client-query-isolation": "node --env-file=.env.local tests/client-query-isolation.server.mjs",
     "test:client-permissions": "node --env-file=.env.local tests/client-permissions.server.mjs",

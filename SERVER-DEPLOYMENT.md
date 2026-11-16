@@ -150,7 +150,7 @@ configured photo folders and verify migration on a restored copy first. Stop all
 application and background worker processes before migration/build; restart every
 process after the build so no old worker or cached account remains in memory.
 Run `npm run db:migrate` with the privileged migration connection before starting
-the new application. The current build requires all migrations through 0033. Do not run the old build after applying
+the new application. The current build requires all migrations through 0034. Do not run the old build after applying
 the composite settings keys; rollback requires a coordinated code/database plan.
 
 The migration changes keys, not stored values: display selection, alert recipients,
@@ -224,3 +224,35 @@ Client renaming, archiving and integration-settings UI are outside this stage.
 Client logos (migration `0031_client_logos.sql`) are stored as small validated WebP images in PostgreSQL. The database backup includes them; no new folder or environment variable is required. Run migrations before starting the updated application. Admins manage logos under Administration → Clients → Edit branding. Existing client identity rows, integration settings, inventory and photo folders are preserved.
 
 Client card backgrounds require migration `0033_client_backgrounds.sql`. Apply it before starting this build; health checks reject missing background storage or migration records. Optional logos and backgrounds are managed together through Administration → Clients → Edit branding and are both included in PostgreSQL backups. Client cards show centered logos over full-card backgrounds, with client names as fallbacks. Workspace navigation remains logo-only.
+
+
+## Dashboard OnSign connections: migration 0034
+
+Apply `0034_client_onsign_settings.sql` before starting this build. It adds an
+empty settings table and a bounded Admin-only setter; existing Sephora inventory,
+credentials, environment files and monitoring links are not rewritten. Use the
+backup/restore rehearsal and privileged migration-account procedure above.
+
+Administration → Clients → OnSign API manages each client's API token and
+organization ID. Blank token keeps the effective token; it is never returned to
+the browser. Test connection performs read-only provider requests without saving.
+Save applies immediately across processes; no restart is required. Disable affects
+only that client. Use server settings restores that client's environment fallback,
+including the original Sephora configuration. New clients never inherit Sephora's
+account. Email/WhatsApp configuration is unaffected.
+
+Dashboard tokens are AES-256-GCM encrypted with a purpose-derived key from the
+existing AUTH_SECRET and authenticated to the client ID. Back up the database and
+private AUTH_SECRET together. Changing AUTH_SECRET without a credential migration
+makes saved tokens unreadable; restore the original secret or replace each token.
+Do not put credentials in Git or diagnostic output. The dedicated integration
+suite uses disposable databases and a mocked provider (`npm run test:client-onsign`).
+
+
+The OnSign API editor also supports **Load organizations**. This authenticated,
+same-origin Admin operation uses the draft token or the effective saved/server
+token, reads paginated organization names/IDs and does not write settings or
+audit events. No organization is chosen automatically. Token edits invalidate
+the loaded list; an unavailable current ID remains visible rather than silently
+switching accounts. Manual ID entry remains available. This addition requires
+no migration beyond 0034. Tokens and upstream error details are never returned.

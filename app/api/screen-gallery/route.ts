@@ -51,7 +51,7 @@ async function PUTHandler(request: Request) {
     const { body, file } = await readScreenMutation(request);
     if (!validId(body.screenId) || !validPhotoCategory(body.category) || !validKey(body.expectedKey)) throw new RequestError("Choose a valid screen photo.");
     const category = body.category;
-    if (!["replace", "remove"].includes(String(body.action)) || (body.action === "replace") !== !!file) throw new RequestError("Choose a photo change.");
+    if (typeof body.action !== "string" || !["replace", "remove"].includes(body.action) || (body.action === "replace") !== !!file) throw new RequestError("Choose a photo change.");
     if (file) prepared = await prepareScreenPhoto(file);
     const result = await database().transaction(async db => {
       // Use the inventory lock to serialize edits and parent/screen deletion.

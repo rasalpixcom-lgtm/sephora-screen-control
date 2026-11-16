@@ -45,6 +45,12 @@ try {
  const response=await upload();assert.ok(response.ok,await response.clone().text());const saved=await response.json();
  const get=async()=>{const r=await request('/api/cms-support?id='+saved.id,undefined,cookie);assert.ok(r.ok,await r.clone().text());return(await r.json()).record};
  let record=await get();check(record.hasImage&&record.payload.screens.length===2,'campaign image and screen records saved together');
+ const cmsBefore=JSON.stringify((await pool.query('SELECT to_jsonb(t) AS row FROM cms_updates t WHERE id=$1',[saved.id])).rows);
+ const cmsAuditBefore=(await pool.query("SELECT count(*)::int AS n FROM activity_log WHERE entity_type='cms'")).rows[0].n;
+ for(const action of [['create'],['update'],['finalize'],{},null,123])check((await request('/api/cms-support',{action,id:saved.id,version:record.version,payload},cookie)).status===400,'CMS rejects non-string actions');
+ for(const imageAction of [['keep'],['remove'],['replace'],{},123])check((await request('/api/cms-support',{action:'update',id:saved.id,version:record.version,payload,imageAction},cookie)).status===400,'CMS rejects non-string image actions');
+ check(JSON.stringify((await pool.query('SELECT to_jsonb(t) AS row FROM cms_updates t WHERE id=$1',[saved.id])).rows)===cmsBefore,'malformed CMS actions preserve payload, image and version');
+ check((await pool.query("SELECT count(*)::int AS n FROM activity_log WHERE entity_type='cms'")).rows[0].n===cmsAuditBefore,'malformed CMS actions create no audit events');
  check(record.payload.videoUrl===payload.videoUrl,'video URL persists with the content update');
  await pool.query("UPDATE cms_updates SET payload=payload-'videoUrl' WHERE id=$1",[saved.id]);
  const legacyPdf=await request('/api/cms-support/pdf?id='+saved.id,undefined,cookie);

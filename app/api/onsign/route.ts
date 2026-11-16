@@ -1,7 +1,8 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser } from "@/lib/auth";
 import { database } from "@/lib/database";
-import { OnSignApiError, onSignApi } from "@/lib/onsign-api";
+import { OnSignApiError } from "@/lib/onsign-api";
+import { onSignApi } from "@/lib/onsign-runtime";
 import { requestFailure } from "@/lib/request";
 import { onSignSections, onSignLoops, type OnSignSection, type OnSignLoop } from "@/lib/onsign-api-shared";
 
@@ -16,7 +17,7 @@ async function GETHandler(request: Request) {
     if (params.has("view")) {
       if (params.get("view") !== "filters" || params.has("screenId") || params.has("section")) return Response.json({ error: "Choose valid OnSign filter options." }, { status: 400, headers });
       const linked = await database().prepare("SELECT DISTINCT onsign_player_id AS id FROM entities WHERE type = 'screen' AND onsign_player_id IS NOT NULL AND onsign_player_id <> ''").all<{ id: string }>();
-      if (!onSignApi.configured()) return Response.json({ configured: false, players: [] }, { headers });
+      if (!await onSignApi.configured()) return Response.json({ configured: false, players: [] }, { headers });
       if (!linked.results.length) return Response.json({ configured: true, players: [], fetchedAt: new Date().toISOString() }, { headers });
       const ids = new Set(linked.results.map(row => row.id)), data = await onSignApi.filterValues();
       return Response.json({ configured: true, ...data, players: data.players.filter(player => ids.has(player.id)) }, { headers });
@@ -32,7 +33,7 @@ async function GETHandler(request: Request) {
       if (section) return Response.json(await onSignApi.section(screen.playerId, section as OnSignSection, params.get("after"), (params.get("loop") || "PRIMARY") as OnSignLoop, params.get("groupId")), { headers });
       return Response.json(await onSignApi.details(screen.playerId), { headers });
     }
-    if (!onSignApi.configured()) return Response.json({ configured: false, players: [] }, { headers });
+    if (!await onSignApi.configured()) return Response.json({ configured: false, players: [] }, { headers });
     return Response.json({ configured: true, ...await onSignApi.list() }, { headers });
   } catch (error) {
     if (error instanceof OnSignApiError) return Response.json({ error: error.message }, { status: error.status, headers });

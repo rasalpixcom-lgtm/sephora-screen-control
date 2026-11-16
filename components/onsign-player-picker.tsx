@@ -44,7 +44,7 @@ export default function OnSignPlayerPicker({ value, onChange, disabled }: { valu
         {options.map(player => <SelectItem key={player.id} value={`player:${player.id}`} textValue={`${player.name} ${player.id}`}><span className="onsign-option-copy"><span>{player.name}</span><small>{player.id}</small></span></SelectItem>)}
       </SelectContent>
     </Select>
-    <p className="onsign-hint" role="status">{loading ? "Loading OnSign players…" : error || (!configured ? "OnSign is not configured. Add ONSIGN_API_TOKEN to the server’s .env.local and restart the server." : !players.length ? "No players are available in this OnSign account." : !filtered.length ? "No players match your search." : "Select the matching player. Your preview link works separately.")}</p>
+    <p className="onsign-hint" role="status">{loading ? "Loading OnSign players…" : error || (!configured ? "OnSign is not configured for this client. Open Administration → Clients → OnSign API to set up its connection." : !players.length ? "No players are available in this OnSign account." : !filtered.length ? "No players match your search." : "Select the matching player. Your preview link works separately.")}</p>
     {error && <button type="button" className="adm-secondary-btn" disabled={disabled || loading} onClick={() => { if (mounted.current) { setLoading(true); setRevision(value => value + 1); } }}>Retry loading players</button>}
   </div>;
 }

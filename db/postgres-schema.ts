@@ -157,7 +157,7 @@ export const clientManagementActivity = pgTable("client_management_activity", {
   action: text("action").notNull(), details: jsonb("details").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [index("client_management_activity_client_idx").on(table.clientId, table.createdAt),
-  check("client_management_activity_action_check", sql`${table.action} IN ('create','assign','set_logo','remove_logo','set_background','remove_background')`)]);
+  check("client_management_activity_action_check", sql`${table.action} IN ('create','assign','set_logo','remove_logo','set_background','remove_background','set_onsign')`)]);
 
 export const clientMemberships = pgTable("client_memberships", {
   clientId: text("client_id").notNull().references(() => clients.id, { onDelete: "restrict" }),
@@ -309,3 +309,18 @@ export const commonMonitorDisplay = pgTable("common_monitor_display", {
   id: text("id").primaryKey(), clientId: text("client_id").notNull().references(() => clients.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), updatedBy: text("updated_by"),
 }, table => [check("common_monitor_display_id_check", sql`${table.id} = 'main'`)]);
+
+export const clientOnSignSettings = pgTable("client_onsign_settings", {
+  clientId: text("client_id").primaryKey().references(() => clients.id, { onDelete: "restrict" }),
+  version: text("version").notNull(), mode: text("mode").notNull(),
+  organizationId: text("organization_id"), encryptedToken: text("encrypted_token"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), updatedBy: text("updated_by").notNull(),
+}, table => [
+  check("client_onsign_settings_version_check", sql`${table.version} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$'`),
+  check("client_onsign_settings_mode_check", sql`${table.mode} IN ('custom','disabled','server')`),
+  check("client_onsign_settings_check", sql`(${table.mode}='custom' AND ${table.encryptedToken} IS NOT NULL
+    AND length(${table.encryptedToken}) BETWEEN 1 AND 20000 AND ${table.encryptedToken} LIKE 'v1.%'
+    AND (${table.organizationId} IS NULL OR (length(${table.organizationId}) BETWEEN 1 AND 256 AND ${table.organizationId} !~ '[[:space:][:cntrl:]]'))
+    AND (${table.clientId}='sephora' OR ${table.organizationId} IS NOT NULL))
+    OR (${table.mode} IN ('disabled','server') AND ${table.encryptedToken} IS NULL AND ${table.organizationId} IS NULL)`),
+]);

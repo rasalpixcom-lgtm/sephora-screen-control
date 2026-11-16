@@ -255,3 +255,14 @@ Back up PostgreSQL, `.env.local` and both entire photo base folders, including o
 Run `npm run test:client-ownership`, `test:client-permissions`, `test:client-query-isolation`, `test:client-settings`, `test:client-photos`, `test:client-selection` and `test:client-management` after building. They use disposable databases/fixtures; do not run test fixtures against production operational data.
 
 Optional client card backgrounds are managed alongside logos through **Administration → Clients → Edit branding** (PNG, JPG or WebP, up to 2 MB per image). Backgrounds fill the entire client selection tile with a subtle dark overlay and a centered logo. Client tiles have no name/access footer; the client name appears as the centered fallback when a logo is absent or cannot load. Use transparent logo artwork to let the background show around the logo. Navigation uses only the logo and the Administration card stays plain. Migration `0033_client_backgrounds.sql` adds separate PostgreSQL background storage; existing logos and client data are retained. Branding saves validate both images and versions before updating either asset, with Admin-only writes and individual audit records.
+
+
+Admins can manage each client's OnSign API connection under **Administration →
+Clients → OnSign API**. Tokens are encrypted and are never returned to the browser.
+Test connection does not save; saved changes apply immediately. Existing Sephora
+server settings remain the fallback until explicitly overridden. See
+SERVER-DEPLOYMENT.md for migration 0034 and credential backup requirements.
+
+Use **Load organizations** in the OnSign API editor to list the names and IDs
+accessible to the entered token (or the saved token when the field is blank).
+Choose the correct organization, test the connection and save. Loading is read-only.
