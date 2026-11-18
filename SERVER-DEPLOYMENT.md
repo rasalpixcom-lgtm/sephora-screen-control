@@ -68,14 +68,27 @@ Admin creates Admin and Controller accounts in Users. Staff sessions have no app
 
 ## Backups and verification
 
-Use your PostgreSQL installation's `pg_dump` and `pg_restore`; these commands write a binary backup file directly without PowerShell pipe/redirection conversion:
+Use your PostgreSQL installation's `pg_dump` and `pg_restore` with the `postgres`
+administrator (or a dedicated backup account with sufficient read and BYPASSRLS
+permissions). The application tables enforce row-level security, so the restricted
+`sephora` account may fail to produce a complete backup. These commands write a
+binary backup file directly without PowerShell pipe/redirection conversion:
 
 ```powershell
-pg_dump --host=127.0.0.1 --username=sephora --dbname=sephora --format=custom --file='C:\PrivateBackups\sephora.backup'
-pg_restore --host=127.0.0.1 --username=sephora --dbname=sephora_restore_test --no-owner 'C:\PrivateBackups\sephora.backup'
+pg_dump --host=127.0.0.1 --username=postgres --password --dbname=sephora --format=custom --file='C:\PrivateBackups\sephora.backup'
+createdb --host=127.0.0.1 --username=postgres --password sephora_restore_test
+pg_restore --host=127.0.0.1 --username=postgres --password --dbname=sephora_restore_test --no-owner --exit-on-error 'C:\PrivateBackups\sephora.backup'
 ```
 
-Use a protected PostgreSQL password file or enter the password interactively. Restore only into a separate empty database when testing; check accounts and inventory there. Schedule daily backups, keep an off-server copy, and test restoration regularly. Apply database migrations before starting each new app release. Keep the previous build and a database backup for rollback.
+Use a protected PostgreSQL password file or enter the administrator password
+interactively. Do not disable or weaken row-level security to make a backup work,
+and do not use `--enable-row-security` for a complete backup: it can omit rows the
+backup account cannot see. A failed dump is incomplete; stop and rerun it with the
+appropriate account before proceeding. Archive readability alone does not verify
+restoration. Restore only into a separate empty database when testing; check
+accounts and inventory there. Schedule daily backups, keep an off-server copy,
+and test restoration regularly. Apply database migrations before starting each
+new app release. Keep the previous build and a database backup for rollback.
 
 Keep private screen and location images in durable folders writable only by the service account and authorized administrators. Set absolute `SCREEN_PHOTO_DIR` and `LOCATION_PHOTO_DIR` paths outside the replaceable application directory. Stop the application while backing up these folders together with PostgreSQL; a database backup alone does not contain photo bytes. Restore both the database and photo folders together.
 

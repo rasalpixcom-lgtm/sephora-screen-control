@@ -1485,3 +1485,128 @@ seven moderate development-tool advisories, none high or critical. Real provider
 permissions still need an Admin Test connection check; preserve AUTH_SECRET with
 backups for encrypted tokens. Company server and database were untouched.
 No commit, push or deployment was performed.
+
+## Full project review - 18 November 2026
+
+Reviewed authentication and session handling, API authorization and request
+validation, client isolation and PostgreSQL policies, OnSign settings and runtime
+callers, monitoring links, inventory and private photo paths, reports and imports,
+preview and alert workers, migrations, standalone startup and deployment guidance.
+All 39 application API routes were checked, including the intentionally public
+health endpoint and guarded first-run activation. Static API references resolve;
+private configuration, uploads and runtime artifacts are not tracked for release.
+
+The first build identified a vulnerable Next.js release. Updated Next.js and its
+matching ESLint configuration from 16.4.2 to 16.4.6, with the corresponding lockfile
+changes. Official advisories GHSA-mfr8-8qww-v76h and GHSA-vc7v-qv4w-wrv8 describe
+cache isolation defects fixed in 16.4.5. Source inspection found no use of the
+affected cache APIs/configuration in this application; this is not evidence of an
+actual data exposure. The patched production build completes without that warning.
+
+Corrected the deployment backup examples to use the PostgreSQL administrator or
+a suitable backup account. Forced row-level security can prevent the restricted
+application account from dumping all tables. The instructions now require a
+separate empty restore database, stop on restore errors, and explain why neither
+weakening policies nor enabling row-filtered dumps is a complete-backup solution.
+
+Fresh verification on the patched dependencies: all 46 active unit/PDF/server
+suites passed, plus the independent LCD migration check. ESLint, TypeScript,
+production build and whitespace checks passed. A fresh backup restored all 38
+tables exactly into a disposable database. The bundle scan found no configured
+credentials in 78 browser JavaScript files. Browser checks against a disposable
+OnSign fixture passed login, client navigation, organization discovery and
+selection, read-only connection testing, server fallback display, desktop action
+alignment and mobile stacking/dialog overflow, with no browser console errors.
+Provider calls were mocked; real provider credentials were not changed or tested.
+
+Before/after fingerprints verify all 38 existing local database tables, 20 photo
+files and .env.local unchanged. Current local OnSign overrides are included in
+that comparison; no assumption was made that the settings table is empty.
+The company server and database were not accessed. Temporary test databases were
+cleaned up. The regular local application was stopped before this review and was
+not started; browser verification used the temporary test server.
+
+The fresh production dependency audit reports zero known vulnerabilities. The full
+audit still reports 15 development dependency advisories: nine high and six
+moderate, none critical. These remain open and were not addressed by forcing a
+breaking toolchain downgrade. No additional blocking application logic issue was
+found in the reviewed scope; this review cannot guarantee every possible defect
+has been eliminated. The framework patch and documentation changes remain local
+and uncommitted; GitHub and the deployed company release are unchanged.
+
+Sources:
+- https://github.com/vercel/next.js/security/advisories/GHSA-mfr8-8qww-v76h
+- https://github.com/vercel/next.js/security/advisories/GHSA-vc7v-qv4w-wrv8
+- https://github.com/advisories/GHSA-fc5q-39xc-vjpf
+
+## Compatible development dependency fixes - 18 November 2026
+
+Updated the locked TypeScript ESLint family from 8.59.3 to 8.73.0 using the
+existing eslint-config-next dependency range (^8.56.0). The updated upstream
+parser explicitly requires minimatch ^11.0.1; the lockfile now resolves 11.0.9,
+removing GHSA-g3hv-75wg-m249 and its six moderate audit entries. Associated
+development-only transitive patches were updated within their declared ranges.
+No forced override, Next/ESLint downgrade, application code change, database
+migration or configuration edit was introduced. The earlier local Next.js 16.4.6
+security patch remains pending alongside these changes.
+
+One underlying advisory remains: picomatch GHSA-fc5q-39xc-vjpf. The published
+versions end at 4.0.7 and the advisory lists all versions through 4.0.7 as affected,
+with no patched release. Maintained parent packages still depend on picomatch;
+the referenced upstream work also leaves an affected pattern unresolved. A
+forced downgrade or unpublished replacement would not be a verified safe fix.
+The full audit now reports 14 high package entries, zero moderate and zero
+critical. All 14 trace to that same existing advisory; five TypeScript ESLint
+parents now inherit its high severity, rather than representing new distinct
+vulnerabilities. The production-only audit still reports zero vulnerabilities.
+An independent dependency review confirmed the version constraints, supported
+minimatch API and absence of additional runtime dependency changes.
+
+Fresh verification after a clean npm ci: npm ls reports a valid dependency tree;
+ESLint, TypeScript and the production build pass. All 46 active regression suites
+pass. The separate LCD/Video Wall migration check passes, a fresh backup restores
+all 38 tables exactly into a disposable database, and the browser bundle scan
+finds no configured credentials in 78 JavaScript files. The before/after check
+confirms all 38 existing local tables (including saved OnSign settings), 20 photo
+files and .env.local unchanged. Provider regression tests use mocks; no real
+provider settings or credentials were edited. No UI code changed in this pass.
+
+The application on the company server was not accessed or updated. Changes
+remain on local main, uncommitted; no push, merge or deployment was performed.
+The remaining unpatched advisory is documented openly, not suppressed from audit.
+
+Sources:
+- https://github.com/advisories/GHSA-g3hv-75wg-m249
+- https://github.com/advisories/GHSA-fc5q-39xc-vjpf
+
+## Independent full source recheck - 18 November 2026
+
+Completed another broad review after the compatible development dependency
+updates. Independent read-only passes covered authentication/session/role/origin
+checks, workspace and monitor capabilities, PostgreSQL runtime roles and RLS,
+OnSign credentials/discovery/provider scoping, private photo/upload paths,
+preview persistence and email/WhatsApp workers, and UI/Controller/monitor,
+inventory/survey/report flows and deployment scripts. The main review also
+checked transactional inventory deletion and photo cleanup, display selection,
+hardware/location validation, activity queries and report snapshots.
+
+No new substantiated actionable defect was found. A suspected descendant-photo
+cleanup issue was checked against the current deferred NO ACTION parent foreign
+key and ruled out. Automated checks across 312 source/configuration files found
+no unresolved local imports or missing static API paths. All 39 API routes use
+workspace scoping, and mutation routes contain origin checks. These static checks
+supplement the manual gate review; matching a pattern alone does not prove safety.
+
+Application source and installed dependencies are unchanged from the version
+that just passed clean npm ci, npm ls, ESLint, TypeScript, production build, all
+46 active regression suites, the separate LCD/Video Wall migration check, exact
+38-table backup restoration and the 78-file browser credential scan. No redundant
+application rewrite or migration was needed during this recheck.
+
+The final read-only preservation comparison again verifies all 38 existing local
+tables, 20 photo files and private environment configuration unchanged. Provider
+regressions use mocks; real OnSign/Gmail/UltraMsg account access was not exercised.
+The known unpatched picomatch advisory remains: 14 development package audit
+entries trace to one root advisory, with zero production dependency advisories.
+This review does not guarantee that every possible defect has been eliminated.
+No commit, push, merge, company-server access or deployment was performed.
