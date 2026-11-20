@@ -15,6 +15,7 @@ import type { ServerDatabase } from "@/lib/database";
 import { canOpen, roleHome, roles, type AuthUser } from "@/lib/auth-policy";
 import { configuredAuthOrigins, matchesAuthOrigin } from "@/lib/network-origin";
 import { RequestError } from "@/lib/request";
+import { authLog } from "@/lib/auth-log";
 import { hashPassword, verifyPassword } from "@/lib/password";
 
 // The database requires a date; this sentinel represents a session without an app deadline.
@@ -31,6 +32,7 @@ export function auth() {
   const origins = configuredAuthOrigins(env.AUTH_URL!, env.AUTH_ADDITIONAL_ORIGINS, env.ALLOW_LAN_HTTP === "true");
   return betterAuth({
     appName: "Sephora Screen Control", secret: env.AUTH_SECRET!, baseURL: origins.length === 1 ? origins[0] : { allowedHosts: origins.map(origin => new URL(origin).host), fallback: origins[0], protocol: origins[0].startsWith("https:") ? "https" : "http" },
+    logger: { log: authLog },
     database: drizzleAdapter(drizzle(getPool("sephora"), { schema }), { provider: "pg", schema, transaction: true }),
     trustedOrigins: origins,
     emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 12, maxPasswordLength: 128, password: { hash: hashPassword, verify: verifyPassword } },

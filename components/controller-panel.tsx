@@ -9,6 +9,7 @@ import "./controller-panel.css";
 import { screensFor } from "@/lib/screens";
 import { clientFetch } from "@/lib/client-fetch";
 import PreviewIssues, { type HealthSnapshot } from "@/components/preview-issues";
+import ControllerGroupScreens from "@/components/controller-group-screens";
 
 type State = { entities: Entity[]; members: Member[]; display: Display };
 type Props = {
@@ -120,8 +121,10 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
       </section>
 
       <section className="ctrl-panel ctrl-screens" aria-label="Screens in selected location or group">
+        {scopeReady && mode === "groups" && group ? <ControllerGroupScreens key={group.id} group={group} entities={entities} members={members} selection={selection} wallScreens={wallScreens} busy={busy} onDisplayChange={onDisplayChange} onSelectScreen={selectScreen}/> : <>
         <div className="ctrl-panel-head"><div><span className="ctrl-overline">{mode === "groups" ? "GROUP SCREENS" : "Choose screens"}</span><h2>{scopeReady ? group?.name || location?.name || "Screens" : "Screens"}</h2>{scopeReady && <p>All screens are shown by default. Select screens to show a smaller set.</p>}</div>{scopeReady && <span className="ctrl-screen-count">{availableScreens.length}</span>}</div>
         {scopeReady ? <><div className="ctrl-screen-tools"><label className="ctrl-search"><Search size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search these screens" aria-label="Search these screens"/></label><button className={`ctrl-all ${!selection.screenIds?.length ? "active" : ""}`} disabled={busy} onClick={() => onDisplayChange({ ...selection, screenIds: undefined })}>All screens</button></div><div className="ctrl-screen-list">{visibleScreens.map((screen) => <button key={screen.id} className={`ctrl-screen ${selection.screenIds?.includes(screen.id) ? "selected" : ""}`} aria-pressed={!!selection.screenIds?.includes(screen.id)} disabled={busy} onClick={() => selectScreen(screen.id)}><span className="ctrl-screen-icon"><Monitor size={20}/></span><span className="ctrl-screen-label"><strong>{screen.name}</strong><small>{screenPlace(screen, entities)}</small></span><span className={`ctrl-source ${screen.liveUrl ? "ready" : ""}`}>{screen.liveUrl ? "Preview link" : "No preview link"}</span><span className="ctrl-check">{selection.screenIds?.includes(screen.id) && <Check size={14}/>}</span></button>)}{!visibleScreens.length && <div className="ctrl-empty">{query ? "No screens match this search." : "There are no screens here yet."}</div>}</div><div className="ctrl-screen-foot"><SlidersHorizontal size={16}/>{selection.screenIds?.length ? `${selection.screenIds.length} selected for the wall` : `${availableScreens.length === 1 ? "The screen" : `All ${availableScreens.length} screens`} in this ${group ? "group" : "location"} ${availableScreens.length === 1 ? "is" : "are"} on the wall`}</div></> : <div className="ctrl-screen-wait"><div className="ctrl-screen-wait-icon"><Monitor size={30}/></div><strong>{mode === "groups" ? "Choose a group to view its screens." : "Choose a location to view its screens."}</strong>{mode === "locations" && <div className="ctrl-wait-steps"><span className={country ? "done" : ""}>Country</span><ChevronRight size={14}/><span className={region ? "done" : ""}>Region</span><ChevronRight size={14}/><span className={location ? "done" : ""}>Location</span><ChevronRight size={14}/><span>Screens</span></div>}</div>}
+        </>}
       </section>
     </div>}
   </div>;

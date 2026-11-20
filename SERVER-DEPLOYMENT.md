@@ -234,9 +234,9 @@ It creates disposable databases and UUID-named roles and cleans up its fixtures.
 Client renaming, archiving and integration-settings UI are outside this stage.
 
 
-Client logos (migration `0031_client_logos.sql`) are stored as small validated WebP images in PostgreSQL. The database backup includes them; no new folder or environment variable is required. Run migrations before starting the updated application. Admins manage logos under Administration → Clients → Edit branding. Existing client identity rows, integration settings, inventory and photo folders are preserved.
+Client logos (migration `0031_client_logos.sql`) are stored as small validated WebP images in PostgreSQL. The database backup includes them; no new folder or environment variable is required. Run migrations before starting the updated application. Admins manage logos under Administration → Clients → Edit client. Existing client identity rows, integration settings, inventory and photo folders are preserved.
 
-Client card backgrounds require migration `0033_client_backgrounds.sql`. Apply it before starting this build; health checks reject missing background storage or migration records. Optional logos and backgrounds are managed together through Administration → Clients → Edit branding and are both included in PostgreSQL backups. Client cards show centered logos over full-card backgrounds, with client names as fallbacks. Workspace navigation remains logo-only.
+Client card backgrounds require migration `0033_client_backgrounds.sql`. Apply it before starting this build; health checks reject missing background storage or migration records. Optional logos and backgrounds are managed together through Administration → Clients → Edit client and are both included in PostgreSQL backups. Client cards show centered logos over full-card backgrounds, with client names as fallbacks. Workspace navigation remains logo-only.
 
 
 ## Dashboard OnSign connections: migration 0034
@@ -269,3 +269,33 @@ audit events. No organization is chosen automatically. Token edits invalidate
 the loaded list; an unavailable current ID remains visible rather than silently
 switching accounts. Manual ID entry remains available. This addition requires
 no migration beyond 0034. Tokens and upstream error details are never returned.
+
+## Client names and Controller group filters: migration 0035
+
+Apply `0035_client_rename.sql` with the privileged migration account before
+starting this build. Use the backup, restored-copy rehearsal, stop, migrate,
+build and restart procedure above. Health requires the migration record and its
+bounded rename function. The migration preserves existing data rows and extends
+the management audit constraint to allow name changes.
+
+Administration → Clients → Edit client includes the client name, logo and card
+background. Save changes applies the name and branding in one transaction.
+Only enabled Admins can save; duplicate names and stale editor values are
+rejected. Renaming changes the display name and records the acting Admin. Client
+IDs, slugs, inventory ownership, provider credentials, photo folders and monitor
+keys stay the same. OnSign API remains a separate editor. Background alert
+workers refresh the displayed name on their next cycle without a restart.
+
+Controller → Groups adds Country, Region / city, Location and text filters within
+the chosen group. Show filtered screens applies the matching selection; Show
+entire group restores the full group. Editing or clearing draft filters leaves
+the wall selection intact until applied. Zero matches cannot become an all-screen
+selection. These controls use the existing display API and require no additional
+schema change. Existing location browsing and individual screen selection remain
+available.
+
+On the development cluster, run the rename integration suite with
+`node --env-file=.env.local tests/client-rename.server.mjs` and the Controller
+suites with `node --experimental-strip-types tests/controller-group-filters.mjs`
+and `node --experimental-strip-types --env-file=.env.local tests/controller-groups.server.mjs`.
+Their fixtures use disposable databases. These commands do not deploy a release.

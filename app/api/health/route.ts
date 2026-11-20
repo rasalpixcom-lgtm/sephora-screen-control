@@ -9,6 +9,7 @@ async function GETHandler() {
     assertAuthConfig();
     clientIntegrations();
     const db = database();
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0035_client_rename.sql' AND to_regprocedure('public.pixcom_rename_client(text,text,text,text)') IS NOT NULL").first()) throw new Error("Client rename migration is missing");
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0034_client_onsign_settings.sql'").first()) throw new Error("Client OnSign migration is missing");
     await db.prepare("SELECT client_id, version, mode, encrypted_token, organization_id FROM client_onsign_settings LIMIT 0").all();
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0033_client_backgrounds.sql'").first()) throw new Error("Client background migration is missing");

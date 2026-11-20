@@ -1610,3 +1610,62 @@ The known unpatched picomatch advisory remains: 14 development package audit
 entries trace to one root advisory, with zero production dependency advisories.
 This review does not guarantee that every possible defect has been eliminated.
 No commit, push, merge, company-server access or deployment was performed.
+
+## Pre-push project review - 20 November 2026
+
+Reviewed the pending Controller group filters and client rename work, then
+rechecked authentication, roles/origins, workspace isolation, monitor capabilities,
+OnSign credential handling, private photo paths, inventory transactions, CMS and
+PDF/report routes, background workers, migrations and deployment preparation.
+The source/path scan covered 303 source files, 719 local imports and all 39 API
+routes. No unresolved local import or static API destination remained. The two
+public route exceptions are the bounded one-time Admin setup and read-only health
+endpoint. The `/api/screen-` string in a permission test selects its HTTP method;
+it is not a request destination.
+
+Corrections made during this pass:
+
+- Background email and WhatsApp workers now refresh their client's current name
+  within a fresh workspace context on each cycle. An archived client is skipped.
+  Existing IDs, credentials, queue rules and delivery destinations are retained.
+  The rename suite now has 58 checks, including stale timer context, renamed
+  message branding and request-context isolation.
+- Better Auth diagnostics now retain severity and an allowed diagnostic code
+  without logging SDK error payloads containing SQL parameters, session tokens
+  or submitted passwords. Four logging checks and a real authentication database
+  failure regression cover this behavior; the auth suite passes 339 checks.
+- The affected email, OnSign and rename test fixtures now wait for pool clients'
+  socket-close events before dropping their disposable database. This corrects
+  the previously observed cleanup race without suppressing test failures.
+- Deployment guidance now documents migration 0035, Edit client and group
+  filtering, including the required backup/rehearsal/migrate/restart sequence.
+
+Fresh ESLint, TypeScript, production build, dependency-tree and whitespace checks
+pass. All 50 active suites passed on the current source. The final broad run
+passed 49 directly; client-management hit a local PostgreSQL TCP connection
+timeout during its privilege checks, then passed all 204 checks when run alone.
+Earlier transient connection timeouts were also inspected rather than converted
+into successful assertions. No application timeout or load-test limit was relaxed.
+The email suite passes its 92 checks and exits cleanly without a private workaround.
+The OnSign suite passes 81 checks. Provider transports use mocks/local receivers.
+
+The separate LCD/Video Wall migration test passes. A fresh read-only exported
+snapshot backup restored all 38 tables exactly into a disposable database.
+The old D1-specific auth suite and the operator SQLite-source comparison are
+historical workflows, not part of the current PostgreSQL suite; PostgreSQL import
+and ownership migration regressions ran in the active suites.
+
+Both fresh npm audits (full and production-only) report zero vulnerabilities,
+and npm ls reports no dependency-tree problems. No dependency versions changed
+during this review. The browser bundle scan found no configured credentials in
+78 JavaScript files; standalone output contains no environment files. The earlier
+desktop/mobile checks remain applicable: this pass did not change UI files.
+
+Before/after comparison covered all 38 existing local tables. All 35 tables
+outside normal preview/alert activity matched exactly, including inventory,
+accounts, client identities, saved integrations, settings, reports and monitor
+keys. The local app stayed running: preview_incident and preview_screen_state
+continued updating, and email_alert_queue gained one newly queued, subsequently
+cancelled unavailable-preview item. All 20 private photo files and .env.local
+matched exactly. Local health returns ok. These checks did not change the
+company server, and no commit, push, production merge or deployment was performed.

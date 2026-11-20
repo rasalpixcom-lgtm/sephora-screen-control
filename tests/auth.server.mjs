@@ -67,6 +67,14 @@ try {
   check(setup?.status === 200, "first Admin setup succeeds");
   check((await request("/api/activate", { token, password })).status === 400, "setup token cannot be reused");
   const admin = await login("admin@example.test"); check(admin.response.status === 200 && admin.cookie.includes("session_token"), "Admin receives a session cookie");
+  const sessionTokens = (await pool.query("SELECT token FROM auth_session")).rows.map(row => row.token);
+  const beforeAuthFailure = logs.length;
+  await pool.query("ALTER TABLE auth_session RENAME TO auth_session_log_fixture");
+  try { check((await request("/api/session", undefined, admin.cookie)).status === 503, "authentication database failure returns a controlled service error"); }
+  finally { await pool.query("ALTER TABLE auth_session_log_fixture RENAME TO auth_session"); }
+  for (let i = 0; i < 20 && !logs.slice(beforeAuthFailure).includes("Authentication service error"); i++) await new Promise(resolve => setTimeout(resolve, 20));
+  const authFailureLog = logs.slice(beforeAuthFailure);
+  check(authFailureLog.includes("Authentication service error") && !sessionTokens.some(token => authFailureLog.includes(token)) && !authFailureLog.includes(password), "authentication diagnostics retain severity without logging session tokens or passwords");
   check(admin.response.headers.getSetCookie().some((c) => /HttpOnly/i.test(c) && /SameSite=Lax/i.test(c)), "session cookies are HttpOnly and SameSite");
   check((await request("/api/users", undefined, admin.cookie)).status === 200, "Admin can list accounts");
   const aliasLogin = await fetch(aliasOrigin + "/api/auth/sign-in/email", { method: "POST", headers: { Origin: aliasOrigin, "Content-Type": "application/json", "x-forwarded-for": "192.0.2.91" }, body: JSON.stringify({ email: "admin@example.test", password }) });

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import pg from "pg";
 import { migrate } from "../scripts/migrate-postgres.mjs";
+import { closeTestPool } from "./fixtures/postgres-pool.mjs";
 
 const root=process.cwd(),databaseName="sephora_email_test_"+crypto.randomBytes(8).toString("hex");
 const adminUrl=new URL(process.env.DATABASE_URL);adminUrl.pathname="/postgres";
@@ -263,5 +264,5 @@ try {
 } finally {
   if(server&&server.exitCode===null){server.kill();await new Promise(resolve=>server.once("exit",resolve));}
   for(const socket of connections)socket.destroy();await new Promise(resolve=>smtp.close(resolve));
-  await lib.getPool().end();await pool.end();await adminPool.query('DROP DATABASE "'+databaseName+'" WITH (FORCE)');await adminPool.end();await fs.unlink(output).catch(()=>{});
+  await closeTestPool(lib.getPool());await closeTestPool(pool);await adminPool.query('DROP DATABASE "'+databaseName+'" WITH (FORCE)');await adminPool.end();await fs.unlink(output).catch(()=>{});
 }

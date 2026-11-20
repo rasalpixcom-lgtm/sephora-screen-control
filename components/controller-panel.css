@@ -307,6 +307,37 @@ html.dark .ctrl-source { color: #e5b881; }
 .app-shell:has(.ctrl) .workspace-dot { background:var(--work-muted); }
 
 /* Keep phone header controls together, with navigation on the next row. */
+/* Group filters sit outside the scrolling result list, so they remain visible
+   while browsing the group's screens. These styles do not affect other tabs. */
+.ctrl-group-tools { display:grid; gap:8px; padding:20px 22px 16px; background:var(--card-fill); container:ctrl-group-tools / inline-size; }
+.ctrl-group-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.ctrl-group-filters label { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:13px; font-weight:500; color:var(--work-text); }
+.ctrl-group-filters select { width:100%; min-width:0; min-height:44px; padding:10px 28px 10px 12px; border:1px solid var(--work-line); border-radius:12px; background:var(--work-soft); color:var(--work-text); font-size:13px; text-overflow:ellipsis; }
+.ctrl-group-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--work-muted); font-size:13px; }
+.ctrl-group-summary .ctrl-reset { padding:8px 0 8px 8px; text-decoration:underline; text-underline-offset:3px; }
+.ctrl-group-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0; }
+.ctrl-group-toolbar>.ctrl-search { flex:1 1 100%; }
+.ctrl-group-actions { display:flex; flex-wrap:wrap; gap:10px; flex:1 1 100%; }
+.ctrl-group-actions button { flex:1 1 auto; min-height:44px; padding:10px 16px; border-radius:999px; font-size:13px; font-weight:500; white-space:nowrap; }
+.ctrl-group-apply { border:1px solid var(--work-action); color:var(--work-action-text); background:var(--work-action); }
+.ctrl-group-apply:hover:not(:disabled) { filter:brightness(.94); }
+.ctrl-group-hint { margin:0; color:var(--work-muted); font-size:12px; line-height:1.5; }
+.ctrl-group-tools :disabled { cursor:not-allowed; opacity:.5; }
+.ctrl-group-list:focus-visible { outline:2px solid var(--work-focus); outline-offset:-3px; }
+/* Use the panel's available width: a narrow desktop column also needs wrapping. */
+@container ctrl-group-tools (min-width:560px) {
+  .ctrl-group-toolbar>.ctrl-search { flex:1 1 220px; }
+  .ctrl-group-actions { flex:0 0 auto; flex-wrap:nowrap; }
+  .ctrl-group-actions button { flex:0 0 auto; }
+}
+@media(max-width:750px) { .ctrl-screen-list.ctrl-group-list { max-height:560px; max-height:min(560px,65dvh); } }
+@media(max-width:600px) {
+  .ctrl-group-tools { padding:18px 20px; }
+  .ctrl-group-filters { grid-template-columns:1fr; }
+  .ctrl-group-actions { flex-direction:column; }
+  .ctrl-group-actions button { flex:0 0 auto; width:100%; }
+}
+
 .ctrl-mode { flex-wrap:wrap; }
 .ctrl-issue-summary { display:flex; flex-wrap:wrap; gap:14px 26px; padding:18px 22px; border-bottom:1px solid var(--work-line); color:var(--work-muted); font-size:13px; }
 .ctrl-issue-summary strong { color:var(--work-text); margin-right:4px; }

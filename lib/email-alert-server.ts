@@ -1,4 +1,5 @@
 import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-workspace";
+import { withCurrentWorkerWorkspace } from "./client-worker-scope";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPool } from "./database";
@@ -186,7 +187,7 @@ function startEmailAlertWorkerInScope() {
   if(workers.has(activeClientId())||process.env.EMAIL_ALERT_WORKER_DISABLED==="true") return;
   const service={error:false,timer:undefined as ReturnType<typeof setTimeout>|undefined};workers.set(activeClientId(),service);
   const tick=async()=>{
-    try {await processEmailAlerts();service.error=false;}
+    try {await withCurrentWorkerWorkspace(() => processEmailAlerts());service.error=false;}
     catch {if(!service.error) console.error("Email alert worker unavailable");service.error=true;}
     finally {service.timer=setTimeout(tick,10000);service.timer.unref();}
   };

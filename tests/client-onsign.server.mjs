@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import pg from "pg";
 import { migrate } from "../scripts/migrate-postgres.mjs";
+import { closeTestPool } from "./fixtures/postgres-pool.mjs";
 const name = "sephora_onsign_settings_" + crypto.randomBytes(8).toString("hex");
 const envClient = "client-env-" + crypto.randomBytes(8).toString("hex");
 const adminUrl = new URL(process.env.DATABASE_URL); adminUrl.pathname = "/postgres";
@@ -186,7 +187,7 @@ try {
 } finally {
   if(server&&server.exitCode===null){const exit=once(server,"exit");server.kill();await exit;}
   const roles=created?(await pool.query("SELECT id FROM clients WHERE id LIKE 'client-%'")).rows.map(c=>"pixcom_client_"+crypto.createHash("md5").update(c.id).digest("hex")):[];
-  await pool.end(); if(created)await admin.query('DROP DATABASE "'+name+'" WITH (FORCE)');
+  await closeTestPool(pool); if(created)await admin.query('DROP DATABASE "'+name+'" WITH (FORCE)');
   for(const role of roles)await admin.query('DROP ROLE IF EXISTS "'+role+'"');
   await admin.end();
 }

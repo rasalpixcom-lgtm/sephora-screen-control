@@ -1,4 +1,5 @@
 import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-workspace";
+import { withCurrentWorkerWorkspace } from "./client-worker-scope";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { getPool } from "./database";
@@ -158,7 +159,7 @@ function startWhatsAppAlertWorkerInScope(){
   const workers=shared.pixcomWhatsAppWorkers??=new Set();
   if(workers.has(activeClientId())||process.env.WHATSAPP_ALERT_WORKER_DISABLED==="true")return;
   workers.add(activeClientId());let reported=false;
-  const tick=async()=>{try{await processWhatsAppAlerts();reported=false;}catch{if(!reported)console.error("WhatsApp alert worker unavailable");reported=true;}finally{const timer=setTimeout(tick,10000);timer.unref();}};void tick();
+  const tick=async()=>{try{await withCurrentWorkerWorkspace(() => processWhatsAppAlerts());reported=false;}catch{if(!reported)console.error("WhatsApp alert worker unavailable");reported=true;}finally{const timer=setTimeout(tick,10000);timer.unref();}};void tick();
 }
 
 export function startWhatsAppAlertWorker() { return runWithWorkspace(activeWorkspace(), startWhatsAppAlertWorkerInScope); }
