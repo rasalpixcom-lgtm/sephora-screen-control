@@ -11,4 +11,5 @@ assert.ok(parse("action=other").where.includes("NOT"));
 const entities=[{id:"c",name:"UAE"},{id:"r",name:"Dubai"},{id:"s",name:"Dubai Mall"},{id:"g",name:"Cash table"}];
 assert.equal(wallActivityDescription({},entities,true,10),"All locations · Rotation every 10s");
 assert.equal(wallActivityDescription({countryId:"c",regionId:"r",storeId:"s",groupId:"g"},entities,false,10),"UAE / Dubai / Dubai Mall / Group: Cash table · Rotation paused");
-console.log("16 activity query and description checks passed.");
+assert.equal(wallActivityDescription({groupId:"g",screenIds:null},entities,true,15),"Group: Cash table · No screens selected · Rotation every 15s");
+console.log("17 activity query and description checks passed.");

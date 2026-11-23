@@ -6,7 +6,7 @@ const state = {
   members: [{ groupId: "cash", screenId: "a" }, { groupId: "cash", screenId: "c" }],
   display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" },
 };
-for (const [selection, expected] of [
+const cases = [
   [{}, ["a", "b", "c"]],
   [{ countryId: "uae" }, ["a", "b"]],
   [{ regionId: "dubai" }, ["a", "b"]],
@@ -16,8 +16,12 @@ for (const [selection, expected] of [
   [{ countryId: "uae", screenIds: ["a", "c"] }, ["a"]],
   [{ groupId: "cash", screenIds: ["c"] }, ["c"]],
   [{ storeId: "mall1", screenIds: [] }, ["a"]],
+  [{ screenIds: null }, []],
+  [{ groupId: "cash", screenIds: null }, []],
+  [{ storeId: "mall1", screenIds: null }, []],
   [{ groupId: "missing" }, []],
   [{ countryId: "missing" }, []],
-]) assert.deepEqual(screensFor(state, selection).map(screen => screen.id), expected);
+];
+for (const [selection, expected] of cases) assert.deepEqual(screensFor(state, selection).map(screen => screen.id), expected);
 assert.deepEqual(screensFor({ ...state, entities: [], members: [] }, {}), []);
-console.log("12 Controller/Monitor selection logic checks passed.");
+console.log(`${cases.length + 1} Controller/Monitor selection logic checks passed.`);

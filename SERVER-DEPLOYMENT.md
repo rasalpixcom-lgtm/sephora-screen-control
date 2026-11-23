@@ -299,3 +299,43 @@ On the development cluster, run the rename integration suite with
 suites with `node --experimental-strip-types tests/controller-group-filters.mjs`
 and `node --experimental-strip-types --env-file=.env.local tests/controller-groups.server.mjs`.
 Their fixtures use disposable databases. These commands do not deploy a release.
+
+## Personal client-card order: migration 0036
+
+Apply `0036_user_client_order.sql` with the privileged migration account before
+starting this build. Use the backup, restored-copy rehearsal, stop, migrate,
+build and restart procedure above. Health requires the migration, its new table
+and its bounded setter. The migration adds empty preference storage without
+rewriting existing client, inventory, account, integration or display rows.
+
+On Choose client, Arrange clients changes only the signed-in account's card
+order. Save order persists it across logout/login and devices. Cancel discards
+the draft; Reset to A–Z takes effect only after Save order. Administration stays
+first for Admins. New clients follow the saved cards; archived clients are
+omitted. Client renaming retains position because preferences store stable IDs.
+Staff sharing one login share that account's order. No environment, photo path,
+OnSign credential or monitor link change is needed.
+
+Drag handles, Move menus and keyboard controls are available only while arranging.
+Concurrent saves and tabs belonging to a different signed-in account are rejected
+without overwriting a saved order. A conflict requires reloading the page.
+
+Run `npm run test:client-card-order` on the isolated development cluster. Its
+fixtures use a separate disposable database; do not run integration tests against
+the company database.
+
+## Monitoring wall after inventory deletion
+
+Deleting the active group, location, region, or country, or deleting the last
+individually selected screen, leaves the wall empty until the Controller makes
+another selection. When rehearsing a release, verify that both the client and
+common monitor links show zero screens after the deletion. This fix uses the
+existing `display_state` storage and requires no additional migration.
+
+The application stores an empty wall as `"screenIds":[null]`. The previous build
+(`0ab6ee1`) reads this as a selection that matches zero screens. If you roll back
+only the application, use the previous Controller to choose a group or location
+or apply a filtered group selection before changing rotation or deleting more
+inventory. The previous build can reject rotation changes with the empty state
+and can clear the empty filter during a later deletion. Keep the existing
+backup and rollback procedure above.

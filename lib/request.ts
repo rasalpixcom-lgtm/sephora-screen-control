@@ -3,7 +3,7 @@ export class RequestError extends Error {
 }
 
 // Bound streamed bodies too: Content-Length is not always present or trustworthy.
-export async function readObject(request: Request): Promise<Record<string, unknown>> {
+export async function readObject(request: Request, maxBytes = 65_536): Promise<Record<string, unknown>> {
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") throw new RequestError("Send a JSON request.", 415);
   const reader = request.body?.getReader();
   if (!reader) throw new RequestError("Invalid request body.");
@@ -14,7 +14,7 @@ export async function readObject(request: Request): Promise<Record<string, unkno
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 65536) { await reader.cancel(); throw new RequestError("Request is too large.", 413); }
+      if (size > maxBytes) { await reader.cancel(); throw new RequestError("Request is too large.", 413); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }

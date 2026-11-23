@@ -1,10 +1,10 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { activeClientId, inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { database, readState, type EntityType, type Selection } from "@/lib/store";
+import { database, readState, serializeDisplaySelection, type EntityType, type Selection } from "@/lib/store";
 import { currentUser, sameOrigin } from "@/lib/auth";
 import { canMutate } from "@/lib/auth-policy";
-import { requestFailure } from "@/lib/request";
+import { readObject, RequestError, requestFailure } from "@/lib/request";
 import { wallActivityDescription } from "@/lib/activity-description";
 import { OnSignApiError } from "@/lib/onsign-api";
 import { onSignApi } from "@/lib/onsign-runtime";
@@ -13,10 +13,10 @@ import { discardPreparedScreenPhoto, prepareScreenPhoto, readScreenMutation, rem
 import { discardPreparedLocationPhoto, parseLocationPhotos, prepareLocationPhoto, readLocationMutation, removeLocationPhoto } from "@/lib/location-photo";
 
 import { parseLocationDetails } from "@/lib/location-details";
-import { RequestError } from "@/lib/request";
 import { isScreenType } from "@/lib/screen-type";
 
 export const runtime = "nodejs";
+const groupMembershipBodyLimit = 1024 * 1024;
 const types: EntityType[] = ["country", "region", "store", "screen", "group"];
 const parentType: Partial<Record<EntityType, EntityType>> = { region: "country", store: "region", screen: "store" };
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -39,10 +39,15 @@ async function POSTHandler(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
-  if (user.role !== "admin" && request.headers.get("content-type")?.startsWith("multipart/form-data")) return bad("Admin access required.", 403);
+  const bulkGroupSave = request.nextUrl.searchParams.get("action") === "group-members";
+  if (user.role !== "admin" && (bulkGroupSave || request.headers.get("content-type")?.startsWith("multipart/form-data"))) return bad("Admin access required.", 403);
   const locationUpload = request.headers.get("x-location-photos") === "1";
-  const parsed = locationUpload ? await readLocationMutation(request) : await readScreenMutation(request);
+  if (bulkGroupSave && locationUpload) return bad("Group membership changes do not include file uploads.", 415);
+  const parsed = bulkGroupSave
+    ? { body: await readObject(request, groupMembershipBodyLimit), file: null }
+    : locationUpload ? await readLocationMutation(request) : await readScreenMutation(request);
   const body = parsed.body;
+  if (bulkGroupSave && body.action !== "group-members") return bad("Choose a valid group membership change.");
   const file = locationUpload ? null : (parsed as Awaited<ReturnType<typeof readScreenMutation>>).file;
   const locationFiles = locationUpload ? (parsed as Awaited<ReturnType<typeof readLocationMutation>>).files : new Map<number, File>();
   if (!canMutate(user.role, body.action)) return bad("You do not have permission for this action.", 403);
@@ -81,6 +86,7 @@ async function POSTHandler(request: NextRequest) {
     const entity = (id: unknown) => state.entities.find((item) => item.id === id);
     const now = new Date().toISOString();
     let audit: { action: string; type: string | null; id: string | null; name: string | null } | null = null;
+    let duplicatedGroupId: string | undefined;
     if (body.action === "create" || body.action === "update") {
       const type = body.type as EntityType;
       if (!types.includes(type) || !validName(body.name)) return bad("Enter a valid name.");
@@ -144,6 +150,22 @@ async function POSTHandler(request: NextRequest) {
           await db.prepare("INSERT INTO location_photos (id, location_id, position, label) VALUES (?, ?, ?, ?)").bind(id, savedId, position, photo.label).run();
         }
       }
+    } else if (body.action === "duplicate-group") {
+      const source = entity(body.sourceGroupId);
+      if (source?.type !== "group") return bad("The original group could not be found. Refresh the page and try again.", 404);
+      if (typeof body.name !== "string" || !validName(body.name) || body.name.includes("\0") || !body.name.isWellFormed()) {
+        return bad("Enter a valid group name of up to 80 characters.");
+      }
+      const name = body.name.trim();
+      if (state.entities.some(item => item.type === "group" && item.name.toLowerCase() === name.toLowerCase())) {
+        return bad("A group with this name already exists. Choose a different name.", 409);
+      }
+      duplicatedGroupId = crypto.randomUUID();
+      await db.prepare("INSERT INTO entities (id, type, name, is_demo, created_at) VALUES (?, 'group', ?, 0, ?)")
+        .bind(duplicatedGroupId, name, now).run();
+      await db.prepare("INSERT INTO group_members (group_id, screen_id) SELECT ?, screen_id FROM group_members WHERE group_id = ?")
+        .bind(duplicatedGroupId, source.id).run();
+      audit = { action: "created group copy", type: "group", id: duplicatedGroupId, name };
     } else if (body.action === "delete") {
       const existing = entity(body.id);
       if (!existing) return bad("Item not found.", 404);
@@ -160,16 +182,22 @@ async function POSTHandler(request: NextRequest) {
         await db.prepare("DELETE FROM entities WHERE id = ?").bind(id).run();
       }
       const selection = { ...state.display.selection };
+      let removedWallScope = false;
       for (const key of ["countryId", "regionId", "storeId", "groupId"] as const) {
-        if (selection[key] && (!entity(selection[key]) || ids.has(selection[key]!))) delete selection[key];
+        const id = selection[key];
+        if (id && (ids.has(id) || !entity(id))) {
+          delete selection[key];
+          removedWallScope = true;
+        }
       }
-      if (selection.screenIds) {
+      if (removedWallScope) {
+        selection.screenIds = null;
+      } else if (selection.screenIds?.length) {
         const remaining = selection.screenIds.filter((id) => !ids.has(id) && entity(id)?.type === "screen");
-        if (remaining.length) selection.screenIds = remaining;
-        else delete selection.screenIds;
+        selection.screenIds = remaining.length ? remaining : null;
       }
       if (JSON.stringify(selection) !== JSON.stringify(state.display.selection)) {
-        await db.prepare(`UPDATE display_state SET selection = ?, updated_at = ? WHERE client_id='${activeClientId()}' AND id = 'main'`).bind(JSON.stringify(selection), now).run();
+        await db.prepare(`UPDATE display_state SET selection = ?, updated_at = ? WHERE client_id='${activeClientId()}' AND id = 'main'`).bind(serializeDisplaySelection(selection), now).run();
       }
       audit = { action: "deleted", type: existing.type, id: existing.id, name: existing.name };
     } else if (body.action === "member") {
@@ -178,6 +206,22 @@ async function POSTHandler(request: NextRequest) {
       if (body.enabled === true) await db.prepare("INSERT INTO group_members (group_id, screen_id) VALUES (?, ?) ON CONFLICT DO NOTHING").bind(body.groupId, body.screenId).run();
       else await db.prepare("DELETE FROM group_members WHERE group_id = ? AND screen_id = ?").bind(body.groupId, body.screenId).run();
       audit = { action: body.enabled === true ? "assigned" : "unassigned", type: "screen", id: String(body.screenId), name: entity(body.screenId)?.name || null };
+    } else if (body.action === "group-members") {
+      const group = entity(body.groupId);
+      if (group?.type !== "group") return bad("Choose a valid group.");
+      const validIds = (value: unknown): value is string[] => Array.isArray(value) && value.every(id => typeof id === "string" && id.length > 0) && new Set(value).size === value.length;
+      if (!validIds(body.screenIds) || !validIds(body.expectedScreenIds)) return bad("Choose a valid screen selection.");
+      const screens = new Set(state.entities.filter(item => item.type === "screen").map(item => item.id));
+      if (body.screenIds.some(id => !screens.has(id))) return bad("A selected screen no longer exists. Refresh the page and reopen Manage screens to review the latest selection.");
+      const currentIds = new Set(state.members.filter(member => member.groupId === group.id).map(member => member.screenId));
+      // Compare the opening snapshot while holding the inventory lock, before any writes.
+      if (body.expectedScreenIds.length !== currentIds.size || body.expectedScreenIds.some(id => !currentIds.has(id))) return bad("This group's screens changed while you were editing. Refresh the page and reopen Manage screens to review the latest selection.", 409);
+      const selectedIds = new Set(body.screenIds);
+      const removedIds = [...currentIds].filter(id => !selectedIds.has(id));
+      const addedIds = body.screenIds.filter(id => !currentIds.has(id));
+      if (removedIds.length) await db.prepare("DELETE FROM group_members WHERE group_id = ? AND screen_id = ANY(?::text[])").bind(group.id, removedIds).run();
+      if (addedIds.length) await db.prepare("INSERT INTO group_members (group_id, screen_id) SELECT ?, screen_id FROM unnest(?::text[]) AS selected(screen_id)").bind(group.id, addedIds).run();
+      if (removedIds.length || addedIds.length) audit = { action: "updated group screens", type: "group", id: group.id, name: group.name };
     } else if (body.action === "display") {
       const selection = body.selection as Selection;
       if (!selection || typeof selection !== "object" || Array.isArray(selection)) return bad("Invalid selection.");
@@ -190,13 +234,13 @@ async function POSTHandler(request: NextRequest) {
       if (region && selection.countryId && region.parentId !== selection.countryId) return bad("Region does not belong to the selected country.");
       if (store && selection.regionId && store.parentId !== selection.regionId) return bad("Location does not belong to the selected region.");
       if (store && selection.countryId && entity(store.parentId)?.parentId !== selection.countryId) return bad("Location does not belong to the selected country.");
-      if (selection.screenIds !== undefined && (!Array.isArray(selection.screenIds) || selection.screenIds.length > 500 || selection.screenIds.some((id) => typeof id !== "string" || entity(id)?.type !== "screen") || new Set(selection.screenIds).size !== selection.screenIds.length)) return bad("Invalid screen selection.");
+      if (selection.screenIds != null && (!Array.isArray(selection.screenIds) || selection.screenIds.length > 500 || selection.screenIds.some((id) => typeof id !== "string" || entity(id)?.type !== "screen") || new Set(selection.screenIds).size !== selection.screenIds.length)) return bad("Invalid screen selection.");
       if (body.autoAdvance !== undefined && typeof body.autoAdvance !== "boolean") return bad("Invalid rotation setting.");
       const autoAdvance = body.autoAdvance === false ? 0 : 1;
       const interval = body.intervalSeconds === undefined ? 10 : body.intervalSeconds;
       if (typeof interval !== "number" || !Number.isInteger(interval) || interval < 5 || interval > 60) return bad("Rotation must be a whole number from 5 to 60 seconds.");
       await db.prepare(`INSERT INTO display_state (client_id, id, selection, auto_advance, interval_seconds, updated_at) VALUES ('${activeClientId()}', 'main', ?, ?, ?, ?) ON CONFLICT(client_id,id) DO UPDATE SET selection = excluded.selection, auto_advance = excluded.auto_advance, interval_seconds = excluded.interval_seconds, updated_at = excluded.updated_at`)
-        .bind(JSON.stringify(selection), autoAdvance, interval, now).run();
+        .bind(serializeDisplaySelection(selection), autoAdvance, interval, now).run();
       audit = { action: JSON.stringify(selection) === JSON.stringify(state.display.selection) ? "changed wall settings" : "changed wall selection", type: null, id: null, name: wallActivityDescription(selection, state.entities, !!autoAdvance, interval) };
     } else return bad("Unknown action.");
     if (audit) {
@@ -204,7 +248,11 @@ async function POSTHandler(request: NextRequest) {
           .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, user.email, now).run();
     }
     const updated = await readState(db, user.role === "admin", user.role === "admin");
-    return NextResponse.json({ ...updated, activity: user.role === "admin" ? updated.activity : [] }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({
+      ...updated,
+      activity: user.role === "admin" ? updated.activity : [],
+      ...(duplicatedGroupId ? { duplicatedGroupId } : {}),
+    }, { headers: { "Cache-Control": "no-store" } });
   });
   committed = result.ok;
   return result;

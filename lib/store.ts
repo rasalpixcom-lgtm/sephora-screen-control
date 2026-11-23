@@ -8,10 +8,22 @@ import type { ScreenType } from "@/lib/screen-type";
 export type EntityType = "country" | "region" | "store" | "screen" | "group";
 export type Entity = { id: string; type: EntityType; name: string; shortName?: string | null; onsignPlayerId?: string | null; photoKey?: string | null; screenType?: ScreenType | null; parentId: string | null; liveUrl: string | null; isDemo: number; createdAt: string };
 export type Member = { groupId: string; screenId: string };
-export type Selection = { countryId?: string; regionId?: string; storeId?: string; groupId?: string; screenIds?: string[] };
+// A null screen list keeps the wall empty. Missing and empty lists retain the all-screens behavior.
+export type Selection = { countryId?: string; regionId?: string; storeId?: string; groupId?: string; screenIds?: string[] | null };
 export type Display = { selection: Selection; autoAdvance: boolean; intervalSeconds: number; updatedAt: string };
 export type Activity = { id: string; action: string; entityType: string | null; entityId: string | null; entityName: string | null; actor: string; createdAt: string };
 export type LocationPhoto = { id: string; locationId: string; position: number; label: string };
+
+export function serializeDisplaySelection(selection: Selection) {
+  // Older builds treat null or [] as all screens. A null array entry matches no screen ID.
+  return JSON.stringify(selection.screenIds === null ? { ...selection, screenIds: [null] } : selection);
+}
+
+function parseDisplaySelection(stored: string): Selection {
+  const selection = JSON.parse(stored);
+  const ids = selection?.screenIds;
+  return Array.isArray(ids) && ids.length === 1 && ids[0] === null ? { ...selection, screenIds: null } : selection;
+}
 
 export async function readState(db: ServerDatabase = database(), includeActivity = true, includeLocationPhotos = true) {
   // A transaction uses one pg client; concurrent client.query calls are deprecated.
@@ -23,7 +35,7 @@ export async function readState(db: ServerDatabase = database(), includeActivity
   const displayResult = await db.prepare(`SELECT selection, auto_advance AS "autoAdvance", interval_seconds AS "intervalSeconds", updated_at AS "updatedAt" FROM display_state WHERE client_id='${activeClientId()}' AND id = 'main'`).first<{selection:string;autoAdvance:number;intervalSeconds:number;updatedAt:string}>();
   const activityResult = includeActivity ? await db.prepare("SELECT id, action, entity_type AS \"entityType\", entity_id AS \"entityId\", entity_name AS \"entityName\", actor, created_at AS \"createdAt\" FROM activity_log ORDER BY created_at DESC LIMIT 60").all<Activity>() : { results: [] as Activity[] };
   const display: Display = displayResult ? {
-    selection: JSON.parse(displayResult.selection), autoAdvance: !!displayResult.autoAdvance,
+    selection: parseDisplaySelection(displayResult.selection), autoAdvance: !!displayResult.autoAdvance,
     intervalSeconds: displayResult.intervalSeconds, updatedAt: displayResult.updatedAt,
   } : { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" };
   return { entities: entitiesResult.results, members: membersResult.results, locationPhotos: locationPhotosResult.results, locationDetails, display, activity: activityResult.results };

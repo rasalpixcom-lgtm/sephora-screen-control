@@ -32,6 +32,7 @@
     "test:import": "node --env-file=.env.local tests/import-sqlite.server.mjs",
     "test:client-management": "node tests/client-logo.mjs && node --env-file=.env.local tests/client-management.server.mjs",
     "test:client-selection": "node tests/client-workspace.mjs && node --env-file=.env.local tests/client-selection.server.mjs",
+    "test:client-card-order": "node --experimental-strip-types tests/client-card-ordering.mjs && node tests/client-card-drag.mjs && node --env-file=.env.local tests/client-card-order.server.mjs",
     "test:client-photos": "node tests/client-photo-storage.mjs && node --env-file=.env.local tests/client-photos.server.mjs",
     "test:client-onsign": "node tests/integration-secret.mjs && node --env-file=.env.local tests/client-onsign.server.mjs",
     "test:client-settings": "node tests/client-integrations.mjs && node --env-file=.env.local tests/client-settings.server.mjs",

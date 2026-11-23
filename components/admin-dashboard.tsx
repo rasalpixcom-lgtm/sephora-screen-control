@@ -7,9 +7,10 @@ import { clientFetch, workspaceRequestHeaders } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Download, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X, ArrowLeftRight } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Copy, Download, Ellipsis, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X, ArrowLeftRight } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
@@ -21,6 +22,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 import "./admin-dashboard.css";
 import ClientLogo from "@/components/client-logo";
+import GroupScreenAssignment from "@/components/group-screen-assignment";
 import SignOut from "@/components/sign-out";
 import UsersPanel from "@/components/users-panel";
 import ChangePassword from "@/components/change-password";
@@ -125,8 +127,10 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
   const [draft, setDraft] = useState({ name: "", shortName: "", parentId: "", liveUrl: "", onsignPlayerId: "", screenType: "" });
 
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [duplicateDraft, setDuplicateDraft] = useState<{ source: Entity; name: string } | null>(null);
+  const duplicateNameInput = useRef<HTMLInputElement>(null);
+  const openingCopy = useRef(false);
 
-  const [assignmentSearch, setAssignmentSearch] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState<Entity | null>(null);
 
@@ -136,7 +140,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
 
   const byType = useCallback((type: EntityType) => entities.filter((item) => item.type === type), [entities]);
 
-  const currentWall = [state.display.selection.countryId, state.display.selection.regionId, state.display.selection.storeId, state.display.selection.groupId]
+  const currentWall = state.display.selection.screenIds === null ? "No screens selected" : [state.display.selection.countryId, state.display.selection.regionId, state.display.selection.storeId, state.display.selection.groupId]
 
     .map((id) => entities.find((item) => item.id === id)?.name).filter(Boolean).join(" / ") || "All locations";
 
@@ -165,6 +169,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
   }, []);
 
   useEffect(() => { if (!screenDetails) void Promise.resolve().then(load); }, [load, screenDetails]);
+  useEffect(() => { if (!busy && error) duplicateNameInput.current?.focus(); }, [busy, error]);
 
 
 
@@ -183,14 +188,15 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
         form.set("metadata", JSON.stringify(body));
         locationPhotos.forEach((item, index) => { if (item.file) form.set(`locationPhoto${index}`, item.file); });
       }
-      const response = await clientFetch("/api/state", { method: "POST", ...(form ? { headers: locationPhotos ? { "X-Location-Photos": "1" } : undefined, body: form } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+      const endpoint = body.action === "group-members" ? "/api/state?action=group-members" : "/api/state";
+      const response = await clientFetch(endpoint, { method: "POST", ...(form ? { headers: locationPhotos ? { "X-Location-Photos": "1" } : undefined, body: form } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
 
       if (response.status === 401) { window.location.replace("/login?next=/admin"); return; }
-      const next = await response.json() as State & { error?: string };
+      const next = await response.json() as State & { error?: string; duplicatedGroupId?: string };
 
       if (!response.ok) throw new Error(next.error || "Could not save.");
 
-      setState(next); return true;
+      setState(next); return next;
 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save."); return false; }
 
@@ -265,9 +271,39 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
   const sortedOptions = (type: EntityType, parentId?: string) => byType(type).filter(item => parentId === undefined || item.parentId === parentId).sort((a,b)=>a.name.localeCompare(b.name));
   const missingLinks = byType("screen").filter((item) => !item.liveUrl);
 
-  const assignmentScreens = byType("screen").filter((item) => `${item.name} ${parentNames(item, entities)}`.toLowerCase().includes(assignmentSearch.trim().toLowerCase()));
+  const assignmentGroup = entities.find(item => item.id === groupId && item.type === "group");
 
-  function openGroup(id: string) { setError(""); setAssignmentSearch(""); setGroupId(id); }
+  function openGroup(id: string) { setError(""); setGroupId(id); }
+
+  function openDuplicateGroup(source: Entity) {
+    const names = new Set(byType("group").map(group => group.name.toLowerCase()));
+    let name: string;
+    let copyNumber = 1;
+    do {
+      const suffix = copyNumber === 1 ? " (copy)" : ` (copy ${copyNumber})`;
+      const base = source.name.slice(0, 80 - suffix.length).replace(/[\uD800-\uDBFF]$/u, "").trimEnd();
+      name = base + suffix;
+      copyNumber++;
+    } while (names.has(name.toLowerCase()));
+    openingCopy.current = false;
+    setError("");
+    setDuplicateDraft({ source, name });
+  }
+
+  function closeDuplicateGroup() {
+    if (saving.current) return;
+    setError("");
+    setDuplicateDraft(null);
+  }
+
+  async function duplicateGroup() {
+    if (!duplicateDraft || !duplicateDraft.name.trim()) return;
+    const next = await mutate({ action: "duplicate-group", sourceGroupId: duplicateDraft.source.id, name: duplicateDraft.name.trim() });
+    if (!next) return;
+    openingCopy.current = !!next.duplicatedGroupId;
+    setDuplicateDraft(null);
+    if (next.duplicatedGroupId) openGroup(next.duplicatedGroupId);
+  }
 
   function openDelete(item: Entity) { setError(""); setDeleteTarget(item); }
 
@@ -326,7 +362,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
         <header className="adm-page-head onsign-page-head"><div className="adm-page-heading"><div className="adm-title-row"><SidebarTrigger className="adm-menu-trigger" aria-label="Toggle menu"><Menu size={19}/></SidebarTrigger><h1>Screen details</h1></div><p>{[screenDetails.screen.name, screenDetails.location].filter(Boolean).join(" · ")}</p></div><div className="adm-head-actions">{connection}<ScreenPhotoView key={`${screenDetails.screen.id}:${screenDetails.screen.photoKey || "none"}`} screenId={screenDetails.screen.id} photoKey={screenDetails.screen.photoKey} name={screenDetails.screen.name}/><ScreenDetailsDownload key={screenDetails.screen.id} screenId={screenDetails.screen.id} name={screenDetails.screen.name}/><ThemeToggle/></div></header>
       </>}/> : <header className="adm-page-head"><div className="adm-page-heading"><div className="adm-title-row"><SidebarTrigger className="adm-menu-trigger" aria-label="Toggle menu"><Menu size={19}/></SidebarTrigger><h1>{sectionNames[section]}</h1></div><p>{sectionDescription[section]}</p></div><div className="adm-head-actions"><ThemeToggle/><button className="adm-icon-btn" onClick={() => void load()} aria-label="Refresh data"><RefreshCw size={17}/></button>{currentType && <button className="adm-primary-btn" onClick={() => openEditor(currentType)}><Plus size={17}/> Add {typeNames[currentType].toLowerCase()}</button>}{section === "groups" && <button className="adm-primary-btn" onClick={() => openEditor("group")}><Plus size={17}/> Add group</button>}</div></header>}
 
-      {!screenDetails && error && !editor && !groupId && !deleteTarget && <div role="alert" className="adm-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16}/></button></div>}
+      {!screenDetails && error && !editor && !groupId && !duplicateDraft && !deleteTarget && <div role="alert" className="adm-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16}/></button></div>}
 
       {screenDetails ? null : loading ? <div className="adm-loading">Loading network…</div> : <>
 
@@ -350,7 +386,40 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
           <button className="adm-secondary-btn" disabled={!Object.values(screenFilters).some(Boolean) && !search} onClick={()=>{setScreenFilters({countryId:"",regionId:"",storeId:""});setSearch("");}}>Clear filters</button>
         </div>}{entityTable(currentType)}</section>}
 
-        {section === "groups" && <div className="adm-group-grid">{byType("group").map((group) => <article className="adm-group-card" key={group.id}><div className="adm-group-card-heading"><div><h2>{group.name}</h2><p>{state.members.filter((member) => member.groupId === group.id).length} assigned {state.members.filter((member) => member.groupId === group.id).length === 1 ? "screen" : "screens"}</p></div><button className="adm-delete" onClick={() => openDelete(group)} aria-label={`Delete ${group.name}`}><Trash2 size={17}/></button></div><div className="adm-group-screen-list">{state.members.filter((member) => member.groupId === group.id).slice(0,3).map((member) => { const screen = entities.find((item) => item.id === member.screenId); return screen ? <span key={member.screenId}><Monitor size={16}/><span className="adm-group-screen-copy"><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></span> : null; })}{state.members.filter((member) => member.groupId === group.id).length > 3 && <span>+{state.members.filter((member) => member.groupId === group.id).length - 3} more screens</span>}{!state.members.some((member) => member.groupId === group.id) && <span>No screens assigned</span>}</div><div className="adm-group-actions"><button className="adm-secondary-btn" onClick={() => openEditor("group", group)}>Rename</button><button className="adm-primary-btn" onClick={() => openGroup(group.id)}>Manage screens</button></div></article>)}{!byType("group").length && <div className="adm-empty adm-panel">No groups yet. Add one to collect screens across stores.</div>}</div>}
+        {section === "groups" && <div className="adm-group-grid">
+          {byType("group").map(group => {
+            const members = state.members.filter(member => member.groupId === group.id);
+            return <article className="adm-group-card" key={group.id}>
+              <div className="adm-group-card-heading">
+                <div><h2>{group.name}</h2><p>{members.length} assigned {members.length === 1 ? "screen" : "screens"}</p></div>
+                <div className="adm-group-card-controls">
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className="adm-group-menu-trigger" id={`group-actions-${group.id}`} aria-label={`More actions for ${group.name}`} disabled={busy}><Ellipsis size={19}/></button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" onCloseAutoFocus={event => { if (duplicateDraft) event.preventDefault(); }}>
+                      <DropdownMenuItem onSelect={() => openDuplicateGroup(group)}><Copy/>Duplicate group</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <button className="adm-delete" onClick={() => openDelete(group)} aria-label={`Delete ${group.name}`}><Trash2 size={17}/></button>
+                </div>
+              </div>
+              <div className="adm-group-screen-list">
+                {members.slice(0, 3).map(member => {
+                  const screen = entities.find(item => item.id === member.screenId);
+                  return screen ? <span key={member.screenId}><Monitor size={16}/><span className="adm-group-screen-copy"><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></span> : null;
+                })}
+                {members.length > 3 && <span>+{members.length - 3} more screens</span>}
+                {!members.length && <span>No screens assigned</span>}
+              </div>
+              <div className="adm-group-actions">
+                <button className="adm-secondary-btn" onClick={() => openEditor("group", group)}>Rename</button>
+                <button className="adm-primary-btn" id={`manage-group-screens-${group.id}`} onClick={() => openGroup(group.id)}>Manage screens</button>
+              </div>
+            </article>;
+          })}
+          {!byType("group").length && <div className="adm-empty adm-panel">No groups yet. Add one to collect screens across stores.</div>}
+        </div>}
 
         {section === "activity" && <ActivityPanel refreshKey={usersRefreshKey}/>}
         {section === "reports" && <PreviewReportsPanel entities={entities} refreshKey={usersRefreshKey}/>}
@@ -405,7 +474,33 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
 
     <Dialog open={!!viewLocation} onOpenChange={open => !open && setViewLocation(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{viewLocation?.name}</DialogTitle><DialogDescription>Shared location details</DialogDescription></DialogHeader><LocationDetailsView fields={viewLocation ? state.locationDetails[viewLocation.id]?.fields || {} : {}}/><div className="adm-form-actions"><button className="adm-secondary-btn" onClick={() => setViewLocation(null)}>Close</button><button className="adm-primary-btn" onClick={() => { if (viewLocation) { openEditor("store", viewLocation); setViewLocation(null); } }}>Edit</button></div></DialogContent></Dialog>
 
-    <Dialog open={!!groupId} onOpenChange={(open) => !open && !busy && setGroupId(null)}><DialogContent className="adm-dialog"><DialogHeader><DialogTitle>{entities.find((item) => item.id === groupId)?.name}</DialogTitle><DialogDescription>Choose screens from any location. Changes save automatically.</DialogDescription></DialogHeader>{dialogError}<div className="adm-search"><Search size={17}/><input aria-label="Search group screens" placeholder="Search screens or locations" value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)}/></div><span className="adm-assignment-count">{state.members.filter((member) => member.groupId === groupId).length} {state.members.filter((member) => member.groupId === groupId).length === 1 ? "screen" : "screens"} assigned{busy ? " - Saving..." : ""}</span><div className="adm-assignment-list">{assignmentScreens.map((screen) => { const checked = state.members.some((member) => member.groupId === groupId && member.screenId === screen.id); return <label key={screen.id}><input type="checkbox" checked={checked} disabled={busy} onChange={(event) => void mutate({ action: "member", groupId, screenId: screen.id, enabled: event.target.checked })}/><span><strong>{screen.name}</strong><small>{parentNames(screen, entities)}</small></span></label>; })}{!assignmentScreens.length && <div className="adm-empty">{byType("screen").length ? "No screens match your search." : "Add screens before assigning them to a group."}</div>}</div><button className="adm-primary-btn" disabled={busy} onClick={() => setGroupId(null)}>Done</button></DialogContent></Dialog>
+    {duplicateDraft && <Dialog open onOpenChange={open => { if (!open) closeDuplicateGroup(); }}>
+      <DialogContent className="adm-dialog adm-group-copy" showCloseButton={!busy} aria-busy={busy} onCloseAutoFocus={event => {
+        event.preventDefault();
+        if (!openingCopy.current) document.getElementById(`group-actions-${duplicateDraft.source.id}`)?.focus();
+      }}>
+        <DialogHeader>
+          <DialogTitle>Duplicate group</DialogTitle>
+          <DialogDescription>The new group starts with the same screens as {duplicateDraft.source.name}.</DialogDescription>
+        </DialogHeader>
+        {dialogError}
+        <form className="adm-form" onSubmit={event => { event.preventDefault(); void duplicateGroup(); }}>
+          <label>Group name<input ref={duplicateNameInput} required maxLength={80} value={duplicateDraft.name} disabled={busy} onChange={event => {
+            setDuplicateDraft({ ...duplicateDraft, name: event.target.value });
+            setError("");
+          }}/></label>
+          <div className="adm-form-actions">
+            <button type="button" className="adm-secondary-btn" disabled={busy} onClick={closeDuplicateGroup}>Cancel</button>
+            <button type="submit" className="adm-primary-btn" disabled={busy || !duplicateDraft.name.trim()}>{busy ? "Creating..." : "Create copy"}</button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>}
+
+    {assignmentGroup && <GroupScreenAssignment key={`${clientId}:${assignmentGroup.id}`} group={assignmentGroup} entities={entities} members={state.members} busy={busy} error={error} onClose={() => setGroupId(null)} onSave={async body => !!await mutate(body)} onCloseAutoFocus={event => {
+      event.preventDefault();
+      document.getElementById(`manage-group-screens-${assignmentGroup.id}`)?.focus();
+    }}/>}
 
     <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !busy && setDeleteTarget(null)}><AlertDialogContent className="adm-dialog"><AlertDialogHeader><AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle><AlertDialogDescription>{deleteTarget?.type === "group" ? "This removes the group. Its screens remain in your network." : deleteTarget?.type === "screen" ? "This removes the screen and its group assignments." : deleteTarget?.type === "region" ? "This also removes all locations and screens in this region. Its country remains in your network." : deleteTarget?.type === "store" ? "This also removes all screens in this location. Its region and country remain in your network." : "This also removes all regions, locations, and screens in this country."} This cannot be undone.</AlertDialogDescription></AlertDialogHeader>{dialogError}<AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={async (event) => { event.preventDefault(); if (deleteTarget && !busy && await mutate({ action: "delete", id: deleteTarget.id })) setDeleteTarget(null); }}>{busy ? "Deleting..." : "Delete"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 

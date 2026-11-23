@@ -1,6 +1,7 @@
 import type { Display, Entity, Member, Selection } from "@/lib/store";
 
 export function screensFor(state: { entities: Entity[]; members: Member[]; display: Display }, selection: Selection) {
+  if (selection.screenIds === null) return [];
   const byId = new Map(state.entities.map((item) => [item.id, item]));
   const groupScreens = selection.groupId ? new Set(state.members.filter((member) => member.groupId === selection.groupId).map((member) => member.screenId)) : null;
   const selectedScreens = selection.screenIds?.length ? new Set(selection.screenIds) : null;

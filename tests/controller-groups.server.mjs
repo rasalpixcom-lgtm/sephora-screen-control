@@ -49,7 +49,7 @@ try {
   await pool.query("INSERT INTO group_members(group_id,screen_id) VALUES('group-1','other-screen')");
   const snapshot = async () => JSON.stringify({ entities: (await pool.query("SELECT * FROM entities ORDER BY id")).rows, members: (await pool.query("SELECT * FROM group_members ORDER BY group_id,screen_id")).rows });
   const before = await snapshot();
-  const setDisplay = selection => request("/api/state", { action: "display", selection, autoAdvance: false, intervalSeconds: 20 });
+  const setDisplay = (selection, rotation = {}) => request("/api/state", { action: "display", selection, autoAdvance: false, intervalSeconds: 20, ...rotation });
   check((await setDisplay({ groupId: "group-0" })).ok, "entire group can be displayed");
   const state = await (await request("/api/state")).json();
   const filtered = groupScreenView(state.entities, state.members, "group-0", { ...emptyGroupScreenFilters, countryId: "uae", regionId: "dubai" });
@@ -68,6 +68,78 @@ try {
   check((await setDisplay({ countryId: "uae", regionId: "dubai", storeId: "dm" })).ok, "existing By location selection remains available");
   check((await (await request("/api/monitor-state")).json()).entities.filter(entity => entity.type === "screen").length === 25, "location mode still shows exactly that location's screens");
   check(await snapshot() === before, "inventory and group memberships remain byte-for-byte unchanged");
+
+  await pool.query(`INSERT INTO entities (id, type, name, parent_id, created_at) VALUES
+    ('deleted-group-screen-1', 'screen', 'First selected screen to delete', 'dm', now()),
+    ('deleted-group-screen-2', 'screen', 'Last selected screen to delete', 'dm', now()),
+    ('deleted-entire-group', 'group', 'Active group to delete', NULL, now()),
+    ('deleted-group-with-selection', 'group', 'Active group with explicit selection', NULL, now()),
+    ('deleted-unrelated-group', 'group', 'Inactive group to delete', NULL, now()),
+    ('deleted-store', 'store', 'Location to delete', 'dubai', now()),
+    ('deleted-store-screen', 'screen', 'Screen in location to delete', 'deleted-store', now()),
+    ('deleted-entire-store', 'store', 'Active location to delete', 'dubai', now()),
+    ('deleted-entire-store-screen', 'screen', 'Screen in active location to delete', 'deleted-entire-store', now()),
+    ('deleted-unscoped-screen', 'screen', 'Unscoped screen to delete', 'dm', now())`);
+  await pool.query("INSERT INTO group_members (group_id, screen_id) VALUES ('group-0', 'deleted-group-screen-1'), ('group-0', 'deleted-group-screen-2')");
+  await pool.query(`INSERT INTO group_members (group_id, screen_id) VALUES
+    ('deleted-entire-group', 'screen-0'), ('deleted-entire-group', 'screen-25'),
+    ('deleted-group-with-selection', 'screen-1'), ('deleted-unrelated-group', 'other-screen')`);
+  const deleteInventory = id => request("/api/state", { action: "delete", id });
+  const shown = state => state.entities.filter(entity => entity.type === "screen").map(entity => entity.id);
+  const storedSelection = async () => JSON.parse((await pool.query("SELECT selection FROM display_state WHERE client_id = 'sephora' AND id = 'main'")).rows[0].selection);
+  check((await setDisplay({ groupId: "group-0", screenIds: ["deleted-group-screen-1", "deleted-group-screen-2"] })).ok, "a group can display two explicitly selected screens");
+  const partialDeletion = await deleteInventory("deleted-group-screen-1");
+  check(partialDeletion.ok && (await partialDeletion.json()).display.selection.screenIds.join() === "deleted-group-screen-2", "deleting one selected screen keeps the other selection");
+  const finalDeletion = await deleteInventory("deleted-group-screen-2");
+  const afterDeletion = (await finalDeletion.json()).display;
+  check(finalDeletion.ok && afterDeletion.selection.groupId === "group-0" && afterDeletion.selection.screenIds === null, "deleting the last selected screen keeps the group scope with a blank wall");
+  const blankMonitor = await (await request("/api/monitor-state")).json();
+  check(shown(blankMonitor).length === 0 && blankMonitor.previewSummary.counts.total === 0, "monitor exposes none of the other 80 screens after deleting the last selection");
+  check((await request("/api/controller-client", {})).ok, "common wall follows the fixture Controller");
+  const blankCommon = await (await request("/api/monitor-state?scope=all")).json();
+  check(shown(blankCommon).length === 0 && blankCommon.display.selection.screenIds === null, "common wall also remains empty");
+  const rotation = await setDisplay(afterDeletion.selection, { autoAdvance: true, intervalSeconds: 30 });
+  const rotated = (await rotation.json()).display;
+  check(rotation.ok && rotated.autoAdvance && rotated.intervalSeconds === 30 && rotated.selection.screenIds === null, "changing rotation preserves the empty selection");
+  check(JSON.stringify(await storedSelection()) === JSON.stringify({ groupId: "group-0", screenIds: [null] }), "saving rotation persists the previous-build-safe empty selection");
+  check((await setDisplay({ groupId: "group-0", screenIds: ["screen-0"] })).ok, "a deliberate individual choice restores a screen");
+  check(shown(await (await request("/api/monitor-state")).json()).join() === "screen-0", "the wall shows only the new explicit selection");
+  check((await setDisplay({ groupId: "group-0", screenIds: [] })).ok && shown(await (await request("/api/monitor-state")).json()).length === 80, "a legacy empty array still means the entire group");
+
+  check((await setDisplay({ countryId: "uae", regionId: "dubai", storeId: "deleted-store", screenIds: ["deleted-store-screen"] })).ok, "a location can display a specific screen");
+  const locationDeletion = await deleteInventory("deleted-store");
+  const afterLocationDeletion = (await locationDeletion.json()).display.selection;
+  check(locationDeletion.ok && afterLocationDeletion.storeId === undefined && afterLocationDeletion.regionId === "dubai" && afterLocationDeletion.screenIds === null, "a location deletion clears the missing scope and does not expand to the region");
+  check(shown(await (await request("/api/monitor-state")).json()).length === 0, "the monitor displays no screens after a scoped cascade");
+  check((await setDisplay({ screenIds: ["deleted-unscoped-screen"] })).ok, "an individual screen can be selected without a group or location");
+  check((await deleteInventory("deleted-unscoped-screen")).ok && shown(await (await request("/api/monitor-state")).json()).length === 0, "deleting an unscoped screen does not expand to the entire inventory");
+
+  check((await setDisplay({ groupId: "deleted-entire-group" })).ok && shown(await (await request("/api/monitor-state")).json()).length === 2, "the wall shows the whole temporary group before deletion");
+  check((await deleteInventory("deleted-unrelated-group")).ok && shown(await (await request("/api/monitor-state")).json()).length === 2, "deleting an inactive group preserves the current view");
+  const groupDeletion = await deleteInventory("deleted-entire-group");
+  check(groupDeletion.ok, "the active whole group is deleted");
+  const afterGroupDeletion = await groupDeletion.json();
+  const blankGroupWall = await (await request("/api/monitor-state")).json();
+  const blankCommonGroupWall = await (await request("/api/monitor-state?scope=all")).json();
+  check(afterGroupDeletion.display.selection.groupId === undefined && afterGroupDeletion.display.selection.screenIds === null && shown(blankGroupWall).length === 0 && shown(blankCommonGroupWall).length === 0, "deleting the active whole group leaves both walls empty");
+  const savedBlankWall = await storedSelection();
+  check(JSON.stringify(savedBlankWall) === JSON.stringify({ screenIds: [null] }), "scope deletion saves the previous-build-safe empty selection");
+  // Match the prior build's explicit-ID filter. A missing or empty array selects every screen.
+  const previousBuildIds = savedBlankWall.screenIds?.length ? new Set(savedBlankWall.screenIds) : null;
+  const remainingScreens = shown(afterGroupDeletion);
+  check(remainingScreens.includes("screen-0") && remainingScreens.includes("other-screen") && remainingScreens.filter(id => !previousBuildIds || previousBuildIds.has(id)).length === 0, "the previous build also shows no screens from the persisted selection");
+  check((await setDisplay({ groupId: "group-0" })).ok && shown(await (await request("/api/monitor-state?scope=all")).json()).length === 80, "the operator can restore the display by choosing a surviving group");
+
+  check((await setDisplay({ groupId: "deleted-group-with-selection", screenIds: ["screen-1"] })).ok, "the temporary group can display one explicitly selected, surviving screen");
+  check((await deleteInventory("deleted-group-with-selection")).ok && shown(await (await request("/api/monitor-state")).json()).length === 0, "deleting the active group clears even surviving explicit screen selections");
+
+  check((await setDisplay({ countryId: "uae", regionId: "dubai", storeId: "deleted-entire-store" })).ok && shown(await (await request("/api/monitor-state")).json()).join() === "deleted-entire-store-screen", "the wall shows the entire temporary location before deletion");
+  const wholeLocationDeletion = await deleteInventory("deleted-entire-store");
+  check(wholeLocationDeletion.ok, "the active whole location is deleted");
+  const afterWholeLocationDeletion = (await wholeLocationDeletion.json()).display.selection;
+  check(afterWholeLocationDeletion.storeId === undefined && afterWholeLocationDeletion.regionId === "dubai" && afterWholeLocationDeletion.countryId === "uae" && afterWholeLocationDeletion.screenIds === null && shown(await (await request("/api/monitor-state")).json()).length === 0, "deleting a whole location preserves surviving scope labels and leaves the wall empty");
+  check(await snapshot() === before, "deletion checks preserve all original inventory and memberships");
+
   check((await setDisplay({ groupId: "group-0" })).ok, "fixture returns to the full group for browser verification");
   if (process.env.CONTROLLER_GROUPS_UI === "true") {
     const done = path.resolve(".server-runtime/controller-groups-ui.done");

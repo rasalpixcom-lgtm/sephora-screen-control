@@ -22,7 +22,7 @@ export default function ControllerGroupScreens({ group, entities, members, selec
   const { filters, matching, screens } = view;
   const matchingIds = new Set(matching.map(screen => screen.id));
   const outsideFilters = wallScreens.filter(screen => !matchingIds.has(screen.id)).length;
-  const allOnWall = !selection.screenIds?.length && !selection.countryId && !selection.regionId && !selection.storeId;
+  const allOnWall = selection.screenIds !== null && !selection.screenIds?.length && !selection.countryId && !selection.regionId && !selection.storeId;
   const applySelection = filteredGroupSelection(group.id, matching);
   const byId = new Map(entities.map(item => [item.id, item]));
 

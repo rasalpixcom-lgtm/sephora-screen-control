@@ -146,6 +146,15 @@ export const user = pgTable("auth_user", {
   id: text("id").primaryKey(), name: text("name").notNull(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), role: text("role").notNull().default("controller"), disabled: boolean("disabled").notNull().default(true),
 }, table => [check("auth_user_supported_roles", sql`${table.role} IN ('admin', 'controller') OR (${table.role} = 'wall' AND ${table.disabled} = true)`)]);
+// Account preferences are global and independent of the selected client.
+export const userClientOrder = pgTable("user_client_order", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  clientIds: jsonb("client_ids").$type<string[]>().notNull(), version: text("version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check("user_client_order_version_check", sql`${table.version} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$'`),
+  check("user_client_order_ids_check", sql`jsonb_typeof(${table.clientIds}) = 'array' AND jsonb_array_length(${table.clientIds}) <= 500`),
+]);
 // Legacy mappings are retained for migration history; access uses auth_user.role.
 export const platformAdministrators = pgTable("platform_administrators", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),

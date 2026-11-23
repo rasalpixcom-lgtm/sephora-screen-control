@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { migrate } from "../scripts/migrate-postgres.mjs";
 import {owned, seed} from "./fixtures/client-ownership.mjs";
+import { closeTestPool } from "./fixtures/postgres-pool.mjs";
 const globalTables = ["auth_user", "auth_account", "auth_session", "auth_verification", "auth_bootstrap", "auth_rate_limit"];
 const migrationName = "0024_client_ownership.sql";
 const adminUrl = new URL(process.env.DATABASE_URL); adminUrl.pathname = "/postgres";
@@ -37,7 +38,7 @@ async function legacyStructure(pool) {
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
     LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
-    WHERE n.nspname='public' AND c.relkind='r' AND c.relname NOT IN ('clients','client_memberships','platform_administrators','client_management_activity','common_monitor_access','common_monitor_display','client_logos','client_backgrounds','client_onsign_settings') AND a.attname<>'client_id'
+    WHERE n.nspname='public' AND c.relkind='r' AND a.attname<>'client_id'
     ORDER BY c.relname,a.attnum`)).rows;
 }
 async function checkReadiness(pool) {
@@ -87,10 +88,12 @@ async function checkReadiness(pool) {
 try {
   const upgraded = await createDb(); await oldMigrations(upgraded); await upgraded.query(seed);
   const before = new Map(); for (const t of [...owned,...globalTables,"server_migrations"]) before.set(t, await rows(upgraded,t));
-  const structureBefore=await legacyStructure(upgraded);
+  const structureBefore = await legacyStructure(upgraded);
+  const originalTables = new Set(structureBefore.map(column => column.table_name));
   const constraintsBefore=(await upgraded.query("SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE connamespace='public'::regnamespace ORDER BY conname")).rows;
   await migrate(upgraded);
-  check(JSON.stringify(structureBefore)===JSON.stringify(await legacyStructure(upgraded)),'all original column types, defaults and nullability preserved');
+  const preservedStructure = (await legacyStructure(upgraded)).filter(column => originalTables.has(column.table_name));
+  check(JSON.stringify(structureBefore) === JSON.stringify(preservedStructure), "all original column types, defaults and nullability preserved");
   const constraintsAfter=(await upgraded.query("SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE connamespace='public'::regnamespace ORDER BY conname")).rows;
   check(constraintsBefore.filter(old=>!['display_state_pkey','monitor_access_pkey','email_alert_settings_pkey','whatsapp_alert_settings_pkey'].includes(old.conname)).every(old=>constraintsAfter.some(current=>current.conname===old.conname && current.definition===old.definition)),'all original constraints preserved except the four client-specific singleton primary keys');
   const client = (await upgraded.query("SELECT id,slug,name FROM clients")).rows;
@@ -138,6 +141,9 @@ try {
   check((await broken.query("SELECT 1 FROM server_migrations WHERE name=$1",[migrationName])).rowCount===0,'failed migration is not recorded');
   console.log(`Client ownership: ${checks} checks passed; disposable databases only.`);
 } finally {
-  for (const {name,pool} of resources) { await pool.end();await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`); }
+  for (const { name, pool } of resources) {
+    await closeTestPool(pool);
+    await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+  }
   await admin.end();
 }

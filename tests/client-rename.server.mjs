@@ -62,7 +62,8 @@ try {
   await pool.query("INSERT INTO client_backgrounds(client_id,version,image,updated_by) VALUES('sephora',$1,$2,'fixture')", [backgroundVersion, webp]);
   const beforeMigration = await snapshot(["server_migrations"]);
   await migrate(pool); await migrate(pool);
-  check(JSON.stringify(await snapshot(["server_migrations"])) === JSON.stringify(beforeMigration), "migration 0035 is repeatable and preserves every existing table row");
+  const afterMigration = await snapshot(["server_migrations"]);
+  check(Object.entries(beforeMigration).every(([table, rows]) => afterMigration[table] === rows), "migration 0035 and later additive migrations preserve every existing table row");
 
   const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
