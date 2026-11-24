@@ -3,6 +3,7 @@ import { selectWorkspace, validClientId } from "@/lib/client-workspace";
 import { database } from "@/lib/database";
 import { withWorkspace } from "@/lib/client-workspace";
 import { currentUser, sessionUser } from "@/lib/auth";
+import { canAccessClient } from "@/lib/auth-policy";
 import { validMonitorKey, validCommonMonitorKey } from "@/lib/monitor-access";
 import { readState } from "@/lib/store";
 import { screensFor } from "@/lib/screens";
@@ -20,7 +21,8 @@ async function GETHandler(request: Request) {
     const authorization = request.headers.get("authorization");
     const common = new URL(request.url).searchParams.get("scope") === "all";
     if (common || authorization !== null) {
-      const allowed = common ? authorization !== null ? await validCommonMonitorKey(authorization) : !!await sessionUser(request.headers) : true;
+      const session = common && authorization === null ? await sessionUser(request.headers) : null;
+      const allowed = !common || (authorization !== null ? await validCommonMonitorKey(authorization) : !!session);
       if (!allowed) return Response.json({ error: "Inactive monitor link." }, { status: 401, headers });
       const id = new URL(request.url).searchParams.get("client") || "sephora";
       if (!common && !validClientId(id)) return Response.json({ error: "Invalid monitor link." }, { status: 401, headers });
@@ -29,6 +31,9 @@ async function GETHandler(request: Request) {
           "SELECT c.id,c.name FROM common_monitor_display d JOIN clients c ON c.id=d.client_id WHERE d.id='main' AND c.archived_at IS NULL")).rows[0]
         : await database().prepare("SELECT id,name FROM clients WHERE id=? AND archived_at IS NULL").bind(id).first<{ id: string; name: string }>();
       if (!client) return Response.json({ error: "Inactive monitor link." }, { status: 401, headers });
+      if (session && !canAccessClient(session.clientIds, client.id)) {
+        return Response.json({ error: "This monitor is showing a client outside your assignment." }, { status: 403, headers });
+      }
       selectWorkspace(client);
     }
     const allowed = common || (authorization !== null ? await validMonitorKey(authorization) : !!await currentUser(request.headers));

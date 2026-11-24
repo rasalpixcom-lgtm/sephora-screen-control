@@ -7,7 +7,7 @@ import { clientFetch, workspaceRequestHeaders } from "@/lib/client-fetch";
 
 import Link from "next/link";
 
-import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Copy, Download, Ellipsis, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Users, Trash2, X, ArrowLeftRight } from "lucide-react";
+import { Activity as ActivityIcon, ArrowLeft, ArrowUpRight, ClipboardList, Copy, Download, Ellipsis, FileText, Globe2, LayoutDashboard, Layers3, Map, MapPin, Menu, Monitor, Plus, RefreshCw, Search, Settings2, Trash2, X, ArrowLeftRight } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -24,7 +24,6 @@ import "./admin-dashboard.css";
 import ClientLogo from "@/components/client-logo";
 import GroupScreenAssignment from "@/components/group-screen-assignment";
 import SignOut from "@/components/sign-out";
-import UsersPanel from "@/components/users-panel";
 import ChangePassword from "@/components/change-password";
 import MonitorLinkPanel from "@/components/monitor-link-panel";
 import ActivityPanel from "@/components/activity-panel";
@@ -51,11 +50,11 @@ import { locationCountsByCountry, locationCountsByRegion } from "@/lib/location-
 
 type State = { locationDetails: Record<string, LocationDetails>; entities: Entity[]; members: Member[]; locationPhotos: LocationPhoto[]; display: Display; activity: Activity[] };
 
-export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "cms-support" | "reports" | "settings" | "users";
+export type Section = "dashboard" | "screens" | "countries" | "regions" | "locations" | "groups" | "activity" | "cms-support" | "reports" | "settings";
 
 const empty: State = { locationDetails: {}, entities: [], members: [], locationPhotos: [], display: { selection: {}, autoAdvance: true, intervalSeconds: 10, updatedAt: "" }, activity: [] };
 
-const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", "cms-support": "CMS Support", reports: "Reports", settings: "Settings", users: "Users" };
+const sectionNames: Record<Section, string> = { dashboard: "Dashboard", screens: "Screens", countries: "Countries", regions: "Regions", locations: "Locations", groups: "Groups", activity: "Activity", "cms-support": "CMS Support", reports: "Reports", settings: "Settings" };
 
 const typeNames: Record<EntityType, string> = { country: "Country", region: "Region", store: "Location", screen: "Screen", group: "Group" };
 
@@ -75,7 +74,6 @@ const navigation = [
   { id: "cms-support", icon: FileText },
   { id: "reports", icon: FileText },
 
-  { id: "users", icon: Users },
   { id: "settings", icon: Settings2 },
 
 ] as const;
@@ -96,7 +94,7 @@ function parentNames(item: Entity, entities: Entity[]) {
 
 
 
-export default function AdminDashboard({ section, accountEmail, screenDetails, clientId = "sephora", clientName = "Sephora", clientLogoKey }: { section: Section; accountEmail: string | null; clientId?: string; clientName?: string; clientLogoKey?:string|null; screenDetails?: { screen: Entity; location: string } }) {
+export default function AdminDashboard({ section, accountEmail, screenDetails, clientId = "sephora", clientName = "Sephora", clientLogoKey, canManageSystem = false }: { section: Section; accountEmail: string | null; clientId?: string; clientName?: string; clientLogoKey?:string|null; screenDetails?: { screen: Entity; location: string }; canManageSystem?: boolean }) {
 
   const [state, setState] = useState<State>(empty);
   const [usersRefreshKey, setUsersRefreshKey] = useState(0);
@@ -345,7 +343,6 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
     reports: "View unavailable previews and export reports.",
 
     settings: "Email and WhatsApp alerts, preview links, and account settings.",
-    users: "Accounts and permissions for your team.",
 
   };
 
@@ -426,8 +423,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
         {section === "cms-support" && <CmsSupportPanel entities={entities} members={state.members} refreshKey={usersRefreshKey}/>}
 
 
-        {section === "users" && <UsersPanel accountEmail={accountEmail} refreshKey={usersRefreshKey}/>}
-        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} whatsapp={<WhatsAppAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/><MonitorLinkPanel common refreshKey={usersRefreshKey}/><section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
+        {section === "settings" && <SettingsTabs email={<EmailAlertPanel/>} whatsapp={<WhatsAppAlertPanel/>} monitoring={<><MonitorLinkPanel refreshKey={usersRefreshKey}/>{canManageSystem && <MonitorLinkPanel common refreshKey={usersRefreshKey}/>}<section className="adm-panel adm-monitor-overview"><div className="adm-overview-heading"><Monitor size={20}/><div><h2>Monitor overview</h2><p>The wall follows your Controller selection and rotates through additional screens.</p></div></div><div className="adm-monitor-stats"><div><span>Preview links</span><strong>{byType("screen").filter(item => !!item.liveUrl).length} of {byType("screen").length} configured</strong></div><div><span>Page rotation</span><strong>{state.display.autoAdvance ? `Every ${state.display.intervalSeconds} seconds` : "Paused"}</strong></div></div><p className="adm-overview-note">Manage preview links in <Link href="/admin/screens">Screens</Link> and rotation in <Link href="/controller">Controller</Link>. Preview links do not confirm whether a physical screen is online.</p></section></>} account={<ChangePassword modal/>}/>}
 
       </>}
 

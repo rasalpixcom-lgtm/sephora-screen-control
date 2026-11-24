@@ -58,8 +58,8 @@ try {
     const action = index<25 ? "created" : index<50 ? "updated" : index<65 ? "deleted" : index<75 ? "changed wall selection" : "assigned";
     await db.prepare("INSERT INTO activity_log (id,action,entity_name,actor,created_at) VALUES (?,?,?,?,?)").bind("fixture-"+String(index).padStart(3,"0"),action,"History fixture "+index,"fixture@example.test","2025-01-01T10:00:00.000Z").run();
   }
-  async function history(query="") {
-    const response = await request("/api/activity?"+query,undefined,admin.cookie);
+  async function history(query="", cookie=admin.cookie) {
+    const response = await request("/api/activity?"+query,undefined,cookie);
     assert.equal(response.status,200);
     check(response.headers.get("cache-control") === "no-store", "history is not cached");
     return response.json();
@@ -94,6 +94,35 @@ try {
   const wall = await history("q=Rotation%20paused&action=wall");
   check(wall.entries.some(entry=>entry.action==="changed wall settings" && entry.entityName.includes("All locations")),"new wall history describes selection and rotation");
   check((await request("/admin/activity",undefined,admin.cookie)).status===200,"Admin Activity page loads");
+
+  const scopedEmail = "scoped-admin@example.test";
+  check((await request("/api/users", {action:"create", name:"Scoped Admin", email:scopedEmail, role:"admin", password, clientIds:["sephora"]}, admin.cookie)).status===200, "Admin fixture is limited to Sephora");
+  const scoped = await login(scopedEmail,password,"192.0.2.13");
+  check(scoped.response.status===200, "client-scoped Admin signs in");
+  const fixtureTime = new Date().toISOString();
+  for (const [id,action,entityName] of [
+    ["legacy-account", "retired monitor account", "retired-monitor@example.test"],
+    ["common-monitor", "Created common monitor link", "All clients monitoring wall"],
+    ["client-monitor", "Created monitor link", "Monitoring wall"],
+  ]) {
+    await db.prepare("INSERT INTO activity_log (id,action,entity_type,entity_name,actor,created_at) VALUES (?,?,'user',?,?,?)").bind(id,action,entityName,"admin@example.test",fixtureTime).run();
+  }
+  const fullAccountHistory = await history("q="+encodeURIComponent(scopedEmail));
+  check(fullAccountHistory.total===1 && fullAccountHistory.entries[0].action==="created admin account", "full Admin can see global account activity");
+  for (const subject of [scopedEmail,"retired-monitor@example.test","All clients monitoring wall"]) {
+    const hidden = await history("q="+encodeURIComponent(subject),scoped.cookie);
+    check(hidden.total===0 && hidden.entries.length===0, "scoped Activity omits global event and count for "+subject);
+  }
+  check((await history("q=Monitoring%20wall&action=wall",scoped.cookie)).entries.some(entry=>entry.id==="client-monitor"), "scoped Activity preserves client monitor link history");
+  check((await history("q=History%20fixture",scoped.cookie)).total===80, "scoped Activity preserves workspace history including legacy rows without an entity type");
+  const fullState = await (await request("/api/state",undefined,admin.cookie)).json();
+  check(fullState.activity.some(entry=>entry.entityName===scopedEmail), "full Admin state still includes account history");
+  for (const [method,body] of [["GET",undefined],["POST",{action:"display",selection:{},autoAdvance:false,intervalSeconds:15}]]) {
+    const response = await request("/api/state",body,scoped.cookie);
+    assert.equal(response.status,200);
+    const {activity} = await response.json();
+    check(activity.some(entry=>entry.id==="client-monitor") && !activity.some(entry=>entry.entityType==="user" && entry.id!=="client-monitor"), method+" state preserves local monitor history and omits global events");
+  }
   console.log(`\n${checks} Activity integration checks passed on isolated PostgreSQL.`);
   if (process.env.ACTIVITY_BROWSER_CHECK === "true") {
     // Exercise Settings dialogs against disposable monitor access, never the live link.

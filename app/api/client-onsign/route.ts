@@ -1,8 +1,8 @@
-import { sameOrigin, sessionUser } from "@/lib/auth";
+import { lockFullAdmin, requireFullAdminSession, sameOrigin } from "@/lib/auth";
 import { validClientId, withWorkspace } from "@/lib/client-workspace";
 import { readClientOnSign, onSignStatus, onSignCredentials } from "@/lib/client-onsign";
 import { encryptIntegrationToken } from "@/lib/integration-secret";
-import { getPool } from "@/lib/database";
+import { getPool, ServerDatabase } from "@/lib/database";
 import { validOnSignPlayerId } from "@/lib/onsign-api-shared";
 import { createOnSignClient, OnSignApiError } from "@/lib/onsign-api";
 import { readObject, RequestError, requestFailure } from "@/lib/request";
@@ -10,19 +10,13 @@ import { readObject, RequestError, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
-async function admin(request: Request) {
-  const session = await sessionUser(request.headers);
-  if (!session) throw new RequestError("Sign in again.", 401);
-  if (session.user.role !== "admin") throw new RequestError("Admin access required.", 403);
-  return session.user;
-}
 function client(value: unknown): string {
   if (typeof value !== "string" || !validClientId(value)) throw new RequestError("Choose a client.");
   return value;
 }
 export const GET = withWorkspace(async (request: Request) => {
   try {
-    await admin(request);
+    await requireFullAdminSession(request.headers);
     const id = client(new URL(request.url).searchParams.get("client"));
     return Response.json(onSignStatus(id, await readClientOnSign(id)), { headers });
   } catch (error) { return requestFailure(error); }
@@ -30,7 +24,8 @@ export const GET = withWorkspace(async (request: Request) => {
 export const POST = withWorkspace(async (request: Request) => {
   try {
     if (!sameOrigin(request)) throw new RequestError("Invalid request origin.", 403);
-    const actor = await admin(request), body = await readObject(request), id = client(body.clientId);
+    const { user: actor, sessionId } = await requireFullAdminSession(request.headers);
+    const body = await readObject(request), id = client(body.clientId);
     if (Object.keys(body).some(key => !["clientId","action","version","token","organizationId"].includes(key))) throw new RequestError("Unexpected OnSign setting.");
     if (typeof body.action !== "string" || !["save","disable","server","test","organizations"].includes(body.action)) throw new RequestError("Choose a valid OnSign action.");
     if (body.version !== null && (typeof body.version !== "string" || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(body.version))) throw new RequestError("Reload the OnSign settings.");
@@ -55,7 +50,10 @@ export const POST = withWorkspace(async (request: Request) => {
       }
       encrypted = encryptIntegrationToken(id, token);
     } else if (body.token !== undefined || body.organizationId !== undefined) throw new RequestError("Unexpected OnSign setting.");
-    await getPool("sephora").query("SELECT pixcom_set_client_onsign($1,$2,$3,$4,$5,$6)", [actor.id,id,body.version,mode,organization,encrypted]);
+    await new ServerDatabase(getPool("sephora")).transaction(async db => {
+      await lockFullAdmin(db, actor.id, sessionId);
+      await db.prepare("SELECT pixcom_set_client_onsign(?,?,?,?,?,?)").bind(actor.id,id,body.version,mode,organization,encrypted).run();
+    });
     return Response.json({ saved: true }, { headers });
   } catch (error) {
     if (error instanceof OnSignApiError) return requestFailure(new RequestError(error.message, error.status));

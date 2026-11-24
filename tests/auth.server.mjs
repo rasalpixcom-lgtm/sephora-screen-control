@@ -521,8 +521,15 @@ try {
   check((await request("/api/users", { action: "create", name: "CSRF", email: "csrf@example.test", role: "admin", password }, admin.cookie, { Origin: "https://attacker.test" })).status === 403, "cross-origin Admin mutations are rejected");
   const users = (await (await request("/api/users", undefined, admin.cookie)).json()).users;
   const c = users.find((u) => u.role === "controller"); const w = users.find((u) => u.email === "viewer2@example.test"); const self = users.find((u) => u.email === "admin@example.test");
-  check((await request("/api/users", { action: "update", id: self.id, role: "controller", disabled: false }, admin.cookie)).status === 400, "Admin cannot remove own Admin access");
-  check((await request("/api/users", { action: "update", id: c.id, role: "controller", disabled: true }, admin.cookie)).status === 200, "Admin can disable staff");
+  const submitUserEdit = (target, fields, cookie = admin.cookie) => request("/api/users", {
+    action: "update", id: target.id, expectedVersion: target.editVersion, ...fields,
+  }, cookie);
+  const editController = async fields => {
+    const { users: currentUsers } = await (await request("/api/users", undefined, admin.cookie)).json();
+    return submitUserEdit(currentUsers.find(user => user.id === c.id), fields);
+  };
+  check((await submitUserEdit(self, { role: "controller", disabled: false })).status === 400, "Admin cannot remove own Admin access");
+  check((await submitUserEdit(c, { role: "controller", disabled: true })).status === 200, "Admin can disable staff");
   check((await request("/api/state", undefined, controller.cookie)).status === 401, "disabling revokes existing sessions immediately");
   check((await login(c.email, password, "192.0.2.13")).response.status === 401, "disabled credentials receive a normal login rejection");
   const replacement = crypto.randomBytes(24).toString("base64url");
@@ -541,21 +548,21 @@ try {
   check((await login(w.email, replacement, "192.0.2.17")).response.status === 401 && (await login(w.email, nextPassword, "192.0.2.18")).response.status === 200, "self password change replaces credentials");
   await db.prepare("UPDATE auth_session SET expires_at = to_timestamp(0) WHERE user_id = ?").bind(w.id).run();
   check((await request("/api/state", undefined, passwordChange.cookie)).status === 401, "expired sessions cannot access inventory");
-  check((await request("/api/users", { action: "update", id: c.id, role: "controller", disabled: false }, admin.cookie)).status === 200, "Admin can re-enable staff");
+  check((await editController({ role: "controller", disabled: false })).status === 200, "Admin can re-enable staff");
   const enabled = await login(c.email, password, "192.0.2.19");
-  check((await request("/api/users", { action: "update", id: c.id, role: "admin", disabled: false }, admin.cookie)).status === 200 && (await request("/api/state", undefined, enabled.cookie)).status === 401, "changing roles revokes the old session");
+  check((await editController({ role: "admin", disabled: false })).status === 200 && (await request("/api/state", undefined, enabled.cookie)).status === 401, "changing roles revokes the old session");
   const changed = await login(c.email, password, "192.0.2.20");
   check((await request("/admin", undefined, changed.cookie)).status === 200, "new sessions enforce the changed role");
-  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: "updated@example.test", role: "controller", disabled: false }, admin.cookie)).status === 200, "Admin can edit a user's name and login ID");
+  check((await editController({ name: "Updated staff", email: "updated@example.test", role: "controller", disabled: false })).status === 200, "Admin can edit a user's name and login ID");
   check((await request("/api/state", undefined, changed.cookie)).status === 401, "editing an account revokes its existing sessions");
   check((await login(c.email, password, "192.0.2.23")).response.status === 401 && (await login("updated@example.test", password, "192.0.2.24")).response.status === 200, "edited login ID replaces the old credentials without changing the password");
-  check((await request("/api/users", { action: "update", id: c.id, name: "Updated staff", email: self.email, role: "controller", disabled: false }, admin.cookie)).status === 400, "editing cannot duplicate another account's login ID");
-  check((await request("/api/users", { action: "update", id: c.id, name: " ", email: "updated@example.test", role: "controller", disabled: false }, admin.cookie)).status === 400, "editing rejects an empty name");
+  check((await editController({ name: "Updated staff", email: self.email, role: "controller", disabled: false })).status === 400, "editing cannot duplicate another account's login ID");
+  check((await editController({ name: " ", email: "updated@example.test", role: "controller", disabled: false })).status === 400, "editing rejects an empty name");
   const hashes=JSON.stringify((await db.prepare("SELECT password FROM auth_account").all()).results);
   check(!hashes.includes(password) && !hashes.includes(replacement) && hashes.includes(":"), "database stores hashes, not plaintext passwords");
   for (let i = 0; i < 6; i++) { const attempt = await login("unknown@example.test", password, "192.0.2.50"); if (i === 5) check(attempt.response.status === 429, "repeated login attempts are rate limited"); }
   const second = users.find((u) => u.email === "admin2@example.test"); const secondLogin = await login(second.email, password, "192.0.2.21");
-  await Promise.all([request("/api/users", { action: "update", id: second.id, role: "controller", disabled: false }, admin.cookie), request("/api/users", { action: "update", id: self.id, role: "controller", disabled: false }, secondLogin.cookie)]);
+  await Promise.all([submitUserEdit(second, { role: "controller", disabled: false }), submitUserEdit(self, { role: "controller", disabled: false }, secondLogin.cookie)]);
   check((await db.prepare("SELECT COUNT(*) AS count FROM auth_user WHERE role = 'admin' AND disabled = false").first()).count >= 1, "concurrent changes cannot remove the last Admin");
   console.log(`\n${checks} integration checks passed on isolated PostgreSQL.`);
 } catch (error) { console.error(logs.slice(-4000)); throw error; } finally {

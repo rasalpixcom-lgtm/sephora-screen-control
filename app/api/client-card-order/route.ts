@@ -12,7 +12,7 @@ export const GET = withWorkspace(async (request: Request) => {
     const session = await sessionUser(request.headers);
     if (!session) throw new RequestError("Sign in again.", 401);
     if (new URL(request.url).search) throw new RequestError("Unexpected client order setting.");
-    return Response.json(await getClientCardOrder(session.user.id), { headers });
+    return Response.json(await getClientCardOrder(session.user.id, session.clientIds), { headers });
   } catch (error) { return requestFailure(error); }
 });
 
@@ -27,7 +27,7 @@ export const POST = withWorkspace(async (request: Request) => {
     }
     if (new URL(request.url).search) throw new RequestError("Unexpected client order setting.");
     const { order, expectedVersion } = clientCardOrderInput(await readObject(request));
-    return Response.json(await saveClientCardOrder(session.user.id, order, expectedVersion), { headers });
+    return Response.json(await saveClientCardOrder(session.user.id, session.sessionId, order, expectedVersion), { headers });
   } catch (error) {
     const messages: Record<string, [number, string]> = {
       "40001": [409, "Your client order changed elsewhere. Reload this page."],

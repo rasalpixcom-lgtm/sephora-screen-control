@@ -51,6 +51,15 @@ try {
  check((await pool.query('SELECT count(*)::int AS n FROM platform_administrators')).rows[0].n===0,'bootstrap creates no separate platform role');
  const page=await (await fetch(origin+'/admin/clients',{headers:{Cookie:cookie}})).text();
  check(page.includes('Manage client workspaces')&&!page.includes('Manage access'),'Admin client management uses shared access');
+ check(page.includes('href="/admin/users"')&&page.includes('Based on user access'),'Administration Clients links to Users and reflects account assignments');
+ const usersPage=await fetch(origin+'/admin/users',{headers:{Cookie:cookie},redirect:'manual'});
+ const usersPageHtml=await usersPage.text();
+ check(usersPage.ok&&usersPageHtml.includes('Manage team accounts across all clients.')&&
+   usersPageHtml.includes('href="/admin/clients"')&&!usersPageHtml.includes('data-client-workspace='),
+   'Users opens in Administration without choosing a client');
+ const anonymousUsersPage=await fetch(origin+'/admin/users',{redirect:'manual'});
+ check(anonymousUsersPage.status===307&&anonymousUsersPage.headers.get('location')==='/login?next=/admin/users',
+   'Users keeps its direct link and requires sign-in');
  check((await (await fetch(origin+'/workspaces',{headers:{Cookie:cookie}})).text()).includes('Administration'),'Admin picker includes management card');
  for(const name of ['', '  ', 'x'.repeat(121), 'line\nname'])check((await request('/api/clients',{action:'create',name},cookie)).status===400,'invalid client name rejected');
  check((await request('/api/clients',{action:'assign',clientId:'sephora',members:[]},cookie)).status===400,'obsolete assignment endpoint is rejected');
@@ -62,6 +71,9 @@ try {
  const controllerCookie=await signIn(users[0].email),secondCookie=await signIn(users[1].email);
  check((await pool.query('SELECT 1 FROM client_memberships WHERE user_id=ANY($1::text[])',[users.map(u=>u.id)])).rowCount===0,'new accounts need no individual client assignments');
  check((await request('/api/clients',undefined,controllerCookie)).status===403,'Controller cannot manage clients');
+ const controllerUsersPage=await fetch(origin+'/admin/users',{headers:{Cookie:controllerCookie},redirect:'manual'});
+ check(controllerUsersPage.status===307&&controllerUsersPage.headers.get('location')==='/workspaces',
+   'Controller cannot open Administration Users');
  check((await request('/api/clients',undefined,secondCookie)).status===200,'every global Admin can manage clients');
  check(!(await (await fetch(origin+'/workspaces',{headers:{Cookie:controllerCookie}})).text()).includes('Administration'),'Controller cards omit administration');
  const create=await request('/api/clients',{action:'create',name:'  New Client  '},secondCookie);
@@ -89,6 +101,21 @@ try {
  check((await request('/api/state',{action:'create',type:'country',name:'Denied'},selected)).status===403,'Controller cannot edit inventory');
  check((await request('/api/users',undefined,selected)).status===403,'Controller cannot manage accounts');
  check((await request('/api/users',undefined,selectedAdmin)).status===200,'Admin can manage accounts from another client');
+ const previousWorkspace=selectedAdmin.slice(secondCookie.length + 2);
+ const staleSelection=(await signIn(users[1].email))+'; '+previousWorkspace;
+ check((await request('/api/users',undefined,staleSelection,{ 'x-client-id':id })).status===403,
+   'Explicitly scoped account requests still reject stale client selections');
+ const globalUsers=await request('/api/users',undefined,staleSelection);
+ check(globalUsers.ok&&(await globalUsers.json()).users.some(user=>user.id===adminId),
+   'Administration Users loads the shared accounts with a previous session’s client cookie');
+ const newAccount={action:'create',name:'Administration fixture account',email:'administration-fixture@example.test',role:'controller',password};
+ check((await request('/api/users',newAccount,staleSelection,{Origin:'https://evil.example'})).status===403,
+   'Administration account changes still require same origin');
+ check((await request('/api/users',newAccount,staleSelection)).ok,
+   'Administration can create an account with a previous session’s client cookie');
+ const accountAudit=(await pool.query("SELECT actor,client_id FROM activity_log WHERE entity_type='user' AND entity_name=$1",[newAccount.email])).rows[0];
+ check(accountAudit?.actor===users[1].email&&accountAudit.client_id==='sephora',
+   'Global account changes use the default Activity log when no valid client is selected');
  await pool.query('DELETE FROM client_memberships');
  check((await request('/api/state',undefined,cookie)).ok&&(await request('/api/state',undefined,selected)).ok,'legacy membership removal does not affect either role');
  check((await request('/api/clients',{action:'create',name:'Forbidden'},controllerCookie)).status===403,'Controller cannot create clients');
@@ -123,7 +150,11 @@ try {
  const cards=await (await fetch(origin+'/workspaces',{headers:{Cookie:controllerCookie}})).text();
  check(cards.includes(logoVersion)&&cards.includes('/api/client-logo'),'client cards display saved branding');
  const dashboard=await (await fetch(origin+'/admin',{headers:{Cookie:cookie}})).text();
- check(dashboard.includes(logoVersion)&&!dashboard.includes('href="/admin/clients"'),'client sidebar shows logo and omits Clients navigation');
+ check(dashboard.includes(logoVersion)&&!dashboard.includes('href="/admin/clients"')&&
+   !dashboard.includes('href="/admin/users"'),'client sidebar shows logo and omits Clients and Users navigation');
+ const otherDashboard=await fetch(origin+'/admin',{headers:{Cookie:selectedAdmin},redirect:'manual'});
+ check(otherDashboard.ok&&!(await otherDashboard.text()).includes('href="/admin/users"'),
+   'Users is absent from the other client’s sidebar');
  check((await (await fetch(origin+'/controller',{headers:{Cookie:controllerCookie}})).text()).includes(logoVersion),'Controller header uses selected client logo');
  check((await logoUpload('sephora',null)).status===409,'stale initial logo save cannot overwrite an existing logo');
  const race=await Promise.all([logoUpload('sephora',logoVersion),logoUpload('sephora',logoVersion)]);

@@ -17,7 +17,11 @@ const admin = new pg.Pool({ connectionString: adminUrl.href });
 const resources = [];
 let checks = 0;
 const check = (condition, label) => { assert.ok(condition, label); checks++; console.log("PASS " + label); };
-const rows = async (pool, table, legacy = false) => (await pool.query(`SELECT ${legacy ? "to_jsonb(t) - 'client_id'" : "to_jsonb(t)"} AS row FROM "${table}" t`)).rows.map(r => JSON.stringify(r.row)).sort();
+async function rows(pool, table, legacy = false) {
+  const addedColumn = table === "auth_user" ? "controller_client_ids" : "client_id";
+  const row = legacy ? `to_jsonb(t) - '${addedColumn}'` : "to_jsonb(t)";
+  return (await pool.query(`SELECT ${row} AS row FROM "${table}" t`)).rows.map(result => JSON.stringify(result.row)).sort();
+}
 async function createDb() {
   const name = "sephora_ownership_test_" + crypto.randomBytes(8).toString("hex");
   await admin.query(`CREATE DATABASE "${name}"`);
@@ -39,6 +43,7 @@ async function legacyStructure(pool) {
     JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
     LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
     WHERE n.nspname='public' AND c.relkind='r' AND a.attname<>'client_id'
+      AND NOT (c.relname='auth_user' AND a.attname='controller_client_ids')
     ORDER BY c.relname,a.attnum`)).rows;
 }
 async function checkReadiness(pool) {
@@ -110,7 +115,7 @@ try {
     await assert.rejects(upgraded.query(`UPDATE "${t}" SET client_id=NULL`),e=>e.code==='23502'); checks++;
   }
   for (const t of globalTables) {
-    check(JSON.stringify(before.get(t))===JSON.stringify(await rows(upgraded,t)),t+': authentication data unchanged');
+    check(JSON.stringify(before.get(t))===JSON.stringify(await rows(upgraded,t,true)),t+': authentication data unchanged');
     check((await upgraded.query("SELECT 1 FROM information_schema.columns WHERE table_name=$1 AND column_name='client_id'",[t])).rowCount===0,t+': remains global');
   }
   check((await upgraded.query("SELECT count(*)::int AS n FROM server_migrations")).rows[0].n===fs.readdirSync('db/postgres-migrations').filter(n=>n.endsWith('.sql')).length,'current migrations recorded');

@@ -1,4 +1,5 @@
 import { activeClientId } from "@/lib/client-workspace";
+import { workspaceActivityCondition } from "@/lib/activity-query";
 import { database, type ServerDatabase } from "@/lib/database";
 export { database } from "@/lib/database";
 
@@ -25,7 +26,7 @@ function parseDisplaySelection(stored: string): Selection {
   return Array.isArray(ids) && ids.length === 1 && ids[0] === null ? { ...selection, screenIds: null } : selection;
 }
 
-export async function readState(db: ServerDatabase = database(), includeActivity = true, includeLocationPhotos = true) {
+export async function readState(db: ServerDatabase = database(), activityScope: false | "workspace" | "all" = "all", includeLocationPhotos = true) {
   // A transaction uses one pg client; concurrent client.query calls are deprecated.
   const entitiesResult = await db.prepare("SELECT id, type, name, short_name AS \"shortName\", onsign_player_id AS \"onsignPlayerId\", photo_key AS \"photoKey\", screen_type AS \"screenType\", parent_id AS \"parentId\", live_url AS \"liveUrl\", is_demo AS \"isDemo\", created_at AS \"createdAt\" FROM entities ORDER BY created_at, name").all<Entity>();
   const locationDetailsResult = includeLocationPhotos ? await db.prepare("SELECT location_id AS \"locationId\", fields, version FROM location_details").all<LocationDetails & { locationId: string }>() : { results: [] };
@@ -33,7 +34,8 @@ export async function readState(db: ServerDatabase = database(), includeActivity
   const membersResult = await db.prepare("SELECT group_id AS \"groupId\", screen_id AS \"screenId\" FROM group_members").all<Member>();
   const locationPhotosResult = includeLocationPhotos ? await db.prepare("SELECT id, location_id AS \"locationId\", position, label FROM location_photos ORDER BY location_id, position").all<LocationPhoto>() : { results: [] as LocationPhoto[] };
   const displayResult = await db.prepare(`SELECT selection, auto_advance AS "autoAdvance", interval_seconds AS "intervalSeconds", updated_at AS "updatedAt" FROM display_state WHERE client_id='${activeClientId()}' AND id = 'main'`).first<{selection:string;autoAdvance:number;intervalSeconds:number;updatedAt:string}>();
-  const activityResult = includeActivity ? await db.prepare("SELECT id, action, entity_type AS \"entityType\", entity_id AS \"entityId\", entity_name AS \"entityName\", actor, created_at AS \"createdAt\" FROM activity_log ORDER BY created_at DESC LIMIT 60").all<Activity>() : { results: [] as Activity[] };
+  const activityWhere = activityScope === "workspace" ? `WHERE ${workspaceActivityCondition}` : "";
+  const activityResult = activityScope ? await db.prepare(`SELECT id, action, entity_type AS "entityType", entity_id AS "entityId", entity_name AS "entityName", actor, created_at AS "createdAt" FROM activity_log ${activityWhere} ORDER BY created_at DESC LIMIT 60`).all<Activity>() : { results: [] as Activity[] };
   const display: Display = displayResult ? {
     selection: parseDisplaySelection(displayResult.selection), autoAdvance: !!displayResult.autoAdvance,
     intervalSeconds: displayResult.intervalSeconds, updatedAt: displayResult.updatedAt,

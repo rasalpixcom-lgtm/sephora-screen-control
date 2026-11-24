@@ -145,7 +145,11 @@ export const activityLog = pgTable("activity_log", { clientId: clientOwnership()
 export const user = pgTable("auth_user", {
   id: text("id").primaryKey(), name: text("name").notNull(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), role: text("role").notNull().default("controller"), disabled: boolean("disabled").notNull().default(true),
-}, table => [check("auth_user_supported_roles", sql`${table.role} IN ('admin', 'controller') OR (${table.role} = 'wall' AND ${table.disabled} = true)`)]);
+  controllerClientIds: text("controller_client_ids").array(),
+}, table => [
+  check("auth_user_supported_roles", sql`${table.role} IN ('admin', 'controller') OR (${table.role} = 'wall' AND ${table.disabled} = true)`),
+  check("auth_user_staff_client_ids_check", sql`${table.controllerClientIds} IS NULL OR (${table.role} IN ('admin', 'controller') AND cardinality(${table.controllerClientIds}) <= 500 AND array_position(${table.controllerClientIds}, NULL) IS NULL)`),
+]);
 // Account preferences are global and independent of the selected client.
 export const userClientOrder = pgTable("user_client_order", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),

@@ -9,6 +9,8 @@ async function GETHandler() {
     assertAuthConfig();
     clientIntegrations();
     const db = database();
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0038_staff_client_access.sql' AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.auth_user'::regclass AND conname='auth_user_staff_client_ids_check' AND convalidated)").first()) throw new Error("Staff client access migration is missing");
+    if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0037_controller_client_access.sql'").first()) throw new Error("Controller client access migration is missing");
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0036_user_client_order.sql' AND to_regprocedure('public.pixcom_set_user_client_order(text,jsonb,text)') IS NOT NULL").first()) throw new Error("Personal client order migration is missing");
     await db.prepare("SELECT user_id,client_ids,version,updated_at FROM user_client_order LIMIT 0").all();
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0035_client_rename.sql' AND to_regprocedure('public.pixcom_rename_client(text,text,text,text)') IS NOT NULL").first()) throw new Error("Client rename migration is missing");
@@ -31,7 +33,7 @@ async function GETHandler() {
     await db.prepare("SELECT client_id FROM group_members LIMIT 1").first();
     await db.prepare("SELECT client_id FROM activity_log LIMIT 1").first();
     await db.prepare("SELECT client_id, id, short_name, onsign_player_id, photo_key, screen_type FROM entities LIMIT 1").first();
-    await db.prepare("SELECT id, role, disabled FROM auth_user LIMIT 1").first();
+    await db.prepare("SELECT id, role, disabled, controller_client_ids FROM auth_user LIMIT 1").first();
     await db.prepare("SELECT client_id, id, selection FROM display_state LIMIT 1").first();
     await db.prepare("SELECT client_id, id FROM monitor_access LIMIT 1").first();
     await db.prepare("SELECT client_id, screen_id FROM preview_screen_state LIMIT 1").first();

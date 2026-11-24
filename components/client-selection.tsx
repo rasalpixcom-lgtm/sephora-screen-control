@@ -274,7 +274,7 @@ export default function ClientSelection({ clients, email, orderUserId, admin = f
         })}
       </div>
       {draggingId && <div ref={ghostRef} className="client-selection-drag-ghost" aria-hidden="true"><GripVertical size={18}/>{byId.get(draggingId)?.name}</div>}
-      {!clients.length && !admin && <p>No clients are available. Contact your administrator.</p>}
+      {!clients.length && !admin && <><p>No clients are available. Contact your administrator.</p><Link href="/account">Manage your account</Link></>}
     </section>
   </main>;
 }

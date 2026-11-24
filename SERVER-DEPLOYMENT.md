@@ -216,7 +216,7 @@ the URL fragment.
 
 Use the backup, restored-copy verification, stop, migrate, build and restart sequence above. Health requires 0030. Run all migration files in order, including 0029; 0030 supersedes its assignment/platform-role behavior. Existing permission rows remain but are no longer used for access. Existing Sephora records, passwords, settings, monitor hashes and photos are preserved.
 
-Every enabled Admin and Controller can open all active clients from the existing cards page. Admins create clients and manage all accounts; Controllers retain wall-control permissions. No per-client assignments are needed. New clients start empty with disabled alerts and no inherited provider credentials. Use individually named accounts for audit attribution.
+All clients Admins create clients and manage accounts. Controllers retain wall-control permissions for their available clients. See migrations 0037 and 0038 below for assigning selected clients. New clients start empty with disabled alerts and no inherited provider credentials. Use individually named accounts for audit attribution.
 
 The new common monitoring link is optional and independent. Create it from Administration / Clients or Settings / Monitoring, then save the one-time URL privately. Its read-only wall follows the client most recently opened in Controller, with no client dropdown. Run `npm run db:migrate` to apply `0032_common_monitor_display.sql` before restarting; it initializes the common wall to Sephora without altering existing client wall settings or keys. Replacing/disabling it leaves legacy Sephora/per-client links unchanged. Verify both link types after restart, along with Admin/Controller switching and normal Sephora operations.
 
@@ -323,6 +323,25 @@ without overwriting a saved order. A conflict requires reloading the page.
 Run `npm run test:client-card-order` on the isolated development cluster. Its
 fixtures use a separate disposable database; do not run integration tests against
 the company database.
+
+## Staff client assignments: migrations 0037 and 0038
+
+Apply `0037_controller_client_access.sql` and `0038_staff_client_access.sql` with
+the migration account before starting this build. Existing accounts start with
+All clients. Migration 0038 preserves any assignments already saved for
+Controllers. Set a staff member's allowed clients under Administration → Users.
+Only All clients Admins can manage accounts, workspaces and the common monitor
+link. Changes take effect at the next sign-in because saving revokes sessions.
+
+In a restored-copy rehearsal, compare the existing account values. Verify that
+accounts from older builds get NULL in the new `controller_client_ids` field
+and that assignments saved under 0037 retain their values. Check that a test
+Admin and Controller can open assigned workspaces, and that a selected-client
+Admin is denied access to Administration. Private monitor keys are preserved.
+
+Older builds can treat staff with saved assignments as unrestricted. Once
+assignments are in use, keep affected accounts disabled or the app offline if
+rolling back to a build that ignores their assignments.
 
 ## Monitoring wall after inventory deletion
 

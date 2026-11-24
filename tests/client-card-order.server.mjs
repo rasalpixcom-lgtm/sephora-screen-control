@@ -24,11 +24,12 @@ const fixtureNames = ["Acqua di Parma", "Axel Arigato", "Etisalat digital stores
 const fixtures = fixtureNames.map((label, index) => ({ id: "card-" + String(index + 1).padStart(2, "0"), name: label }));
 let created = false, server, runtime, logs = "", checks = 0;
 const check = (value, label) => { assert.ok(value, label); checks++; console.log("PASS " + label); };
-const rows = async table => JSON.stringify((await pool.query(`SELECT to_jsonb(t) AS row FROM "${table.replaceAll('"', '""')}" t ORDER BY to_jsonb(t)::text`)).rows);
-async function snapshot(excluded = []) {
+async function snapshot(excluded = [], previousSchema = false) {
   const result = {};
   for (const { tablename } of (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows) {
-    if (!excluded.includes(tablename)) result[tablename] = await rows(tablename);
+    if (excluded.includes(tablename)) continue;
+    const row = previousSchema && tablename === "auth_user" ? "to_jsonb(t) - 'controller_client_ids'" : "to_jsonb(t)";
+    result[tablename] = JSON.stringify((await pool.query(`SELECT ${row} AS row FROM "${tablename.replaceAll('"', '""')}" t ORDER BY to_jsonb(t)::text`)).rows);
   }
   return result;
 }
@@ -67,7 +68,7 @@ try {
   await pool.query("INSERT INTO client_backgrounds(client_id,version,image,updated_by) VALUES('sephora',$1,$2,'fixture')", [crypto.randomUUID(), art]);
   const beforeMigration = await snapshot(["server_migrations"]);
   await migrate(pool); await migrate(pool);
-  check(JSON.stringify(await snapshot(["server_migrations", "user_client_order"])) === JSON.stringify(beforeMigration), "migration 0036 is repeatable and preserves every existing data/settings/account row");
+  check(JSON.stringify(await snapshot(["server_migrations", "user_client_order"], true)) === JSON.stringify(beforeMigration), "migration 0036 is repeatable and preserves every existing data/settings/account row");
   check((await pool.query("SELECT count(*)::int AS n FROM user_client_order")).rows[0].n === 0, "migration starts with empty personal preferences");
   // Bootstrap below needs an empty account list; this is fixture setup only.
   await pool.query("DELETE FROM auth_user WHERE id='migration-existing-user'");
@@ -220,6 +221,46 @@ try {
   await assert.rejects(runtime.query("SELECT pixcom_set_user_client_order($1,'[]'::jsonb,$2)", [controllerId, controllerState.version]), error => error.code === "42501"); checks++;
   await pool.query("UPDATE auth_user SET disabled=false WHERE id=$1", [controllerId]);
   assert.ok((await save([], controllerState.version, controllerCookie)).ok);
+
+  const visible = [fixtures[0].id, fixtures[2].id, fixtures[4].id];
+  const hidden = [fixtures[1].id, fixtures[3].id, fixtures[5].id];
+  const interleaved = [hidden[0], visible[0], hidden[1], visible[1], hidden[2], visible[2]];
+  const startingOrder = await save(interleaved, (await read(controllerCookie)).version, controllerCookie);
+  assert.ok(startingOrder.ok);
+  const startingVersion = (await startingOrder.json()).version;
+  const setAccess = async clientIds => {
+    const list = await request("/api/users", undefined, adminCookie);
+    assert.ok(list.ok);
+    const current = (await list.json()).users.find(user => user.id === controllerId);
+    assert.ok((await request("/api/users", { action: "update", id: controllerId, expectedVersion: current.editVersion, role: "controller", disabled: false, clientIds }, adminCookie)).ok);
+    return login(controllerEmail);
+  };
+  await pool.query("DELETE FROM auth_rate_limit");
+  const limitedCookie = await setAccess(visible);
+  const limitedOrder = await read(limitedCookie);
+  assert.deepEqual(limitedOrder.order, visible);
+  check((await save([], startingVersion, controllerCookie)).status === 401, "changing client access revokes the previous preference session");
+  check((await save([], startingVersion, limitedCookie)).status === 409, "an open All clients tab cannot reset the order after the account is restricted");
+  const rearranged = [visible[2], visible[0], visible[1]];
+  const restrictedSave = await save(rearranged, limitedOrder.version, limitedCookie);
+  assert.ok(restrictedSave.ok);
+  const restrictedOrder = await restrictedSave.json();
+  check(JSON.stringify(restrictedOrder.order) === JSON.stringify(rearranged), "restricted saves return only the visible order");
+  check((await save([], limitedOrder.version, limitedCookie)).status === 409, "a stale restricted editor cannot reset a newer order");
+  const restoredCookie = await setAccess(null);
+  check((await save([], restrictedOrder.version, restoredCookie)).status === 409, "an open restricted tab cannot reset hidden positions after All clients access is restored");
+  const restoredOrder = await read(restoredCookie);
+  check(JSON.stringify(restoredOrder.order) === JSON.stringify([hidden[0], rearranged[0], hidden[1], rearranged[1], hidden[2], rearranged[2]]), "restoring access recovers hidden cards in their original slots after a restricted save");
+
+  const limitedAgainCookie = await setAccess(visible);
+  const restrictedReset = await save([], (await read(limitedAgainCookie)).version, limitedAgainCookie);
+  assert.ok(restrictedReset.ok);
+  assert.deepEqual((await restrictedReset.json()).order, []);
+  check(JSON.stringify(await pageOrder(limitedAgainCookie)) === JSON.stringify([fixtures[0].name, fixtures[2].name, fixtures[4].name]), "restricted reset restores alphabetical order for the visible cards");
+  const allClientsCookie = await setAccess(null);
+  const afterRestrictedReset = await read(allClientsCookie);
+  check(JSON.stringify(afterRestrictedReset.order) === JSON.stringify(hidden), "restoring access after a restricted reset recovers the hidden cards in their saved order");
+  assert.ok((await save([], afterRestrictedReset.version, allClientsCookie)).ok);
 
   if (process.env.CLIENT_CARD_ORDER_UI === "true") {
     const done = path.resolve(".server-runtime/client-card-order-ui.done");

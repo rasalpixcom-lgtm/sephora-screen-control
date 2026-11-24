@@ -95,8 +95,21 @@ export default function Workspace({ view, account, monitorKey = "", commonMonito
         controllerActivated.current = true;
       }
       const response = await clientFetch(view === "monitor" ? "/api/monitor-state" + (commonMonitor ? "?scope=all" : monitorKey && typeof window !== "undefined" ? window.location.search : "") : "/api/state", { cache: "no-store", ...(view === "monitor" && monitorKey ? { headers: { Authorization: `Bearer ${monitorKey}` } } : {}) });
+      if (startedAt !== revision.current) return;
       if (response.status === 401 && view !== "monitor") { window.location.replace("/login?next=/controller"); return; }
-      if (response.status === 401 && view === "monitor") { setState(empty); setError("This monitor link is missing or inactive. Ask an Admin for the current link."); return; }
+      if (view === "monitor" && (response.status === 401 || response.status === 403)) {
+        monitorClient.current = undefined;
+        previewFreshness.current.clear();
+        setPage(0);
+        setLocalPause(false);
+        setState(empty);
+        setError(response.status === 401
+          ? "This monitor link is missing or inactive. Ask an Admin for the current link."
+          : commonMonitor
+            ? "This monitor is showing a client outside your assignment."
+            : "You do not have access to this monitoring wall.");
+        return;
+      }
       const result = await response.json() as State & { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not load screen data.");
       if (startedAt === revision.current) {

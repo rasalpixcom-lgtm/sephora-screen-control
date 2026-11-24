@@ -3,7 +3,12 @@ export const activityActions = ["all", "created", "updated", "deleted", "wall", 
 export type ActivityAction = typeof activityActions[number];
 export class ActivityQueryError extends Error {}
 
-export function parseActivityQuery(params: URLSearchParams) {
+// Older per-client monitor-link events share the user entity type with Administration events.
+export const workspaceActivityCondition = `
+  (entity_type IS DISTINCT FROM 'user' OR (entity_name = 'Monitoring wall'
+    AND action IN ('Created monitor link', 'Replaced monitor link', 'Disabled monitor link')))`;
+
+export function parseActivityQuery(params: URLSearchParams, includeAdministration = true) {
   const rawPage = params.get("page") || "1";
   if (!/^[1-9]\d{0,5}$/.test(rawPage)) throw new ActivityQueryError("Choose a valid page.");
   const q = (params.get("q") || "").trim();
@@ -20,6 +25,7 @@ export function parseActivityQuery(params: URLSearchParams) {
   const fromTime = from ? day(from) : null, toTime = to ? day(to) : null;
   if (from && to && from > to) throw new ActivityQueryError("The end date must be on or after the start date.");
   const clauses: string[] = [], values: string[] = [];
+  if (!includeAdministration) clauses.push(workspaceActivityCondition);
   if (q) {
     // Treat %, _ and the escape character as literal search text.
     const pattern = "%" + q.replace(/[!%_]/g, "!$&") + "%";

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { sessionUser, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { clientDatabaseRole, validClientId, withWorkspace } from "@/lib/client-workspace";
-import { safeReturnTo } from "@/lib/auth-policy";
+import { canAccessClient, safeReturnTo } from "@/lib/auth-policy";
 import { signWorkspace, workspaceCookie } from "@/lib/workspace-cookie";
 import { readObject, requestFailure, RequestError } from "@/lib/request";
 export const runtime = "nodejs";
@@ -14,6 +14,7 @@ export const POST = withWorkspace(async (request: Request) => {
     if (!session) throw new RequestError("Sign in again.", 401);
     const body = await readObject(request);
     if (typeof body.clientId !== "string" || !validClientId(body.clientId)) throw new RequestError("Choose a client.");
+    if (!canAccessClient(session.clientIds, body.clientId)) throw new RequestError("This client is not available to your account.", 403);
     const client = await database().prepare("SELECT id, name FROM clients WHERE id=? AND archived_at IS NULL").bind(body.clientId).first<{ id: string; name: string }>();
     if (!client) throw new RequestError("This client is not available to your account.", 403);
     const ready = await database().prepare("SELECT rolname FROM pg_roles WHERE rolname=? AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcanlogin AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolinherit AND NOT rolreplication").bind(clientDatabaseRole(client.id)).first();

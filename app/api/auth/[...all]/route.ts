@@ -1,5 +1,5 @@
 import { withWorkspace } from "@/lib/client-workspace";
-import { auth, currentUser, sameOrigin } from "@/lib/auth";
+import { auth, currentUser, sameOrigin, sessionUser } from "@/lib/auth";
 import { readObject, requestFailure } from "@/lib/request";
 export const runtime = "nodejs";
 async function GETHandler() {
@@ -11,7 +11,12 @@ async function POSTHandler(request: Request) {
   if (!sameOrigin(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
   try {
   // Let Better Auth own password-change cookies, including any session rotation.
-  if (path === "/api/auth/change-password" && !await currentUser(request.headers, false)) return Response.json({ error: "Sign in again." }, { status: 401 });
+  if (path === "/api/auth/change-password") {
+    const session = await sessionUser(request.headers, false);
+    if (!session || ((session.clientIds === null || request.headers.has("x-client-id")) && !await currentUser(request.headers, false))) {
+      return Response.json({ error: "Sign in again." }, { status: 401 });
+    }
+  }
   const body = await readObject(request);
   const headers = new Headers(request.headers);
   headers.delete("content-length");

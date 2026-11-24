@@ -2,6 +2,8 @@ export type Role = "admin" | "controller";
 export type AuthUser = { id: string; name: string; email: string; role: Role; clientId?: string; clientName?: string; clientLogoKey?: string | null };
 export const roles: Role[] = ["admin", "controller"];
 export const roleNames: Record<Role, string> = { admin: "Admin", controller: "Controller" };
+export function canAccessClient(clientIds: readonly string[] | null, clientId: string) { return clientIds === null || clientIds.includes(clientId); }
+export function isFullAdmin(role: Role, clientIds: readonly string[] | null) { return role === "admin" && clientIds === null; }
 export function roleHome(role: Role) { return role === "admin" ? "/admin" : "/controller"; }
 export function canOpen(role: Role, page: "admin" | "controller" | "monitor") { return page === "monitor" || role === "admin" || page === "controller" && role === "controller"; }
 export function canMutate(role: Role, action: unknown) { return role === "admin" || role === "controller" && action === "display"; }

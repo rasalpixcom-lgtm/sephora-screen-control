@@ -10,10 +10,10 @@ The migrated local database already has an Admin; use the existing login ID and 
 
 ## Everyday use
 
-1. Sign in at /login, then choose a client card. Both roles can open every active client. Switch client returns to the cards.
-2. Admin → Users → Add user. Enter name, login ID, password (12–128 characters), and role.
+1. Sign in at /login, then choose an available client card. Both roles can open the clients granted to their account. Switch client returns to the cards.
+2. As an All clients Admin, open Administration → Users → Add user. Enter name, login ID, password (12–128 characters), role, and client access.
 3. Share credentials privately. Users can change their own password at /account.
-4. Admin can edit account details, change roles/status, reset passwords, or revoke sessions. Saving account edits signs out the affected user. The server protects the last enabled Admin even across concurrent requests.
+4. An All clients Admin can edit account details, change roles, assignments and status, reset passwords, or revoke sessions. Saving account edits signs out the affected user. The server protects the last enabled All clients Admin even across concurrent requests.
 
 | Role | Admin | Controller | Monitor |
 | --- | --- | --- | --- |

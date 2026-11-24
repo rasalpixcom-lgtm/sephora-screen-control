@@ -3,7 +3,7 @@ import { activeClientId, inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { database, readState, serializeDisplaySelection, type EntityType, type Selection } from "@/lib/store";
 import { currentUser, sameOrigin } from "@/lib/auth";
-import { canMutate } from "@/lib/auth-policy";
+import { canMutate, isFullAdmin } from "@/lib/auth-policy";
 import { readObject, RequestError, requestFailure } from "@/lib/request";
 import { wallActivityDescription } from "@/lib/activity-description";
 import { OnSignApiError } from "@/lib/onsign-api";
@@ -26,7 +26,9 @@ async function GETHandler(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
   if (!user) return bad("Sign in again.", 401);
-  const state = await readState(database(), user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none", user.role === "admin");
+  const includeActivity = user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none";
+  const activityScope = includeActivity && (isFullAdmin(user.role, user.clientIds) ? "all" : "workspace");
+  const state = await readState(database(), activityScope, user.role === "admin");
   return NextResponse.json(state, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
@@ -247,10 +249,10 @@ async function POSTHandler(request: NextRequest) {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, user.email, now).run();
     }
-    const updated = await readState(db, user.role === "admin", user.role === "admin");
+    const activityScope = user.role === "admin" && (isFullAdmin(user.role, user.clientIds) ? "all" : "workspace");
+    const updated = await readState(db, activityScope, user.role === "admin");
     return NextResponse.json({
       ...updated,
-      activity: user.role === "admin" ? updated.activity : [],
       ...(duplicatedGroupId ? { duplicatedGroupId } : {}),
     }, { headers: { "Cache-Control": "no-store" } });
   });

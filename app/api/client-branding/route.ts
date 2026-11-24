@@ -1,6 +1,6 @@
-import { sameOrigin, sessionUser } from "@/lib/auth";
+import { lockFullAdmin, requireFullAdminSession, sameOrigin } from "@/lib/auth";
 import { validClientId, withWorkspace } from "@/lib/client-workspace";
-import { getPool } from "@/lib/database";
+import { getPool, ServerDatabase } from "@/lib/database";
 import { normalizeClientLogo, readClientLogoMutation, validLogoVersion } from "@/lib/client-logo";
 import { clientNameInput } from "@/lib/client-management";
 import { RequestError, requestFailure } from "@/lib/request";
@@ -9,9 +9,7 @@ export const dynamic = "force-dynamic";
 export const POST = withWorkspace(async (request: Request) => {
   try {
     if (!sameOrigin(request)) throw new RequestError("Invalid request origin.", 403);
-    const session = await sessionUser(request.headers);
-    if (!session) throw new RequestError("Sign in again.", 401);
-    if (session.user.role !== "admin") throw new RequestError("Admin access required.", 403);
+    const session = await requireFullAdminSession(request.headers);
     const { body, file, background } = await readClientLogoMutation(request, true);
     if (typeof body.clientId !== "string" || !validClientId(body.clientId)) throw new RequestError("Choose a client.");
     const rename = Object.hasOwn(body, "name") || Object.hasOwn(body, "expectedName");
@@ -30,7 +28,7 @@ export const POST = withWorkspace(async (request: Request) => {
     const connection = await getPool("sephora").connect();
     try {
       await connection.query("BEGIN");
-      await connection.query("SELECT pg_advisory_xact_lock(724016)");
+      await lockFullAdmin(new ServerDatabase(connection), session.user.id, session.sessionId);
       // Check both versions, including unchanged assets, before writing either one.
       const client = (await connection.query(`SELECT l.version AS logo,b.version AS background FROM clients c LEFT JOIN client_logos l ON l.client_id=c.id LEFT JOIN client_backgrounds b ON b.client_id=c.id WHERE c.id=$1 AND c.archived_at IS NULL`, [body.clientId])).rows[0];
       if (!client) throw new RequestError("Client not found.", 404);

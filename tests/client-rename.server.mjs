@@ -22,11 +22,14 @@ const admin = new pg.Pool({ connectionString: adminUrl.href }), pool = new pg.Po
 let created = false, server, worker, logs = "", checks = 0;
 const workerBundle = path.resolve(".server-runtime", name + "-worker.cjs");
 const check = (value, label) => { assert.ok(value, label); checks++; console.log("PASS " + label); };
-const rows = async table => JSON.stringify((await pool.query(`SELECT to_jsonb(t) AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows);
-const snapshot = async excluded => {
+const rows = async (table, previousSchema = false) => {
+  const row = previousSchema && table === "auth_user" ? "to_jsonb(t) - 'controller_client_ids'" : "to_jsonb(t)";
+  return JSON.stringify((await pool.query(`SELECT ${row} AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows);
+};
+const snapshot = async (excluded, previousSchema = false) => {
   const tables = (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows;
   const result = {};
-  for (const { tablename } of tables) if (!excluded.includes(tablename)) result[tablename] = await rows(tablename);
+  for (const { tablename } of tables) if (!excluded.includes(tablename)) result[tablename] = await rows(tablename, previousSchema);
   return result;
 };
 try {
@@ -62,7 +65,7 @@ try {
   await pool.query("INSERT INTO client_backgrounds(client_id,version,image,updated_by) VALUES('sephora',$1,$2,'fixture')", [backgroundVersion, webp]);
   const beforeMigration = await snapshot(["server_migrations"]);
   await migrate(pool); await migrate(pool);
-  const afterMigration = await snapshot(["server_migrations"]);
+  const afterMigration = await snapshot(["server_migrations"], true);
   check(Object.entries(beforeMigration).every(([table, rows]) => afterMigration[table] === rows), "migration 0035 and later additive migrations preserve every existing table row");
 
   const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));

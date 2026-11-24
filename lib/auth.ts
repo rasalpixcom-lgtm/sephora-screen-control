@@ -12,7 +12,7 @@ import * as schema from "@/db/postgres-schema";
 import { database } from "@/lib/store";
 import { getPool } from "@/lib/database";
 import type { ServerDatabase } from "@/lib/database";
-import { canOpen, roleHome, roles, type AuthUser } from "@/lib/auth-policy";
+import { canAccessClient, canOpen, isFullAdmin, roleHome, roles, type AuthUser, type Role } from "@/lib/auth-policy";
 import { configuredAuthOrigins, matchesAuthOrigin } from "@/lib/network-origin";
 import { RequestError } from "@/lib/request";
 import { authLog } from "@/lib/auth-log";
@@ -52,11 +52,17 @@ export async function sessionUser(requestHeaders: Headers, renewCookie = true) {
   const instance = auth();
   const result = await instance.api.getSession({ headers: requestHeaders });
   if (!result) return null;
-  const user = await database().prepare("SELECT id, name, email, role, disabled FROM auth_user WHERE id = ?").bind(result.user.id).first<AuthUser & {disabled:boolean}>();
+  // Recheck the session and permissions in one snapshot after Better Auth validates the cookie.
+  const db = database();
+  const user = await db.prepare(
+    'SELECT u.id, u.name, u.email, u.role, u.disabled, u.controller_client_ids AS "clientIds" ' +
+    'FROM auth_session s JOIN auth_user u ON u.id = s.user_id ' +
+    'WHERE s.id = ? AND s.user_id = ? AND s.expires_at > clock_timestamp()',
+  ).bind(result.session.id, result.user.id).first<AuthUser & { disabled: boolean; clientIds: string[] | null }>();
   if (!user || user.disabled || !roles.includes(user.role)) return null;
   // Upgrade only a still-valid session. Never revive an expired or revoked login.
   if (result.session.expiresAt.toISOString() !== persistentSessionEnd) {
-    const updated = await database().prepare("UPDATE auth_session SET expires_at = ? WHERE id = ? AND expires_at > ?").bind(new Date(persistentSessionEnd), result.session.id, new Date()).run();
+    const updated = await db.prepare("UPDATE auth_session SET expires_at = ? WHERE id = ? AND user_id = ? AND expires_at > clock_timestamp()").bind(new Date(persistentSessionEnd), result.session.id, user.id).run();
     if (!updated.meta.changes) return null;
   }
   if (renewCookie) {
@@ -70,23 +76,45 @@ export async function sessionUser(requestHeaders: Headers, renewCookie = true) {
       }
     }
   }
-  return { user: { id: user.id, name: user.name, email: user.email, role: user.role }, sessionId: result.session.id };
+  return { user: { id: user.id, name: user.name, email: user.email, role: user.role }, sessionId: result.session.id, clientIds: user.clientIds };
 }
-export async function currentUser(requestHeaders: Headers, renewCookie = true): Promise<AuthUser | null> {
+export async function requireFullAdminSession(requestHeaders: Headers) {
+  const session = await sessionUser(requestHeaders);
+  if (!session) throw new RequestError("Sign in again.", 401);
+  if (!isFullAdmin(session.user.role, session.clientIds)) throw new RequestError("All clients Admin access required.", 403);
+  return session;
+}
+// Acquire the account-management lock before global writes, then check current access.
+export async function lockFullAdmin(db: ServerDatabase, userId: string, sessionId: string) {
+  await db.prepare("SELECT pg_advisory_xact_lock(724016)").run();
+  const account = await db.prepare(
+    'SELECT u.role, u.controller_client_ids AS "clientIds" FROM auth_session s JOIN auth_user u ON u.id = s.user_id ' +
+    'WHERE s.id = ? AND s.user_id = ? AND s.expires_at > clock_timestamp() AND NOT u.disabled FOR KEY SHARE OF s',
+  ).bind(sessionId, userId).first<{ role: Role; clientIds: string[] | null }>();
+  if (!account) throw new RequestError("Sign in again.", 401);
+  if (!isFullAdmin(account.role, account.clientIds)) throw new RequestError("All clients Admin access required.", 403);
+}
+export async function currentUser(requestHeaders: Headers, renewCookie = true) {
   const session = await sessionUser(requestHeaders, renewCookie);
-  if (!session) return null;
+  return session ? sessionWorkspaceUser(requestHeaders, session) : null;
+}
+export async function sessionWorkspaceUser(
+  requestHeaders: Headers,
+  session: NonNullable<Awaited<ReturnType<typeof sessionUser>>>,
+): Promise<(AuthUser & { clientIds: string[] | null }) | null> {
   const value = parseCookies(requestHeaders.get("cookie") || "").get(workspaceCookie);
   const clientId = value ? verifyWorkspace(value, session.user.id, session.sessionId, env.AUTH_SECRET!) : "sephora";
   if (!clientId) throw new RequestError("Choose your client again.", 403);
+  if (!canAccessClient(session.clientIds, clientId)) throw new RequestError("This client is not available to your account. Choose another client.", 403);
   // This header is a stale-tab guard, never a workspace selector.
   if (requestHeaders.has("x-client-id") && requestHeaders.get("x-client-id") !== clientId) throw new RequestError("The client changed in another tab. Reload this page before continuing.", 403);
   const client = await database().prepare(`SELECT c.id,c.name,CASE WHEN l.image IS NOT NULL THEN l.version END AS "logoKey" FROM clients c LEFT JOIN client_logos l ON l.client_id=c.id WHERE c.id=? AND c.archived_at IS NULL`).bind(clientId).first<{ id: string; name: string; logoKey: string | null }>();
   if (!client) return null;
   selectWorkspace(client);
-  return { ...session.user, clientId, clientName: client.name, clientLogoKey: client.logoKey };
+  return { ...session.user, clientIds: session.clientIds, clientId, clientName: client.name, clientLogoKey: client.logoKey };
 }
 export async function requirePage(page: "admin" | "controller" | "monitor") {
-  let user: AuthUser | null;
+  let user: Awaited<ReturnType<typeof currentUser>>;
   try { user = await currentUser(new Headers(await headers())); }
   catch (error) { if (error instanceof RequestError && error.status === 403) redirect("/workspaces"); throw error; }
   if (!user) redirect("/workspaces");

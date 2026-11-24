@@ -17,6 +17,7 @@ export const POST = withWorkspace(async (request: Request) => {
        FROM clients c, auth_user u
        WHERE common_monitor_display.id='main' AND c.id=$1 AND c.archived_at IS NULL
          AND u.id=$2 AND NOT u.disabled AND u.role IN ('admin','controller')
+         AND (u.controller_client_ids IS NULL OR c.id=ANY(u.controller_client_ids))
        RETURNING common_monitor_display.client_id`, [account.clientId, account.id]);
     if (!result.rowCount) throw new RequestError("This Controller client is unavailable.", 409);
     return Response.json({ clientId: result.rows[0].client_id }, { headers: { "Cache-Control": "no-store" } });

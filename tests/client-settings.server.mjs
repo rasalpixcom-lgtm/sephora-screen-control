@@ -19,7 +19,10 @@ const check=(value,label)=>{assert.ok(value,label);checks++;console.log("PASS "+
 const singletons=["display_state","monitor_access","email_alert_settings","whatsapp_alert_settings"];
 const key="a".repeat(64),foreignKey="b".repeat(64);
 const hash=s=>crypto.createHash("sha256").update(s).digest("hex");
-const rows=async(t,where="")=>(await pool.query(`SELECT to_jsonb(t) AS row FROM "${t}" t ${where}`)).rows.map(r=>JSON.stringify(r.row)).sort();
+const rows=async(t,where="",previousSchema=false)=>{
+ const row=previousSchema&&t==="auth_user"?"to_jsonb(t) - 'controller_client_ids'":"to_jsonb(t)";
+ return (await pool.query(`SELECT ${row} AS row FROM "${t}" t ${where}`)).rows.map(r=>JSON.stringify(r.row)).sort();
+};
 try{
  await admin.query(`CREATE DATABASE "${name}"`);created=true;
  await pool.query("CREATE TABLE server_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())");
@@ -31,7 +34,7 @@ try{
  const tables=(await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows.map(r=>r.tablename);
  const before=new Map();for(const t of tables)before.set(t,await rows(t));
  await migrate(pool);await migrate(pool);
- for(const t of tables)check(JSON.stringify(before.get(t))===JSON.stringify(await rows(t,t==="server_migrations"?"WHERE name < '0027_client_settings.sql'":"")),t+": all original values preserved after migration and rerun");
+ for(const t of tables)check(JSON.stringify(before.get(t))===JSON.stringify(await rows(t,t==="server_migrations"?"WHERE name < '0027_client_settings.sql'":"",true)),t+": all original values preserved after migration and rerun");
  for(const t of singletons){
   const definition=(await pool.query("SELECT pg_get_constraintdef(oid) AS value FROM pg_constraint WHERE conrelid=$1::regclass AND contype='p'",[t])).rows[0].value;
   check(definition==="PRIMARY KEY (client_id, id)",t+": singleton key belongs to its client");

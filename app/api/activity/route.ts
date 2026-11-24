@@ -1,6 +1,7 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
+import { isFullAdmin } from "@/lib/auth-policy";
 import { database, type Activity } from "@/lib/store";
 import { ACTIVITY_PAGE_SIZE, ActivityQueryError, parseActivityQuery } from "@/lib/activity-query";
 import { requestFailure } from "@/lib/request";
@@ -11,7 +12,7 @@ async function GETHandler(request: NextRequest) {
     const user = await currentUser(request.headers);
     if (!user) return NextResponse.json({ error: "Sign in again." }, { status:401, headers:{"Cache-Control":"no-store"} });
     if (user.role !== "admin") return NextResponse.json({ error: "Admin access required." }, { status:403, headers:{"Cache-Control":"no-store"} });
-    const query = parseActivityQuery(request.nextUrl.searchParams);
+    const query = parseActivityQuery(request.nextUrl.searchParams, isFullAdmin(user.role, user.clientIds));
     const result = await database().transaction(async db => {
       // Count and page must describe the same snapshot when new events arrive.
       await db.prepare("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").run();

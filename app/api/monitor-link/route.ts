@@ -1,7 +1,7 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { activeClientId } from "@/lib/client-workspace";
 import { randomBytes } from "node:crypto";
-import { assertAuthConfig, auditUser, currentUser, sessionUser, sameOrigin } from "@/lib/auth";
+import { assertAuthConfig, auditUser, currentUser, lockFullAdmin, requireFullAdminSession, sameOrigin } from "@/lib/auth";
 import { database, getPool, ServerDatabase } from "@/lib/database";
 import { monitorKeyHash, monitorLinkStatus } from "@/lib/monitor-access";
 import { readObject, requestFailure } from "@/lib/request";
@@ -11,7 +11,7 @@ const reply = (body: unknown, status = 200) => Response.json(body, { status, hea
 async function GETHandler(request: Request) {
   try {
     const common = new URL(request.url).searchParams.get("scope") === "all";
-    const user = common ? (await sessionUser(request.headers))?.user : await currentUser(request.headers);
+    const user = common ? (await requireFullAdminSession(request.headers)).user : await currentUser(request.headers);
     if (!user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     if (common) {
@@ -25,13 +25,15 @@ async function POSTHandler(request: Request) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
     const common = new URL(request.url).searchParams.get("scope") === "all";
-    const user = common ? (await sessionUser(request.headers))?.user : await currentUser(request.headers);
+    const session = common ? await requireFullAdminSession(request.headers) : null;
+    const user = session ? session.user : await currentUser(request.headers);
     if (!user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     const body = await readObject(request);
     if (typeof body.action !== "string" || !["create", "replace", "disable"].includes(body.action)) return reply({ error: "Choose a valid action." }, 400);
     assertAuthConfig();
-    if (common) return await new ServerDatabase(getPool("sephora")).transaction(async db => {
+    if (session) return await new ServerDatabase(getPool("sephora")).transaction(async db => {
+      await lockFullAdmin(db, user.id, session.sessionId);
       await db.prepare("SELECT pg_advisory_xact_lock(724018,hashtext('common-monitor'))").run();
       const prior = await db.prepare("SELECT token_hash, generation FROM common_monitor_access WHERE id='main'").first<{ token_hash: string | null; generation: string }>();
       if (body.action === "create" && prior?.token_hash) return reply({ error: "An active link already exists. Replace it to create a new one." }, 409);
