@@ -2,7 +2,7 @@ import { sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
 import { canMutate } from "@/lib/auth-policy";
 import { withWorkspace } from "@/lib/client-workspace";
 import { complaintAlertSettings } from "@/lib/complaint-alerts-settings";
-import { getPool } from "@/lib/database";
+import { getPool, ServerDatabase } from "@/lib/database";
 import { readObject, RequestError, requestFailure } from "@/lib/request";
 
 export const runtime = "nodejs";
@@ -37,21 +37,23 @@ export const POST = withWorkspace(async (request: Request) => {
     if (typeof body.voiceEnabled !== "boolean" || Object.keys(body).length !== 1) {
       throw new RequestError("Choose whether complaint voice alerts are on or off.");
     }
-    // Check and lock this exact session as part of the write so it cannot outlive revocation.
-    const { rows: [wall] } = await getPool("sephora").query<WallVoice>(
-      `UPDATE common_monitor_display SET complaint_voice_enabled=$1
-       FROM clients c, auth_user u
-       WHERE common_monitor_display.id='main' AND c.id=$2 AND c.archived_at IS NULL
-         AND u.id=$3 AND NOT u.disabled AND u.role IN ('admin','controller')
-         AND (u.controller_client_ids IS NULL OR c.id=ANY(u.controller_client_ids))
-         AND EXISTS (
-           SELECT 1 FROM auth_session s
-           WHERE s.id=$4 AND s.user_id=u.id AND s.expires_at > clock_timestamp()
-           FOR KEY SHARE OF s
-         )
-       RETURNING complaint_voice_enabled AS "voiceEnabled"`,
-      [body.voiceEnabled, account.clientId, account.id, sessionId],
-    );
+    const wall = await new ServerDatabase(getPool("sephora")).transaction(async db => {
+      // The common wall selector also locks this row before it checks the session.
+      await db.prepare("SELECT id FROM common_monitor_display WHERE id='main' FOR UPDATE").first();
+      return db.prepare(
+        `UPDATE common_monitor_display SET complaint_voice_enabled=?
+         FROM clients c, auth_user u
+         WHERE common_monitor_display.id='main' AND c.id=? AND c.archived_at IS NULL
+           AND u.id=? AND NOT u.disabled AND u.role IN ('admin','controller')
+           AND (u.controller_client_ids IS NULL OR c.id=ANY(u.controller_client_ids))
+           AND EXISTS (
+             SELECT 1 FROM auth_session s
+             WHERE s.id=? AND s.user_id=u.id AND s.expires_at > clock_timestamp()
+             FOR KEY SHARE OF s
+           )
+         RETURNING complaint_voice_enabled AS "voiceEnabled"`,
+      ).bind(body.voiceEnabled, account.clientId, account.id, sessionId).first<WallVoice>();
+    });
     if (!wall) throw new RequestError("The shared wall or your Controller access is unavailable.", 409);
     return Response.json(wall, { headers });
   } catch (error) { return requestFailure(error); }

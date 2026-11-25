@@ -63,7 +63,7 @@ try {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`, token = crypto.randomBytes(32).toString("hex");
   server = spawn(process.execPath, [path.resolve(".next/standalone/server.js")], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: {
-    ...process.env, PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.href, AUTH_URL: origin, AUTH_ADDITIONAL_ORIGINS: "",
+    ...process.env, COMPLAINT_ALERTS_ENABLED: "false", PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.href, AUTH_URL: origin, AUTH_ADDITIONAL_ORIGINS: "",
     SCREEN_PHOTO_DIR: path.resolve(".server-runtime", name + "-screen-photos"), LOCATION_PHOTO_DIR: path.resolve(".server-runtime", name + "-location-photos"),
     AUTH_SECRET: crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL: adminEmail, AUTH_BOOTSTRAP_HASH: crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES: String(Date.now() + 600000),
     PIXCOM_CLIENT_INTEGRATIONS: JSON.stringify({ sephora: {}, [otherClient]: {} }), PREVIEW_WORKER_DISABLED: "true", EMAIL_ALERT_WORKER_DISABLED: "true", WHATSAPP_ALERT_WORKER_DISABLED: "true",

@@ -26,7 +26,7 @@ try {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`, token = crypto.randomBytes(32).toString("hex"), password = "OnSign-Settings-Fixture-2026!";
   server = spawn(process.execPath, ["--require", path.resolve("tests/fixtures/client-onsign-preload.cjs"), path.resolve(".next/standalone/server.js")], {
-    windowsHide: true, stdio: ["ignore","pipe","pipe"], env: { ...process.env, PORT:String(port), HOSTNAME:"127.0.0.1", DATABASE_URL:testUrl.href,
+    windowsHide: true, stdio: ["ignore","pipe","pipe"], env: { ...process.env, COMPLAINT_ALERTS_ENABLED: "false", PORT:String(port), HOSTNAME:"127.0.0.1", DATABASE_URL:testUrl.href,
       AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:"", AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"settings@example.test",
       AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),
       PIXCOM_CLIENT_INTEGRATIONS:JSON.stringify({[envClient]:{onsign:{token:"new-secret",organizationId:"other-org"}}}), ONSIGN_API_TOKEN:"legacy-secret", ONSIGN_ORGANIZATION_ID:"sephora-org",

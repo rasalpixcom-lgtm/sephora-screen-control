@@ -74,7 +74,7 @@ try {
 
   const probe=net.createServer(); await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
   const origin="http://127.0.0.1:"+port, alias="http://localhost:"+port, bootstrap=crypto.randomBytes(32).toString("hex"), password=process.env.REPORT_BROWSER_CHECK==="true"?"Browser-report-test-2026!":crypto.randomBytes(24).toString("base64url");
-  const serverEnv={...process.env,PORT:String(port),HOSTNAME:"127.0.0.1",DATABASE_URL:testUrl.toString(),AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:alias,AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000)};
+  const serverEnv={...process.env,COMPLAINT_ALERTS_ENABLED:"false",PORT:String(port),HOSTNAME:"127.0.0.1",DATABASE_URL:testUrl.toString(),AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:alias,AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000)};
   server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:serverEnv,stdio:["ignore","pipe","pipe"]});
   server.stdout.on("data",data=>{logs+=data;}); server.stderr.on("data",data=>{logs+=data;});
   let ready=false; for(let attempt=0;attempt<60;attempt++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{} if(server.exitCode!==null)break; await new Promise(resolve=>setTimeout(resolve,500));}

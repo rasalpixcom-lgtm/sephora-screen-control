@@ -1,6 +1,5 @@
-import { withWorkspace } from "@/lib/client-workspace";
-import { inventoryLockSql } from "@/lib/client-workspace";
-import { currentUser, sameOrigin } from "@/lib/auth";
+import { activeClientId, inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
+import { currentUser, lockWorkspaceWriter, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { discardPreparedScreenPhoto, prepareScreenPhoto, readScreenMutation, readScreenPhoto, removeScreenPhoto } from "@/lib/screen-photo";
 import { RequestError, requestFailure } from "@/lib/request";
@@ -45,8 +44,9 @@ async function PUTHandler(request: Request) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   let prepared: string | null = null, obsolete: string | null = null, committed = false;
   try {
-    const user = await currentUser(request.headers);
-    if (!user) return reply({ error: "Sign in again." }, 401);
+    const session = await sessionUser(request.headers);
+    const user = session ? await sessionWorkspaceUser(request.headers, session) : null;
+    if (!session || !user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     const { body, file } = await readScreenMutation(request);
     if (!validId(body.screenId) || !validPhotoCategory(body.category) || !validKey(body.expectedKey)) throw new RequestError("Choose a valid screen photo.");
@@ -56,6 +56,7 @@ async function PUTHandler(request: Request) {
     const result = await database().transaction(async db => {
       // Use the inventory lock to serialize edits and parent/screen deletion.
       await db.prepare(inventoryLockSql()).run();
+      await lockWorkspaceWriter(db, session, activeClientId(), "admin");
       const screen = await db.prepare('SELECT name, photo_key AS key, screen_type AS "screenType" FROM entities WHERE id = ? AND type = \'screen\'').bind(body.screenId).first<{ name: string; key: string | null; screenType: string | null }>();
       if (!screen) throw new RequestError("Screen not found.", 404);
       if (!photoCategoryApplies(category, screen.screenType)) throw new RequestError("This photo category is not available for this screen type. Refresh photos and try again.");

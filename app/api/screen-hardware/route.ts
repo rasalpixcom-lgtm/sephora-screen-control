@@ -1,7 +1,6 @@
-import { withWorkspace } from "@/lib/client-workspace";
-import { inventoryLockSql } from "@/lib/client-workspace";
+import { activeClientId, inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser, sameOrigin } from "@/lib/auth";
+import { currentUser, lockWorkspaceWriter, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { readObject, requestFailure } from "@/lib/request";
 import { displayHardwareFields, hardwareSectionsForType, hardwareSections, isHardwareSection, parseHardwareFields, type HardwareRecord, type HardwareSection } from "@/lib/screen-hardware";
@@ -31,8 +30,9 @@ async function GETHandler(request: NextRequest) {
 async function PUTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
-    const user = await currentUser(request.headers);
-    if (!user) return reply({ error: "Sign in again." }, 401);
+    const session = await sessionUser(request.headers);
+    const user = session ? await sessionWorkspaceUser(request.headers, session) : null;
+    if (!session || !user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     const body = await readObject(request);
     if (!validId(body.screenId) || !isHardwareSection(body.section)) return reply({ error: "Choose a valid screen and section." }, 400);
@@ -44,6 +44,7 @@ async function PUTHandler(request: NextRequest) {
     const result = await database().transaction(async db => {
       // Serialize with screen-type changes and inventory deletion.
       await db.prepare(inventoryLockSql()).run();
+      await lockWorkspaceWriter(db, session, activeClientId(), "admin");
       const screen = await db.prepare('SELECT name, screen_type AS "screenType" FROM entities WHERE id = ? AND type = \'screen\'').bind(body.screenId).first<{ name: string; screenType: string | null }>();
       if (!screen) return reply({ error: "Screen not found." }, 404);
       if (!hardwareSectionsForType(screen.screenType).includes(section)) return reply({ error: screen.screenType ? "This hardware section does not apply to the current screen type. Refresh the page before editing again." : "Choose a screen type in Edit screen before adding hardware details." }, 400);

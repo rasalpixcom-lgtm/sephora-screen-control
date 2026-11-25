@@ -29,7 +29,7 @@ try {
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`, token = crypto.randomBytes(32).toString("hex"), password = "OnSign-UI-Test-2026!";
   server = spawn(process.execPath, ["--require", path.resolve("tests/fixtures/onsign-preload.cjs"), path.resolve(".next/standalone/server.js")], {
-    cwd: process.cwd(), env: { ...process.env, PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.toString(), AUTH_URL: origin,
+    cwd: process.cwd(), env: { ...process.env, COMPLAINT_ALERTS_ENABLED: "false", PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.toString(), AUTH_URL: origin,
       AUTH_ADDITIONAL_ORIGINS: "", AUTH_SECRET: crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL: "onsign-admin@example.test",
       AUTH_BOOTSTRAP_HASH: crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES: String(Date.now() + 600000),
       ONSIGN_API_TOKEN: "onsign-test-token", ONSIGN_ORGANIZATION_ID: "", ALERT_EMAIL_USER: "", ALERT_EMAIL_APP_PASSWORD: "", ULTRAMSG_TOKEN: "",

@@ -1,6 +1,6 @@
-import { inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
+import { activeClientId, inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { createHash, randomUUID } from "node:crypto";
-import { currentUser, sameOrigin } from "@/lib/auth";
+import { lockWorkspaceWriter, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
 import { database, type ServerDatabase } from "@/lib/database";
 import { readObject, requestFailure, RequestError } from "@/lib/request";
 import { hardwareSections, parseHardwareFields, type HardwareSection } from "@/lib/screen-hardware";
@@ -41,8 +41,9 @@ function preview(screenId: string, text: string, state: Snapshot) {
 async function handle(request: Request, saving: boolean) {
   try {
     if (!sameOrigin(request)) throw new RequestError("Invalid request origin.", 403);
-    const user = await currentUser(request.headers);
-    if (!user) throw new RequestError("Sign in again.", 401);
+    const session = await sessionUser(request.headers);
+    const user = session ? await sessionWorkspaceUser(request.headers, session) : null;
+    if (!session || !user) throw new RequestError("Sign in again.", 401);
     if (user.role !== "admin") throw new RequestError("Admin access required.", 403);
     const body = await readObject(request);
     if (typeof body.screenId !== "string" || !body.screenId || body.screenId.length > 256 || typeof body.text !== "string") throw new RequestError("Choose a screen and paste its survey details.");
@@ -50,6 +51,7 @@ async function handle(request: Request, saving: boolean) {
     return await database().transaction(async db => {
       // Shared with inventory, hardware edits, photo edits and PPM edits.
       await db.prepare(inventoryLockSql()).run();
+      if (saving) await lockWorkspaceWriter(db, session, activeClientId(), "admin");
       const state = await snapshot(db, screenId), { result, survey } = preview(screenId, text, state);
       if (!saving) return reply({ preview: result });
       if (body.fingerprint !== result.fingerprint) throw new RequestError("These details changed since preview. Preview the survey again before saving.", 409);

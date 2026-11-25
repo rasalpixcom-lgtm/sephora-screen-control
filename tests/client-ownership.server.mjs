@@ -51,6 +51,7 @@ async function checkReadiness(pool) {
   const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
   const origin=`http://127.0.0.1:${port}`;
   const server=spawn(process.execPath,[path.resolve('.next/standalone/server.js')],{windowsHide:true,stdio:'ignore',env:{...process.env,
+    COMPLAINT_ALERTS_ENABLED:'false',
     PORT:String(port),HOSTNAME:'127.0.0.1',DATABASE_URL:pool.options.connectionString,AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:'',
     AUTH_SECRET:crypto.randomBytes(48).toString('hex'),AUTH_ADMIN_EMAIL:'ownership@example.test',
     ONSIGN_API_TOKEN:'',ALERT_EMAIL_USER:'',ALERT_EMAIL_APP_PASSWORD:'',ULTRAMSG_TOKEN:''}});

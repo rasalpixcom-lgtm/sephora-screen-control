@@ -254,25 +254,37 @@ async function POSTHandler(request: NextRequest) {
       if (addedIds.length) await db.prepare("INSERT INTO group_members (group_id, screen_id) SELECT ?, screen_id FROM unnest(?::text[]) AS selected(screen_id)").bind(group.id, addedIds).run();
       if (removedIds.length || addedIds.length) audit = { action: "updated group screens", type: "group", id: group.id, name: group.name };
     } else if (body.action === "display") {
-      const selection = body.selection as Selection;
-      if (!selection || typeof selection !== "object" || Array.isArray(selection)) return bad("Invalid selection.");
-      if (Object.keys(selection).some((key) => !["countryId", "regionId", "storeId", "groupId", "screenIds"].includes(key))) return bad("Invalid selection.");
-      for (const [key, type] of [["countryId", "country"], ["regionId", "region"], ["storeId", "store"], ["groupId", "group"]] as const) {
-        if (selection[key] !== undefined && (typeof selection[key] !== "string" || !selection[key] || entity(selection[key])?.type !== type)) return bad("A selected item no longer exists.");
+      const partial = body.patch !== undefined;
+      let changes = body;
+      if (partial) {
+        const patch = body.patch;
+        if (!patch || typeof patch !== "object" || Array.isArray(patch) || Object.keys(body).length !== 2) return bad("Invalid wall update.");
+        const fields = Object.keys(patch);
+        if (!fields.length || fields.some(field => !["selection", "autoAdvance", "intervalSeconds"].includes(field))) return bad("Invalid wall update.");
+        changes = patch as Record<string, unknown>;
       }
-      const region = entity(selection.regionId);
-      const store = entity(selection.storeId);
-      if (region && selection.countryId && region.parentId !== selection.countryId) return bad("Region does not belong to the selected country.");
-      if (store && selection.regionId && store.parentId !== selection.regionId) return bad("Location does not belong to the selected region.");
-      if (store && selection.countryId && entity(store.parentId)?.parentId !== selection.countryId) return bad("Location does not belong to the selected country.");
-      if (selection.screenIds != null && (!Array.isArray(selection.screenIds) || selection.screenIds.length > 500 || selection.screenIds.some((id) => typeof id !== "string" || entity(id)?.type !== "screen") || new Set(selection.screenIds).size !== selection.screenIds.length)) return bad("Invalid screen selection.");
-      if (body.autoAdvance !== undefined && typeof body.autoAdvance !== "boolean") return bad("Invalid rotation setting.");
-      const autoAdvance = body.autoAdvance === false ? 0 : 1;
-      const interval = body.intervalSeconds === undefined ? 10 : body.intervalSeconds;
+      // Merge only the submitted fields with the state read inside the inventory lock.
+      let selection = state.display.selection;
+      if (!partial || Object.hasOwn(changes, "selection")) {
+        selection = changes.selection as Selection;
+        if (!selection || typeof selection !== "object" || Array.isArray(selection)) return bad("Invalid selection.");
+        if (Object.keys(selection).some((key) => !["countryId", "regionId", "storeId", "groupId", "screenIds"].includes(key))) return bad("Invalid selection.");
+        for (const [key, type] of [["countryId", "country"], ["regionId", "region"], ["storeId", "store"], ["groupId", "group"]] as const) {
+          if (selection[key] !== undefined && (typeof selection[key] !== "string" || !selection[key] || entity(selection[key])?.type !== type)) return bad("A selected item no longer exists.");
+        }
+        const region = entity(selection.regionId);
+        const store = entity(selection.storeId);
+        if (region && selection.countryId && region.parentId !== selection.countryId) return bad("Region does not belong to the selected country.");
+        if (store && selection.regionId && store.parentId !== selection.regionId) return bad("Location does not belong to the selected region.");
+        if (store && selection.countryId && entity(store.parentId)?.parentId !== selection.countryId) return bad("Location does not belong to the selected country.");
+        if (selection.screenIds != null && (!Array.isArray(selection.screenIds) || selection.screenIds.length > 500 || selection.screenIds.some((id) => typeof id !== "string" || entity(id)?.type !== "screen") || new Set(selection.screenIds).size !== selection.screenIds.length)) return bad("Invalid screen selection.");
+      }
+      const { autoAdvance = partial ? state.display.autoAdvance : true, intervalSeconds: interval = partial ? state.display.intervalSeconds : 10 } = changes;
+      if (typeof autoAdvance !== "boolean") return bad("Invalid rotation setting.");
       if (typeof interval !== "number" || !Number.isInteger(interval) || interval < 5 || interval > 60) return bad("Rotation must be a whole number from 5 to 60 seconds.");
       await db.prepare(`INSERT INTO display_state (client_id, id, selection, auto_advance, interval_seconds, updated_at) VALUES ('${activeClientId()}', 'main', ?, ?, ?, ?) ON CONFLICT(client_id,id) DO UPDATE SET selection = excluded.selection, auto_advance = excluded.auto_advance, interval_seconds = excluded.interval_seconds, updated_at = excluded.updated_at`)
-        .bind(serializeDisplaySelection(selection), autoAdvance, interval, now).run();
-      audit = { action: JSON.stringify(selection) === JSON.stringify(state.display.selection) ? "changed wall settings" : "changed wall selection", type: null, id: null, name: wallActivityDescription(selection, state.entities, !!autoAdvance, interval) };
+        .bind(serializeDisplaySelection(selection), autoAdvance ? 1 : 0, interval, now).run();
+      audit = { action: JSON.stringify(selection) === JSON.stringify(state.display.selection) ? "changed wall settings" : "changed wall selection", type: null, id: null, name: wallActivityDescription(selection, state.entities, autoAdvance, interval) };
     } else return bad("Unknown action.");
     if (audit) {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")

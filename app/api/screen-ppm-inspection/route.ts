@@ -1,7 +1,6 @@
-import { withWorkspace } from "@/lib/client-workspace";
-import { inventoryLockSql } from "@/lib/client-workspace";
+import { activeClientId, inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser, sameOrigin } from "@/lib/auth";
+import { currentUser, lockWorkspaceWriter, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { readObject, requestFailure } from "@/lib/request";
 import { parsePpmFields, type PpmFields } from "@/lib/screen-ppm-inspection";
@@ -27,8 +26,9 @@ async function GETHandler(request: NextRequest) {
 async function PUTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
-    const user = await currentUser(request.headers);
-    if (!user) return reply({ error: "Sign in again." }, 401);
+    const session = await sessionUser(request.headers);
+    const user = session ? await sessionWorkspaceUser(request.headers, session) : null;
+    if (!session || !user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     const body = await readObject(request);
     if (!validId(body.screenId)) return reply({ error: "Choose a screen." }, 400);
@@ -38,6 +38,7 @@ async function PUTHandler(request: NextRequest) {
     catch (error) { return reply({ error: error instanceof Error ? error.message : "Enter valid PPM inspection details." }, 400); }
     return await database().transaction(async db => {
       await db.prepare(inventoryLockSql()).run();
+      await lockWorkspaceWriter(db, session, activeClientId(), "admin");
       const screen = await db.prepare("SELECT name FROM entities WHERE id = ? AND type = 'screen'").bind(body.screenId).first<{ name: string }>();
       if (!screen) return reply({ error: "Screen not found." }, 404);
       const version = crypto.randomUUID(), now = new Date().toISOString();

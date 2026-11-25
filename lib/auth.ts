@@ -94,6 +94,23 @@ export async function lockFullAdmin(db: ServerDatabase, userId: string, sessionI
   if (!account) throw new RequestError("Sign in again.", 401);
   if (!isFullAdmin(account.role, account.clientIds)) throw new RequestError("All clients Admin access required.", 403);
 }
+// Call after acquiring the write lock, so an operator can lose access while a save is queued.
+export async function lockWorkspaceWriter(db: ServerDatabase, session: NonNullable<Awaited<ReturnType<typeof sessionUser>>>, clientId: string, requiredRole: Role) {
+  // Account management locks the account before it revokes its sessions.
+  const writer = await db.prepare(
+    `SELECT u.role, u.controller_client_ids AS "clientIds"
+     FROM auth_user u JOIN clients c ON c.id = ? AND c.archived_at IS NULL
+     WHERE u.id = ? AND NOT u.disabled FOR SHARE OF u`,
+  ).bind(clientId, session.user.id).first<{ role: Role; clientIds: string[] | null }>();
+  const liveSession = writer && await db.prepare(
+    "SELECT 1 FROM auth_session WHERE id = ? AND user_id = ? AND expires_at > clock_timestamp() FOR KEY SHARE",
+  ).bind(session.sessionId, session.user.id).first();
+  if (!writer || !liveSession) throw new RequestError("Sign in again.", 401);
+  const hasRole = writer.role === "admin" || (requiredRole === "controller" && writer.role === "controller");
+  if (!hasRole || !canAccessClient(writer.clientIds, clientId)) {
+    throw new RequestError(requiredRole === "admin" ? "Admin access to this client is required." : "Controller access to this client is required.", 403);
+  }
+}
 export async function currentUser(requestHeaders: Headers, renewCookie = true) {
   const session = await sessionUser(requestHeaders, renewCookie);
   return session ? sessionWorkspaceUser(requestHeaders, session) : null;

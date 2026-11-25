@@ -26,7 +26,7 @@ try {
   server = spawn(process.execPath, [path.resolve(".next/standalone/server.js")], { windowsHide: true, env: {
     ...process.env, PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.href, AUTH_URL: origin, AUTH_ADDITIONAL_ORIGINS: "",
     AUTH_SECRET: crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL: "controller-filter@example.test", AUTH_BOOTSTRAP_HASH: crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES: String(Date.now() + 600000),
-    PIXCOM_CLIENT_INTEGRATIONS: '{"sephora":{}}', PREVIEW_WORKER_DISABLED: "true", EMAIL_ALERT_WORKER_DISABLED: "true", WHATSAPP_ALERT_WORKER_DISABLED: "true",
+    PIXCOM_CLIENT_INTEGRATIONS: '{"sephora":{}}', PREVIEW_WORKER_DISABLED: "true", EMAIL_ALERT_WORKER_DISABLED: "true", WHATSAPP_ALERT_WORKER_DISABLED: "true", COMPLAINT_ALERTS_ENABLED: "false",
   }, stdio: ["ignore", "pipe", "pipe"] });
   server.stdout.on("data", data => logs += data); server.stderr.on("data", data => logs += data);
   let ready = false; for (let i = 0; i < 100; i++) { try { if ((await fetch(origin + "/api/health")).ok) { ready = true; break; } } catch {} await new Promise(resolve => setTimeout(resolve, 200)); }
@@ -69,6 +69,46 @@ try {
   check((await (await request("/api/monitor-state")).json()).entities.filter(entity => entity.type === "screen").length === 25, "location mode still shows exactly that location's screens");
   check(await snapshot() === before, "inventory and group memberships remain byte-for-byte unchanged");
 
+  const operatorSessions = [];
+  for (const number of [1, 2]) {
+    const email = `wall-operator-${number}@example.test`;
+    check((await request("/api/users", { action: "create", name: `Wall operator ${number}`, email, role: "controller", password })).ok, `operator ${number} account is created`);
+    const operator = await request("/api/auth/sign-in/email", { email, password });
+    check(operator.ok, `operator ${number} signs in`);
+    operatorSessions.push(operator.headers.getSetCookie().map(value => value.split(";")[0]).join("; "));
+  }
+  const [selectionSession, rotationSession] = operatorSessions;
+  const getDisplay = async session => (await (await request("/api/state", undefined, session)).json()).display;
+  const patchDisplay = (patch, session = selectionSession) => request("/api/state", { action: "display", patch }, session);
+  const openDisplays = await Promise.all(operatorSessions.map(getDisplay));
+  check(openDisplays.every(display => display.selection.storeId === "dm" && !display.autoAdvance && display.intervalSeconds === 20), "both operators start with the same saved wall view");
+  const [selected, toggled] = await Promise.all([
+    patchDisplay({ selection: { groupId: "group-1" } }),
+    patchDisplay({ autoAdvance: true }, rotationSession),
+  ]);
+  check(selected.ok && toggled.ok, "both operators can change different wall fields concurrently");
+  const merged = await getDisplay(selectionSession);
+  check(merged.selection.groupId === "group-1" && merged.autoAdvance && merged.intervalSeconds === 20, "concurrent selection and rotation changes preserve both fields and keep the interval");
+  const intervalChange = await patchDisplay({ intervalSeconds: 45 }, rotationSession);
+  const withInterval = (await intervalChange.json()).display;
+  check(intervalChange.ok && withInterval.selection.groupId === "group-1" && withInterval.autoAdvance && withInterval.intervalSeconds === 45, "changing only the interval preserves the screen selection and rotation toggle");
+  const showAll = await patchDisplay({ selection: {} });
+  const allLocations = (await showAll.json()).display;
+  check(showAll.ok && Object.keys(allLocations.selection).length === 0 && allLocations.autoAdvance && allLocations.intervalSeconds === 45, "an explicit empty selection still shows all locations and preserves both rotation settings");
+  const invalidUpdates = [
+    { patch: {} }, { patch: null }, { patch: { unknown: true } },
+    { patch: { intervalSeconds: 10.5 } }, { patch: { autoAdvance: 0 } },
+    { patch: { selection: { groupId: "missing-group" }, autoAdvance: false } },
+    { patch: { autoAdvance: false }, selection: {} },
+  ];
+  for (const update of invalidUpdates) {
+    assert.equal((await request("/api/state", { action: "display", ...update }, rotationSession)).status, 400);
+  }
+  check(JSON.stringify(await getDisplay(rotationSession)) === JSON.stringify(allLocations), "invalid or mixed wall updates leave the saved state untouched");
+  const legacyWrite = await request("/api/state", { action: "display", selection: { groupId: "group-0" }, autoAdvance: false }, rotationSession);
+  const legacyDisplay = (await legacyWrite.json()).display;
+  check(legacyWrite.ok && legacyDisplay.selection.groupId === "group-0" && !legacyDisplay.autoAdvance && legacyDisplay.intervalSeconds === 10, "legacy full display writes still use defaults for omitted rotation fields");
+
   await pool.query(`INSERT INTO entities (id, type, name, parent_id, created_at) VALUES
     ('deleted-group-screen-1', 'screen', 'First selected screen to delete', 'dm', now()),
     ('deleted-group-screen-2', 'screen', 'Last selected screen to delete', 'dm', now()),
@@ -98,7 +138,7 @@ try {
   check((await request("/api/controller-client", {})).ok, "common wall follows the fixture Controller");
   const blankCommon = await (await request("/api/monitor-state?scope=all")).json();
   check(shown(blankCommon).length === 0 && blankCommon.display.selection.screenIds === null, "common wall also remains empty");
-  const rotation = await setDisplay(afterDeletion.selection, { autoAdvance: true, intervalSeconds: 30 });
+  const rotation = await patchDisplay({ autoAdvance: true, intervalSeconds: 30 }, rotationSession);
   const rotated = (await rotation.json()).display;
   check(rotation.ok && rotated.autoAdvance && rotated.intervalSeconds === 30 && rotated.selection.screenIds === null, "changing rotation preserves the empty selection");
   check(JSON.stringify(await storedSelection()) === JSON.stringify({ groupId: "group-0", screenIds: [null] }), "saving rotation persists the previous-build-safe empty selection");

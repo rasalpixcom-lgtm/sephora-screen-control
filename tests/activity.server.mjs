@@ -29,7 +29,7 @@ const origin = "http://" + testHost + ":" + port;
 const aliasOrigin = "http://localhost:" + port;
 const token = crypto.randomBytes(32).toString("hex");
 const password = crypto.randomBytes(24).toString("base64url");
-const serverEnv = {...process.env, PORT:String(port), HOSTNAME:"0.0.0.0", ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:aliasOrigin, AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"};
+const serverEnv = {...process.env, COMPLAINT_ALERTS_ENABLED: "false", PORT:String(port), HOSTNAME:"0.0.0.0", ALLOW_LAN_HTTP:process.env.TEST_LAN_IP ? "true" : "false", DATABASE_URL:testUrl.toString(), AUTH_URL:origin, AUTH_ADDITIONAL_ORIGINS:aliasOrigin, AUTH_SECRET:crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL:"admin@example.test", AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000), TRUST_PROXY:"true"};
 let server = spawn(process.execPath, [path.join(root, ".next/standalone/server.js")], { cwd:root, env:serverEnv, stdio:["ignore","pipe","pipe"] });
 let logs = "";
 server.stdout.on("data", data => { logs += data; }); server.stderr.on("data", data => { logs += data; });

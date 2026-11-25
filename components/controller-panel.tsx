@@ -15,7 +15,8 @@ type State = { entities: Entity[]; members: Member[]; display: Display };
 type Props = {
   state: State;
   busy: boolean;
-  onDisplayChange: (selection: Selection, options?: { autoAdvance?: boolean; intervalSeconds?: number }) => void;
+  onDisplayChange: (selection: Selection) => void;
+  onRotationChange: (rotation: Partial<Pick<Display, "autoAdvance" | "intervalSeconds">>) => void;
 };
 
 function screenPlace(screen: Entity, entities: Entity[]) {
@@ -104,7 +105,7 @@ function ComplaintVoiceSwitch() {
   </div>;
 }
 
-export default function ControllerPanel({ state, busy, onDisplayChange }: Props) {
+export default function ControllerPanel({ state, busy, onDisplayChange, onRotationChange }: Props) {
   const { entities, members, display } = state;
   const selection = display.selection;
   const selectionMode = selection.groupId ? "groups" : "locations";
@@ -186,8 +187,8 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
       </div>
       <div className="ctrl-live-actions">
 
-        <div className="ctrl-rotation"><span>Rotate pages</span><Switch checked={display.autoAdvance} disabled={busy} onCheckedChange={(checked) => onDisplayChange(selection, { autoAdvance: checked })} aria-label="Auto-rotate wall"/></div>
-        <label className="ctrl-interval">Every <select aria-label="Rotation interval" disabled={busy || !display.autoAdvance} value={display.intervalSeconds} onChange={(event) => onDisplayChange(selection, { intervalSeconds: Number(event.target.value) })}>{[5, 10, 15, 20, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+        <div className="ctrl-rotation"><span>Rotate pages</span><Switch checked={display.autoAdvance} disabled={busy} onCheckedChange={(checked) => onRotationChange({ autoAdvance: checked })} aria-label="Auto-rotate wall"/></div>
+        <label className="ctrl-interval">Every <select aria-label="Rotation interval" disabled={busy || !display.autoAdvance} value={display.intervalSeconds} onChange={(event) => onRotationChange({ intervalSeconds: Number(event.target.value) })}>{[5, 10, 15, 20, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
         <ComplaintVoiceSwitch/>
         <Link href="/monitor" className="ctrl-open-wall"><LayoutGrid size={17}/> View monitor <ArrowRight size={16}/></Link>
       </div>
