@@ -7,7 +7,7 @@ import type { LocationDetails } from "@/lib/location-details";
 import type { ScreenType } from "@/lib/screen-type";
 
 export type EntityType = "country" | "region" | "store" | "screen" | "group";
-export type Entity = { id: string; type: EntityType; name: string; shortName?: string | null; onsignPlayerId?: string | null; photoKey?: string | null; screenType?: ScreenType | null; parentId: string | null; liveUrl: string | null; isDemo: number; createdAt: string };
+export type Entity = { id: string; type: EntityType; name: string; shortName?: string | null; onsignPlayerId?: string | null; photoKey?: string | null; screenType?: ScreenType | null; parentId: string | null; liveUrl: string | null; isDemo: number; createdAt: string; editVersion?: string };
 export type Member = { groupId: string; screenId: string };
 // A null screen list keeps the wall empty. Missing and empty lists retain the all-screens behavior.
 export type Selection = { countryId?: string; regionId?: string; storeId?: string; groupId?: string; screenIds?: string[] | null };

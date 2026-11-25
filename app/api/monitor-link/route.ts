@@ -1,7 +1,8 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { activeClientId } from "@/lib/client-workspace";
 import { randomBytes } from "node:crypto";
-import { assertAuthConfig, auditUser, currentUser, lockFullAdmin, requireFullAdminSession, sameOrigin } from "@/lib/auth";
+import { assertAuthConfig, auditUser, currentUser, lockFullAdmin, requireFullAdminSession, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
+import { canAccessClient } from "@/lib/auth-policy";
 import { database, getPool, ServerDatabase } from "@/lib/database";
 import { monitorKeyHash, monitorLinkStatus } from "@/lib/monitor-access";
 import { readObject, requestFailure } from "@/lib/request";
@@ -25,14 +26,15 @@ async function POSTHandler(request: Request) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
     const common = new URL(request.url).searchParams.get("scope") === "all";
-    const session = common ? await requireFullAdminSession(request.headers) : null;
-    const user = session ? session.user : await currentUser(request.headers);
+    const session = common ? await requireFullAdminSession(request.headers) : await sessionUser(request.headers);
+    if (!session) return reply({ error: "Sign in again." }, 401);
+    const user = common ? session.user : await sessionWorkspaceUser(request.headers, session);
     if (!user) return reply({ error: "Sign in again." }, 401);
     if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
     const body = await readObject(request);
     if (typeof body.action !== "string" || !["create", "replace", "disable"].includes(body.action)) return reply({ error: "Choose a valid action." }, 400);
     assertAuthConfig();
-    if (session) return await new ServerDatabase(getPool("sephora")).transaction(async db => {
+    if (common) return await new ServerDatabase(getPool("sephora")).transaction(async db => {
       await lockFullAdmin(db, user.id, session.sessionId);
       await db.prepare("SELECT pg_advisory_xact_lock(724018,hashtext('common-monitor'))").run();
       const prior = await db.prepare("SELECT token_hash, generation FROM common_monitor_access WHERE id='main'").first<{ token_hash: string | null; generation: string }>();
@@ -44,18 +46,32 @@ async function POSTHandler(request: Request) {
       await auditUser(body.action === "disable" ? "Disabled common monitor link" : body.action === "replace" ? "Replaced common monitor link" : "Created common monitor link", "All clients monitoring wall",user.email,db);
       return reply({ active: !!key,generation,updatedAt: now.toISOString(),...(key ? { link: `${new URL(process.env.AUTH_URL!).origin}/monitor?scope=all#key=${key}` } : {}) });
     });
+    const clientId = activeClientId();
     return await database().transaction(async db => {
-      await db.prepare(`SELECT pg_advisory_xact_lock(724018,hashtext('${activeClientId()}'))`).run();
-      const prior = await db.prepare(`SELECT token_hash, generation FROM monitor_access WHERE client_id='${activeClientId()}' AND id = 'main'`).first<{ token_hash: string | null; generation: string }>();
+      await db.prepare("SELECT pg_advisory_xact_lock(724018, hashtext(?))").bind(clientId).run();
+      // Lock the account before the session, matching the order used when account changes revoke sessions.
+      const writer = await db.prepare(
+        `SELECT u.email, u.role, u.controller_client_ids AS "clientIds"
+         FROM auth_user u JOIN clients c ON c.id = ? AND c.archived_at IS NULL
+         WHERE u.id = ? AND NOT u.disabled
+         FOR SHARE OF u`,
+      ).bind(clientId, user.id).first<{ email: string; role: string; clientIds: string[] | null }>();
+      if (!writer || !await db.prepare(
+        "SELECT 1 FROM auth_session WHERE id = ? AND user_id = ? AND expires_at > clock_timestamp() FOR KEY SHARE",
+      ).bind(session.sessionId, user.id).first()) return reply({ error: "Sign in again." }, 401);
+      if (writer.role !== "admin" || !canAccessClient(writer.clientIds, clientId)) {
+        return reply({ error: "Admin access to this client is required." }, 403);
+      }
+      const prior = await db.prepare("SELECT token_hash, generation FROM monitor_access WHERE client_id = ? AND id = 'main'").bind(clientId).first<{ token_hash: string | null; generation: string }>();
       if (body.action === "create" && prior?.token_hash) return reply({ error: "An active link already exists. Replace it to create a new one." }, 409);
       if (body.action !== "create" && (!prior?.token_hash || body.generation !== prior.generation)) return reply({ error: "The monitor link changed. Refresh and try again." }, 409);
       const key = body.action === "disable" ? null : randomBytes(32).toString("hex");
       const generation = crypto.randomUUID();
       const now = new Date();
-      await db.prepare(`INSERT INTO monitor_access (client_id, id, token_hash, generation, updated_at) VALUES ('${activeClientId()}', 'main', ?, ?, ?) ON CONFLICT (client_id,id) DO UPDATE SET token_hash = EXCLUDED.token_hash, generation = EXCLUDED.generation, updated_at = EXCLUDED.updated_at`).bind(key ? monitorKeyHash(key) : null, generation, now).run();
-      await auditUser(body.action === "disable" ? "Disabled monitor link" : body.action === "replace" ? "Replaced monitor link" : "Created monitor link", "Monitoring wall", user.email, db);
+      await db.prepare("INSERT INTO monitor_access (client_id, id, token_hash, generation, updated_at) VALUES (?, 'main', ?, ?, ?) ON CONFLICT (client_id,id) DO UPDATE SET token_hash = EXCLUDED.token_hash, generation = EXCLUDED.generation, updated_at = EXCLUDED.updated_at").bind(clientId, key ? monitorKeyHash(key) : null, generation, now).run();
+      await auditUser(body.action === "disable" ? "Disabled monitor link" : body.action === "replace" ? "Replaced monitor link" : "Created monitor link", "Monitoring wall", writer.email, db);
       // The secret is returned once; only its hash is retained in PostgreSQL.
-      return reply({ active: !!key, generation, updatedAt: now.toISOString(), ...(key ? { link: `${new URL(process.env.AUTH_URL!).origin}/monitor${activeClientId() === "sephora" ? "" : "?client=" + encodeURIComponent(activeClientId())}#key=${key}` } : {}) });
+      return reply({ active: !!key, generation, updatedAt: now.toISOString(), ...(key ? { link: `${new URL(process.env.AUTH_URL!).origin}/monitor${clientId === "sephora" ? "" : "?client=" + encodeURIComponent(clientId)}#key=${key}` } : {}) });
     });
   } catch (error) { return requestFailure(error); }
 }

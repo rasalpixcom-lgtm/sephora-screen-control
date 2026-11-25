@@ -18,6 +18,7 @@ import "@/components/screen-card.css";
 import MonitorPreviewStatus from "@/components/monitor-preview-summary";
 import type { MonitorPreviewSummary } from "@/lib/monitor-preview-summary";
 import { unavailableMinutes } from "@/lib/preview-timing";
+import type { ComplaintAlertTarget } from "@/components/monitor-complaint-alerts";
 
 type State = { clientId?: string; clientName?: string; entities: Entity[]; members: Member[]; display: Display; previewIncidents?: Record<string, string>; previewSummary?: MonitorPreviewSummary; previewObservedAt?: string };
 type View = "controller" | "admin" | "monitor";
@@ -32,14 +33,14 @@ function placeName(entity: Entity | undefined, entities: Entity[]) {
   return [store?.name, region?.name].filter(Boolean).join(" · ");
 }
 
-function ScreenCard({ screen, entities, getFreshness, unavailableSince, observedAt }: { screen: Entity; entities: Entity[]; getFreshness: (token: string) => PreviewFreshness; unavailableSince?: string; observedAt?: string }) {
+function ScreenCard({ screen, entities, getFreshness, unavailableSince, observedAt, activeComplaint }: { screen: Entity; entities: Entity[]; getFreshness: (token: string) => PreviewFreshness; unavailableSince?: string; observedAt?: string; activeComplaint?: boolean }) {
   const token = screen.liveUrl ? onSignToken(screen.liveUrl) : null;
   const [unavailable, setUnavailable] = useState(false);
   const startedAt = unavailableSince ? Date.parse(unavailableSince) : NaN;
   const minutes = unavailableMinutes(unavailableSince, observedAt);
   const duration = minutes === null ? "Duration unknown" : minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   const since = minutes === null ? null : new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(startedAt);
-  return <article className="screen-card">
+  return <article className="screen-card" data-active-complaint={activeComplaint || undefined}>
     <div className="screen-viewport">
       {token ? <OnSignPreview key={token} token={token} name={screen.name} getFreshness={getFreshness} onUnavailableChange={setUnavailable}/> : screen.liveUrl ? <iframe title={`${screen.name} live preview`} src={screen.liveUrl} loading="eager" referrerPolicy="no-referrer" allow="autoplay; fullscreen" /> : <div className="screen-placeholder"><Monitor size={30} strokeWidth={1.3} /><span>No preview</span></div>}
     </div>
@@ -47,7 +48,7 @@ function ScreenCard({ screen, entities, getFreshness, unavailableSince, observed
   </article>;
 }
 
-export default function Workspace({ view, account, monitorKey = "", commonMonitor = false }: { view: View; account?: AuthUser; monitorKey?: string; commonMonitor?: boolean }) {
+export default function Workspace({ view, account, monitorKey = "", commonMonitor = false, complaintTarget }: { view: View; account?: AuthUser; monitorKey?: string; commonMonitor?: boolean; complaintTarget?: ComplaintAlertTarget }) {
   const [state, setState] = useState<State>(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -222,7 +223,9 @@ export default function Workspace({ view, account, monitorKey = "", commonMonito
   async function saveDialog(event: React.FormEvent) {
     event.preventDefault();
     if (!dialog) return;
-    const saved = await mutate({ action: dialog.item ? "update" : "create", id: dialog.item?.id, type: dialog.type, ...draft });
+    const saved = await mutate({ action: dialog.item ? "update" : "create", id: dialog.item?.id, type: dialog.type, ...draft,
+      ...(dialog.item ? { expectedVersion: dialog.item.editVersion } : {}),
+    });
     if (saved) setDialog(null);
   }
   async function remove(item: Entity) {
@@ -235,7 +238,8 @@ export default function Workspace({ view, account, monitorKey = "", commonMonito
     {error && <div role="alert" className="error-bar"><span>{error}</span><button onClick={() => void load()} aria-label="Retry"><X size={16}/></button></div>}
     {view === "monitor" ? <main className="monitor-main">
       <div className="monitor-heading"><div className="monitor-overview"><div className="monitor-identity"><span className="monitor-wordmark">{state.clientName || account?.clientName || "Sephora"}</span><span className="monitor-separator" aria-hidden="true"/><h1>{monitorScope || (selection.screenIds === null ? "Monitoring wall" : selection.screenIds?.length ? "Selected screens" : "All locations")}</h1><span className="monitor-count">{allScreens.length} {allScreens.length === 1 ? "screen" : "screens"}</span></div><MonitorPreviewStatus summary={error ? undefined : state.previewSummary} byCountry={showAllLocations}/></div><div className="monitor-actions">{pages > 1 && display.autoAdvance && <button className="icon-button monitor-icon" onClick={() => setLocalPause(!localPause)} title={localPause ? "Resume rotation" : "Pause rotation"} aria-label={localPause ? "Resume rotation" : "Pause rotation"}>{localPause ? <Play size={18}/> : <Pause size={18}/>}</button>}<button className="icon-button monitor-icon" onClick={() => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.()} title="Toggle fullscreen" aria-label="Toggle fullscreen"><Expand size={18}/></button></div></div>
-      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities} getFreshness={getFreshness} unavailableSince={state.previewIncidents?.[screen.id]} observedAt={state.previewObservedAt}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>{error ? "Monitor unavailable" : "No screens selected"}</h2></div>}
+      {loading ? <div className="loading-panel">Loading screens…</div> : allScreens.length ? <><div className="wall-grid" ref={wallGridRef}>{allScreens.slice(page * pageSize, (page + 1) * pageSize).map((screen) => <ScreenCard key={screen.id} screen={screen} entities={state.entities} getFreshness={getFreshness} unavailableSince={state.previewIncidents?.[screen.id]} observedAt={state.previewObservedAt}
+        activeComplaint={complaintTarget?.clientId === state.clientId && complaintTarget?.screenId === screen.id}/>)}</div>{pages > 1 && <div className="wall-footer"><span className="wall-page-count">{page + 1} / {pages}</span><div className="wall-pager"><button onClick={() => setPage((page - 1 + pages) % pages)} aria-label="Previous set"><ChevronLeft size={20}/></button><button onClick={() => setPage((page + 1) % pages)} aria-label="Next set"><ChevronRight size={20}/></button></div></div>}</> : <div className="wall-empty"><Monitor size={32}/><h2>{error ? "Monitor unavailable" : "No screens selected"}</h2></div>}
     </main> : <main className="main-content">
       <div className="page-heading"><div><div className="eyebrow">OPERATIONS / {view === "admin" ? "CONFIGURATION" : "LIVE SELECTION"}</div><h1>{viewTitle}</h1><p>{view === "controller" ? "Choose a location or a group. The monitoring wall follows your selection." : "Organize locations, screen links, and cross-store groups."}</p></div>{view === "admin" && <div className="page-heading-actions"><button className="primary-button" onClick={() => openDialog("screen")}><Plus size={17}/> Add screen</button></div>}</div>
       {view !== "controller" && state.entities.some((item) => item.isDemo) && <div className="sample-note"><span className="sample-badge">SAMPLE SETUP</span><span>Example locations and screens are ready to explore. Add your OnSign links in Admin to show previews.</span></div>}

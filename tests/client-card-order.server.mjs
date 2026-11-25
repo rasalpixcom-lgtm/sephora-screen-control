@@ -28,7 +28,9 @@ async function snapshot(excluded = [], previousSchema = false) {
   const result = {};
   for (const { tablename } of (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows) {
     if (excluded.includes(tablename)) continue;
-    const row = previousSchema && tablename === "auth_user" ? "to_jsonb(t) - 'controller_client_ids'" : "to_jsonb(t)";
+    let row = "to_jsonb(t)";
+    if (previousSchema && tablename === "auth_user") row += " - 'controller_client_ids'";
+    if (previousSchema && tablename === "common_monitor_display") row += " - 'complaint_voice_enabled'";
     result[tablename] = JSON.stringify((await pool.query(`SELECT ${row} AS row FROM "${tablename.replaceAll('"', '""')}" t ORDER BY to_jsonb(t)::text`)).rows);
   }
   return result;
@@ -68,7 +70,10 @@ try {
   await pool.query("INSERT INTO client_backgrounds(client_id,version,image,updated_by) VALUES('sephora',$1,$2,'fixture')", [crypto.randomUUID(), art]);
   const beforeMigration = await snapshot(["server_migrations"]);
   await migrate(pool); await migrate(pool);
-  check(JSON.stringify(await snapshot(["server_migrations", "user_client_order"], true)) === JSON.stringify(beforeMigration), "migration 0036 is repeatable and preserves every existing data/settings/account row");
+  const afterMigration = await snapshot(["server_migrations"], true);
+  check(Object.entries(beforeMigration).every(([table, rows]) => afterMigration[table] === rows), "migration 0036 and later additive migrations preserve every existing data/settings/account row");
+  const { rows: [sharedWall] } = await pool.query("SELECT complaint_voice_enabled FROM common_monitor_display WHERE id='main'");
+  check(sharedWall?.complaint_voice_enabled === false, "upgrading an existing shared wall defaults complaint voice to off");
   check((await pool.query("SELECT count(*)::int AS n FROM user_client_order")).rows[0].n === 0, "migration starts with empty personal preferences");
   // Bootstrap below needs an empty account list; this is fixture setup only.
   await pool.query("DELETE FROM auth_user WHERE id='migration-existing-user'");

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, bigint, jsonb, primaryKey, index, uniqueIndex, check, customType, pgPolicy, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, bigint, jsonb, primaryKey, index, uniqueIndex, check, customType, pgPolicy, foreignKey, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // Runtime roles select one active client through pixcom_workspace().
@@ -158,6 +158,24 @@ export const userClientOrder = pgTable("user_client_order", {
 }, table => [
   check("user_client_order_version_check", sql`${table.version} ~ '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$'`),
   check("user_client_order_ids_check", sql`jsonb_typeof(${table.clientIds}) = 'array' AND jsonb_array_length(${table.clientIds}) <= 500`),
+]);
+export const complaintAlerts = pgTable("complaint_alerts", {
+  id: bigint("id", { mode: "bigint" }).generatedAlwaysAsIdentity().primaryKey(),
+  eventId: uuid("event_id").notNull().unique("complaint_alerts_event_id_key"),
+  complaintId: bigint("complaint_id", { mode: "bigint" }).notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  priority: text("priority").notNull(),
+  sourceClientId: bigint("source_client_id", { mode: "bigint" }).notNull(),
+  clientName: text("client_name").notNull(),
+  sourceStoreId: bigint("source_store_id", { mode: "bigint" }).notNull(),
+  storeName: text("store_name").notNull(),
+  sourceScreenId: bigint("source_screen_id", { mode: "bigint" }).notNull(),
+  screenName: text("screen_name").notNull(),
+  issueLabel: text("issue_label").notNull(),
+}, table => [
+  index("complaint_alerts_scope_cursor_idx").on(table.sourceClientId, table.sourceStoreId, table.id),
+  check("complaint_alerts_priority_check", sql`${table.priority} IN ('low', 'medium', 'high')`),
+  check("complaint_alerts_positive_ids_check", sql`${table.complaintId} > 0 AND ${table.sourceClientId} > 0 AND ${table.sourceStoreId} > 0 AND ${table.sourceScreenId} > 0`),
 ]);
 // Legacy mappings are retained for migration history; access uses auth_user.role.
 export const platformAdministrators = pgTable("platform_administrators", {
@@ -320,6 +338,7 @@ export const commonMonitorAccess = pgTable("common_monitor_access", {
 
 export const commonMonitorDisplay = pgTable("common_monitor_display", {
   id: text("id").primaryKey(), clientId: text("client_id").notNull().references(() => clients.id),
+  complaintVoiceEnabled: boolean("complaint_voice_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), updatedBy: text("updated_by"),
 }, table => [check("common_monitor_display_id_check", sql`${table.id} = 'main'`)]);
 

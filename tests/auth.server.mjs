@@ -107,13 +107,27 @@ try {
     check(response.status === 200, `PostgreSQL stores ${type}`);
     return (await response.json()).entities.find(item => item.type === type && item.name === name);
   }
+  async function currentEntity(id, cookie = admin.cookie) {
+    const response = await request("/api/state?activity=none", undefined, cookie);
+    assert.ok(response.ok);
+    const item = (await response.json()).entities.find(entity => entity.id === id);
+    assert.ok(item);
+    return item;
+  }
+  function saveEntityDraft(item, changes, cookie = admin.cookie) {
+    const { id, type, name, parentId, liveUrl, editVersion: expectedVersion } = item;
+    return request("/api/state", { action: "update", id, type, name, parentId, liveUrl, expectedVersion, ...changes }, cookie);
+  }
+  async function editEntity(id, changes) {
+    return saveEntityDraft(await currentEntity(id), changes);
+  }
   const country = await createEntity("country", "Test country");
   check((await request("/api/state", { action: "create", type: "country", name: country.name, id: country.id }, admin.cookie)).status === 400, "a supplied ID cannot bypass duplicate-name validation during creation");
   const region = await createEntity("region", "Test region", country.id);
   const location = await createEntity("store", "Test mall", region.id);
   const screen = await createEntity("screen", "Test screen", location.id, "https://example.test/preview");
   const locationFields = {address:"Unit 12",gps_lat:"25.123",gps_lng:"55.456",contact_name:"Test contact",contact_phone:"+971 50 123 4567",contact_email:"contact@example.test",working_hours:"10:00-22:00",access_notes:"Use loading bay\nCall reception"};
-  const editLocation = extra => request("/api/state", {action:"update",type:"store",id:location.id,name:location.name,parentId:region.id,...extra},admin.cookie);
+  const editLocation = extra => editEntity(location.id, extra);
   check(!(await (await request("/api/state",undefined,admin.cookie)).json()).locationDetails[location.id], "existing locations start without invented survey details");
   const locationSaved = await editLocation({locationDetails:locationFields,locationDetailsExpected:null});
   const locationSavedBody = await locationSaved.json();
@@ -138,7 +152,7 @@ try {
   check(onSignConfig.status === 200 && (await onSignConfig.json()).configured === false, "OnSign remains optional without a token");
   check((await request("/api/onsign?screenId="+screen.id, undefined, admin.cookie)).status === 409, "unlinked screens give clear guidance");
   check((await request("/api/onsign?screenId=missing", undefined, admin.cookie)).status === 404, "missing screens do not return device data");
-  const editScreen = extra => request("/api/state", {action:"update",type:"screen",id:screen.id,name:screen.name,parentId:location.id,liveUrl:screen.liveUrl,...extra},admin.cookie);
+  const editScreen = extra => editEntity(screen.id, extra);
   check(screen.screenType === null, "screens created by older clients start with an unspecified type");
   const retainedHardware = { assetId: "KEEP-123", manufacturer: "Existing manufacturer" };
   await pool.query("INSERT INTO screen_hardware_sections (screen_id, section, fields, version, updated_at) VALUES ($1, 'ledDisplay', $2::jsonb, $3, now())", [screen.id, JSON.stringify(retainedHardware), crypto.randomUUID()]);
@@ -156,7 +170,7 @@ try {
     const response = await editScreen({ screenType });
     check(response.status === 200 && (await response.json()).entities.find(item => item.id === screen.id).screenType === null, "type can explicitly return to unspecified");
   }
-  check((await request("/api/state", { action: "update", type: "store", id: location.id, name: location.name, parentId: region.id, screenType: "LED" }, admin.cookie)).status === 400, "locations cannot have a screen type");
+  check((await editLocation({ screenType: "LED" })).status === 400, "locations cannot have a screen type");
   for (const values of [[screen.id, "invalid"], [location.id, "LCD"]]) {
     let rejected = false;
     try { await pool.query("UPDATE entities SET screen_type=$2 WHERE id=$1", values); } catch (error) { rejected = error.code === "23514"; }
@@ -311,14 +325,14 @@ try {
   const shortCountry = (await shortCountryResponse.json()).entities.find(item=>item.name==="Short named country");
   check(shortCountryResponse.status===200 && shortCountry.shortName==="KSA", "new countries can be created with an optional trimmed short name");
   await request("/api/state",{action:"delete",id:shortCountry.id},admin.cookie);
-  const updateCountry = shortName => request("/api/state", {action:"update",type:"country",id:country.id,name:country.name,shortName}, admin.cookie);
+  const updateCountry = shortName => editEntity(country.id, { shortName });
   check((await updateCountry("  TST  ")).status === 200, "Admin can save a trimmed optional country short name");
   let countryData = (await (await request("/api/state",undefined,admin.cookie)).json()).entities.find(item=>item.id===country.id);
   check(countryData.shortName === "TST" && countryData.name === country.name, "country short names preserve the full country name");
-  check((await request("/api/state",{action:"update",type:"country",id:country.id,name:country.name},admin.cookie)).status===200 && (await db.prepare("SELECT short_name FROM entities WHERE id=?").bind(country.id).first()).short_name === "TST", "older edit clients cannot clear an omitted country short name");
+  check((await editEntity(country.id, {})).status===200 && (await db.prepare("SELECT short_name FROM entities WHERE id=?").bind(country.id).first()).short_name === "TST", "omitting a country short name preserves the stored value");
   for (const shortName of [123,{},"1234567890123","A\nB"]) check((await updateCountry(shortName)).status===400,"invalid country short names are rejected");
   check((await request("/api/state",{action:"create",type:"country",name:"Duplicate short name",shortName:"tst"},admin.cookie)).status===400,"country short names cannot be duplicated with different casing");
-  check((await request("/api/state",{action:"update",type:"screen",id:screen.id,name:screen.name,parentId:location.id,liveUrl:screen.liveUrl,shortName:"SCR"},admin.cookie)).status===400,"short names cannot be assigned to screens");
+  check((await editScreen({ shortName: "SCR" })).status===400,"short names cannot be assigned to screens");
   check((await updateCountry(" ")).status === 200 && (await db.prepare("SELECT short_name FROM entities WHERE id=?").bind(country.id).first()).short_name === null,"Admin can clear a short name to restore the full-name fallback");
   check((await updateCountry("TST")).status===200,"cleared country short names can be assigned again");
   let shortNameConstraint = false;
@@ -329,12 +343,51 @@ try {
   check((await request("/api/state", { action: "member", groupId: group.id, screenId: screen.id, enabled: true }, admin.cookie)).status === 200 && (await request("/api/state", { action: "member", groupId: group.id, screenId: screen.id, enabled: true }, admin.cookie)).status === 200, "group membership is idempotent on PostgreSQL");
   check((await request("/api/state", { action: "create", type: "screen", name: "Bad parent", parentId: country.id }, admin.cookie)).status === 400, "invalid inventory hierarchy is rejected");
   check((await request("/api/state", { action: "member", groupId: group.id, screenId: screen.id, enabled: "false" }, admin.cookie)).status === 400, "group assignment requires a boolean");
-  check((await request("/api/state", { action: "update", type: "screen", id: screen.id, name: "Renamed screen", parentId: location.id, liveUrl: "https://example.test/updated" }, admin.cookie)).status === 200, "screen name and preview URL can be edited");
-  check((await request("/api/state", { action: "update", type: "screen", id: screen.id, name: "Renamed screen", parentId: location.id, liveUrl: "javascript:alert(1)" }, admin.cookie)).status === 400, "unsafe preview protocol is rejected");
+  check((await editScreen({ name: "Renamed screen", liveUrl: "https://example.test/updated" })).status === 200, "screen name and preview URL can be edited");
+  check((await editScreen({ liveUrl: "javascript:alert(1)" })).status === 400, "unsafe preview protocol is rejected");
   for (const role of ["controller", "admin"]) {
     const response = await request("/api/users", { action: "create", name: `Test ${role}`, email: `${role}2@example.test`, role, password }, admin.cookie);
     check(response.status === 200, `Admin can create ${role} with direct credentials`);
   }
+  const inventoryAdmin = await login("admin2@example.test", password, "192.0.2.29");
+  check(inventoryAdmin.response.ok, "second Admin can open inventory");
+  const olderForm = await currentEntity(screen.id, inventoryAdmin.cookie);
+  const newerUrl = "https://example.test/newer-preview";
+  check((await editScreen({ liveUrl: newerUrl })).ok, "one Admin can save a newer preview URL");
+  const staleSave = await saveEntityDraft(olderForm, { name: "Stale rename" }, inventoryAdmin.cookie);
+  const newerScreen = await currentEntity(screen.id, inventoryAdmin.cookie);
+  check(staleSave.status === 409 && newerScreen.name === olderForm.name && newerScreen.liveUrl === newerUrl,
+    "an older form cannot overwrite another Admin's newer edit");
+  check((await saveEntityDraft(newerScreen, { name: "Unversioned rename", expectedVersion: undefined }, inventoryAdmin.cookie)).status === 409,
+    "an inventory form from before the version check must be reopened");
+  check((await saveEntityDraft(newerScreen, { liveUrl: "https://example.test/updated" }, inventoryAdmin.cookie)).ok,
+    "an Admin can reopen the current inventory and save");
+
+  const { id: inventoryWriterId } = await db.prepare("SELECT id FROM auth_user WHERE email = ?").bind("admin2@example.test").first();
+  const formBeforeRevocation = await currentEntity(screen.id, inventoryAdmin.cookie);
+  const locker = await pool.connect();
+  let queuedSave;
+  try {
+    await locker.query("BEGIN");
+    await locker.query("SELECT pg_advisory_xact_lock(724017, hashtext('sephora'))");
+    queuedSave = saveEntityDraft(formBeforeRevocation, { name: "Revoked draft rename" }, inventoryAdmin.cookie);
+    let waiting = false;
+    for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+      const { rowCount } = await pool.query(
+        "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))", [locker.processID],
+      );
+      waiting = rowCount > 0;
+      if (!waiting) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.ok(waiting, "the save already passed its initial authorization and is waiting for the inventory lock");
+    check((await request("/api/users", { action: "revoke", id: inventoryWriterId }, admin.cookie)).ok,
+      "another Admin can revoke the queued writer's access");
+  } finally {
+    await locker.query("ROLLBACK");
+    locker.release();
+  }
+  check((await queuedSave).status === 401 && (await currentEntity(screen.id)).editVersion === formBeforeRevocation.editVersion,
+    "the queued save is blocked after session revocation without changing inventory");
   check((await request("/api/users", { action: "create", name: "Viewer", email: "viewer2@example.test", role: "controller", password }, admin.cookie)).status === 200, "Admin creates another Controller");
   check((await request("/api/users", { action: "create", name: "Retired", email: "retired@example.test", role: "wall", password }, admin.cookie)).status === 400, "retired monitor role cannot be created");
   check((await request("/api/users", { action: "create", name: "Duplicate", email: "controller2@example.test", role: "controller", password }, admin.cookie)).status === 400, "duplicate login IDs are rejected");

@@ -23,8 +23,10 @@ let created = false, server, worker, logs = "", checks = 0;
 const workerBundle = path.resolve(".server-runtime", name + "-worker.cjs");
 const check = (value, label) => { assert.ok(value, label); checks++; console.log("PASS " + label); };
 const rows = async (table, previousSchema = false) => {
-  const row = previousSchema && table === "auth_user" ? "to_jsonb(t) - 'controller_client_ids'" : "to_jsonb(t)";
-  return JSON.stringify((await pool.query(`SELECT ${row} AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows);
+  let row = "to_jsonb(t)";
+  if (previousSchema && table === "auth_user") row += " - 'controller_client_ids'";
+  if (previousSchema && table === "common_monitor_display") row += " - 'complaint_voice_enabled'";
+  return JSON.stringify((await pool.query(`SELECT ${row} AS row FROM "${table}" t ORDER BY (${row})::text`)).rows);
 };
 const snapshot = async (excluded, previousSchema = false) => {
   const tables = (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows;
@@ -67,6 +69,8 @@ try {
   await migrate(pool); await migrate(pool);
   const afterMigration = await snapshot(["server_migrations"], true);
   check(Object.entries(beforeMigration).every(([table, rows]) => afterMigration[table] === rows), "migration 0035 and later additive migrations preserve every existing table row");
+  const { rows: [sharedWall] } = await pool.query("SELECT complaint_voice_enabled FROM common_monitor_display WHERE id='main'");
+  check(sharedWall?.complaint_voice_enabled === false, "upgrading an existing shared wall defaults complaint voice to off");
 
   const probe = net.createServer(); await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
   const port = probe.address().port; await new Promise(resolve => probe.close(resolve));

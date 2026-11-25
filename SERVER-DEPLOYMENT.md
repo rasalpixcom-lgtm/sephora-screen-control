@@ -343,6 +343,64 @@ Older builds can treat staff with saved assignments as unrestricted. Once
 assignments are in use, keep affected accounts disabled or the app offline if
 rolling back to a build that ignores their assignments.
 
+## Internal complaint alerts
+
+Complaint alerts are off by default. After applying `0039_complaint_alerts.sql`
+and `0040_common_monitor_complaint_voice.sql`, configure these values on the
+Screen Control server to enable the Sephora pilot:
+
+| Setting | Value |
+| --- | --- |
+| `COMPLAINT_ALERTS_ENABLED` | `true` |
+| `COMPLAINT_ALERTS_MODE` | `pilot` (default) or `all_clients` |
+| `COMPLAINT_ALERTS_ORIGIN` | HTTPS origin of the complaint tracker, without a path |
+| `COMPLAINT_ALERTS_TOKEN` | Credential issued for complaint alert delivery |
+| `COMPLAINT_ALERTS_SOURCE_CLIENT_ID` | Sephora's numeric client ID in the complaint tracker |
+| `COMPLAINT_ALERTS_SOURCE_STORE_ID` | Numeric store ID approved for the pilot |
+| `COMPLAINT_ALERTS_SCREEN_MAP` | JSON object mapping tracker screen IDs to existing Sephora screen IDs, such as `{"123":"screen-id"}` |
+| `COMPLAINT_ALERTS_MONITOR_KEY_SHA256` | SHA-256 of the text of a separate random 64-character lowercase hex key |
+
+Restart Screen Control after configuration. On the internal operator display,
+open the common monitor URL with the alert key added to the fragment as
+`/monitor?scope=all#key=<common-key>&alerts=<alert-key>`. Keep the source token
+in the server configuration and the alert key in the designated internal link.
+Use the existing URLs on regular monitors and OnSign players. A newly opened
+operator monitor starts at the latest event and shows new complaints from the
+mapped Sephora screens even when the common wall is displaying another client.
+With the integration enabled, `/api/health` checks the local complaint migrations,
+schema and write permissions. The collector retries an alert that could not be
+saved before advancing to later complaints. A failed acknowledgment can be
+retried with the same event ID.
+The **Complaint voice alerts** switch in Wall Controller defaults to off and is
+saved for the shared wall. The operator display follows the switch on its next
+poll. Test speech on the actual OnSign player after restarting it, since the
+player's browser may require interaction before allowing speech. Complaint
+banners continue to show when speech is muted or unavailable.
+Turn off complaint alerts by setting `COMPLAINT_ALERTS_ENABLED=false` and
+restarting Screen Control.
+
+For a central wall authorized to see every client's complaints, configure
+`COMPLAINT_ALERTS_MODE=all_clients` and set `COMPLAINT_ALERTS_ALL_CLIENTS_MONITOR_KEY_SHA256`
+to the digest of a new 64-character lowercase hex alert key. Use the new key
+in the central wall's `alerts` fragment. The central wall shows each new alert
+it receives from every client and store, with the same popup and voice settings.
+The pilot client ID, store ID, and screen map apply in Pilot mode.
+
+If needed, set `COMPLAINT_ALERTS_ALL_CLIENTS_SCREEN_MAP` to a JSON object keyed by
+`Laravel client ID:store ID:screen ID`, for example
+`{"42:105:307":{"clientId":"client-slug","screenId":"screen-id"}}`.
+A matching tile is outlined while the popup is visible when that tile is on the
+current wall page. Every new alert still gets a popup without a mapping.
+
+Coordinate mode changes on both servers. Stop the current collector before
+changing the complaint tracker's mode, then start one Screen Control consumer
+for that feed by setting the matching mode on Screen Control and restarting it.
+Share the central wall link with operators authorized to see all clients' alerts.
+
+After building, run `node --env-file=.env.local tests/complaint-monitor.server.mjs`
+against the isolated local development PostgreSQL service. It creates a disposable
+database and replaces the complaint tracker connection with a local fixture.
+
 ## Monitoring wall after inventory deletion
 
 Deleting the active group, location, region, or country, or deleting the last

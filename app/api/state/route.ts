@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { withWorkspace } from "@/lib/client-workspace";
 import { activeClientId, inventoryLockSql } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { database, readState, serializeDisplaySelection, type EntityType, type Selection } from "@/lib/store";
-import { currentUser, sameOrigin } from "@/lib/auth";
-import { canMutate, isFullAdmin } from "@/lib/auth-policy";
+import { database, readState, serializeDisplaySelection, type Entity, type EntityType, type Selection } from "@/lib/store";
+import { currentUser, sameOrigin, sessionUser, sessionWorkspaceUser } from "@/lib/auth";
+import { canAccessClient, canMutate, isFullAdmin, type Role } from "@/lib/auth-policy";
 import { readObject, RequestError, requestFailure } from "@/lib/request";
 import { wallActivityDescription } from "@/lib/activity-description";
 import { OnSignApiError } from "@/lib/onsign-api";
@@ -22,6 +23,19 @@ const parentType: Partial<Record<EntityType, EntityType>> = { region: "country",
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const validName = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 80;
 
+function editVersion(item: Entity) {
+  return createHash("sha256").update(JSON.stringify([
+    item.id, item.type, item.createdAt, item.name, item.shortName, item.parentId,
+    item.liveUrl, item.onsignPlayerId, item.screenType, item.isDemo,
+  ])).digest("hex");
+}
+
+function inventoryResponse(state: Awaited<ReturnType<typeof readState>>, role: Role) {
+  return role === "admin"
+    ? { ...state, entities: state.entities.map(item => ({ ...item, editVersion: editVersion(item) })) }
+    : state;
+}
+
 async function GETHandler(request: NextRequest) {
   try {
   const user = await currentUser(request.headers);
@@ -29,7 +43,7 @@ async function GETHandler(request: NextRequest) {
   const includeActivity = user.role === "admin" && request.nextUrl.searchParams.get("activity") !== "none";
   const activityScope = includeActivity && (isFullAdmin(user.role, user.clientIds) ? "all" : "workspace");
   const state = await readState(database(), activityScope, user.role === "admin");
-  return NextResponse.json(state, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(inventoryResponse(state, user.role), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return requestFailure(error); }
 }
 
@@ -39,8 +53,9 @@ async function POSTHandler(request: NextRequest) {
   const preparedLocationPhotos = new Map<number, string>();
   const obsoletePhotos: string[] = [], obsoleteLocationPhotos: string[] = [];
   try {
-  const user = await currentUser(request.headers);
-  if (!user) return bad("Sign in again.", 401);
+  const session = await sessionUser(request.headers);
+  const user = session ? await sessionWorkspaceUser(request.headers, session) : null;
+  if (!session || !user) return bad("Sign in again.", 401);
   const bulkGroupSave = request.nextUrl.searchParams.get("action") === "group-members";
   if (user.role !== "admin" && (bulkGroupSave || request.headers.get("content-type")?.startsWith("multipart/form-data"))) return bad("Admin access required.", 403);
   const locationUpload = request.headers.get("x-location-photos") === "1";
@@ -84,7 +99,20 @@ async function POSTHandler(request: NextRequest) {
     // Validation and writes share the lock across every Node process.
     // This prevents duplicate names and children being created during parent deletion.
     await db.prepare(inventoryLockSql()).run();
-    const state = await readState(db, false, user.role === "admin");
+    // Account changes take this lock exclusively. Hold the session row through the write to order it with sign-out.
+    await db.prepare("SELECT pg_advisory_xact_lock_shared(724016)").run();
+    const writer = await db.prepare(
+      `SELECT u.email, u.role, u.controller_client_ids AS "clientIds"
+       FROM auth_session s JOIN auth_user u ON u.id = s.user_id
+       JOIN clients c ON c.id = ? AND c.archived_at IS NULL
+       WHERE s.id = ? AND s.user_id = ? AND s.expires_at > clock_timestamp() AND NOT u.disabled
+       FOR KEY SHARE OF s`,
+    ).bind(activeClientId(), session.sessionId, user.id).first<{ email: string; role: Role; clientIds: string[] | null }>();
+    if (!writer) return bad("Sign in again.", 401);
+    if (!canAccessClient(writer.clientIds, activeClientId()) || !canMutate(writer.role, body.action)) {
+      return bad("You do not have permission for this action.", 403);
+    }
+    const state = await readState(db, false, writer.role === "admin");
     const entity = (id: unknown) => state.entities.find((item) => item.id === id);
     const now = new Date().toISOString();
     let audit: { action: string; type: string | null; id: string | null; name: string | null } | null = null;
@@ -95,6 +123,7 @@ async function POSTHandler(request: NextRequest) {
       const name = (body.name as string).trim();
       const existing = body.action === "update" ? entity(body.id) : undefined;
       if (body.action === "update" && (!existing || existing.type !== type)) return bad("Item not found.", 404);
+      if (existing && body.expectedVersion !== editVersion(existing)) return bad("This item changed. Close the form, refresh inventory, and reopen it before saving.", 409);
       const screenType = body.screenType === undefined ? existing?.screenType || null : body.screenType === "" ? null : body.screenType;
       if (screenType !== null && (type !== "screen" || !isScreenType(screenType))) return bad("Choose LED, LCD or Video Wall for the screen type.");
       if (body.shortName !== undefined && body.shortName !== null && typeof body.shortName !== "string") return bad("Enter a valid abbreviation.");
@@ -247,12 +276,12 @@ async function POSTHandler(request: NextRequest) {
     } else return bad("Unknown action.");
     if (audit) {
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-          .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, user.email, now).run();
+          .bind(crypto.randomUUID(), audit.action, audit.type, audit.id, audit.name, writer.email, now).run();
     }
-    const activityScope = user.role === "admin" && (isFullAdmin(user.role, user.clientIds) ? "all" : "workspace");
-    const updated = await readState(db, activityScope, user.role === "admin");
+    const activityScope = writer.role === "admin" && (isFullAdmin(writer.role, writer.clientIds) ? "all" : "workspace");
+    const updated = await readState(db, activityScope, writer.role === "admin");
     return NextResponse.json({
-      ...updated,
+      ...inventoryResponse(updated, writer.role),
       ...(duplicatedGroupId ? { duplicatedGroupId } : {}),
     }, { headers: { "Cache-Control": "no-store" } });
   });

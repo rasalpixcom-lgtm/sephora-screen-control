@@ -1,5 +1,6 @@
 import { withWorkspace } from "@/lib/client-workspace";
 import { clientIntegrations } from "@/lib/client-integrations";
+import { complaintAlertSettings } from "@/lib/complaint-alerts-settings";
 import { database } from "@/lib/database";
 import { assertAuthConfig } from "@/lib/auth";
 export const runtime = "nodejs";
@@ -9,6 +10,18 @@ async function GETHandler() {
     assertAuthConfig();
     clientIntegrations();
     const db = database();
+    if (complaintAlertSettings()) {
+      const migrations = await db.prepare(`SELECT count(*)::int AS applied FROM server_migrations
+        WHERE name IN ('0039_complaint_alerts.sql','0040_common_monitor_complaint_voice.sql')`).first<{ applied: number }>();
+      if (migrations?.applied !== 2) throw new Error("Complaint alert migrations are missing");
+      await db.prepare(`SELECT id, event_id, complaint_id, occurred_at, priority, source_client_id, client_name,
+        source_store_id, store_name, source_screen_id, screen_name, issue_label FROM complaint_alerts LIMIT 0`).all();
+      await db.prepare("SELECT complaint_voice_enabled FROM common_monitor_display WHERE id='main'").first();
+      const access = await db.prepare(`SELECT has_table_privilege('public.complaint_alerts','INSERT')
+        AND has_sequence_privilege('public.complaint_alerts_id_seq','USAGE')
+        AND has_column_privilege('public.common_monitor_display','complaint_voice_enabled','UPDATE') AS writable`).first<{ writable: boolean }>();
+      if (!access?.writable) throw new Error("Complaint alert storage is not writable");
+    }
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0038_staff_client_access.sql' AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.auth_user'::regclass AND conname='auth_user_staff_client_ids_check' AND convalidated)").first()) throw new Error("Staff client access migration is missing");
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0037_controller_client_access.sql'").first()) throw new Error("Controller client access migration is missing");
     if (!await db.prepare("SELECT name FROM server_migrations WHERE name='0036_user_client_order.sql' AND to_regprocedure('public.pixcom_set_user_client_order(text,jsonb,text)') IS NOT NULL").first()) throw new Error("Personal client order migration is missing");

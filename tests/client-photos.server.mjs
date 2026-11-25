@@ -80,10 +80,12 @@ try{
  check((await get(gallery("sephora-screen",ownRef))).status===404,"replaced reference URL revoked");
  check(!Object.keys(await diskSnapshot()).some(file=>file==="screens/"+ownRef+".webp"),"authorized replacement removes legacy reference");
  const stagedBefore=await diskSnapshot();check((await upload("/api/screen-gallery",mutation)).status===409,"stale gallery edit rejected");check(JSON.stringify(await diskSnapshot())===JSON.stringify(stagedBefore),"stale upload leaves existing files unchanged");
- const stateBody={action:"update",type:"screen",id:"sephora-screen",name:"sephora screen",parentId:"sephora-store",photoAction:"replace",photoExpectedKey:ownFront};
+ const openingState=await get("/api/state");assert.ok(openingState.ok);
+ const {entities:openingEntities}=await openingState.json();
+ const stateBody={action:"update",type:"screen",id:"sephora-screen",name:"sephora screen",parentId:"sephora-store",photoAction:"replace",photoExpectedKey:ownFront,expectedVersion:openingEntities.find(e=>e.id==="sephora-screen").editVersion};
  const replaced=await upload("/api/state",stateBody);const newFront=(await replaced.json()).entities.find(e=>e.id==="sephora-screen").photoKey;check(replaced.ok&&newFront!==ownFront,"existing screen front replaced");
  check((await get(front("sephora-screen",newFront))).ok&&(await get(front("sephora-screen",newFront,true))).ok,"new screen front full and thumbnail served");
- const locationBody={action:"update",type:"store",id:"sephora-store",name:"sephora store",parentId:"sephora-region",locationPhotos:[{uploadIndex:0,label:"New own location"}],locationPhotoExpected:[{id:ownLocation,label:"Own location"}]};
+ const locationBody={action:"update",type:"store",id:"sephora-store",name:"sephora store",parentId:"sephora-region",locationPhotos:[{uploadIndex:0,label:"New own location"}],locationPhotoExpected:[{id:ownLocation,label:"Own location"}],expectedVersion:openingEntities.find(e=>e.id==="sephora-store").editVersion};
  const form=new FormData();form.set("metadata",JSON.stringify(locationBody));form.set("locationPhoto0",new Blob([image],{type:"image/webp"}),"location.webp");
  const locationUpdate=await fetch(origin+"/api/state",{method:"POST",headers:{Cookie:cookie,Origin:origin,"x-location-photos":"1"},body:form});const locationState=await locationUpdate.json();check(locationUpdate.ok,"existing location photo replaced");
  const newLocation=locationState.locationPhotos.find(p=>p.locationId==="sephora-store").id;

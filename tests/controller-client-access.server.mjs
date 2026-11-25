@@ -94,7 +94,7 @@ try {
   server = spawn(process.execPath, [path.resolve(".next/standalone/server.js")], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: {
     ...process.env, PORT: String(port), HOSTNAME: "127.0.0.1", DATABASE_URL: testUrl.href, AUTH_URL: origin, AUTH_ADDITIONAL_ORIGINS: "",
     AUTH_SECRET: crypto.randomBytes(48).toString("hex"), AUTH_ADMIN_EMAIL: adminEmail, AUTH_BOOTSTRAP_HASH: crypto.createHash("sha256").update(token).digest("hex"), AUTH_BOOTSTRAP_EXPIRES: String(Date.now() + 600000), TRUST_PROXY: "true",
-    PIXCOM_CLIENT_INTEGRATIONS: '{"sephora":{}}', PREVIEW_WORKER_DISABLED: "true", EMAIL_ALERT_WORKER_DISABLED: "true", WHATSAPP_ALERT_WORKER_DISABLED: "true",
+    PIXCOM_CLIENT_INTEGRATIONS: '{"sephora":{}}', PREVIEW_WORKER_DISABLED: "true", EMAIL_ALERT_WORKER_DISABLED: "true", WHATSAPP_ALERT_WORKER_DISABLED: "true", COMPLAINT_ALERTS_ENABLED: "false",
     ONSIGN_API_TOKEN: "", ALERT_EMAIL_USER: "", ALERT_EMAIL_APP_PASSWORD: "", ULTRAMSG_TOKEN: "",
   } });
   server.stdout.on("data", chunk => logs += chunk); server.stderr.on("data", chunk => logs += chunk);
@@ -269,7 +269,8 @@ try {
 
   const assignedMonitor = await request("/api/monitor-link", { action: "create" }, scopedAdminWorkspace);
   check(assignedMonitor.ok, "assigned Admin can create a monitor link for the assigned client");
-  const assignedKey = new URL((await assignedMonitor.json()).link).hash.slice(5);
+  const assignedLink = await assignedMonitor.json();
+  const assignedKey = new URL(assignedLink.link).hash.slice(5);
   const assignedPublicMonitor = await request(`/api/monitor-state?client=${assigned.id}`, undefined, "", { Authorization: `Bearer ${assignedKey}` });
   check(assignedPublicMonitor.ok && (await assignedPublicMonitor.json()).clientId === assigned.id, "the assigned client's private monitor link works independently");
   const scopedMonitorListing = await request("/api/monitor-clients", undefined, scopedAdminCookie);
@@ -302,8 +303,33 @@ try {
   const updateAdmin = (target, authority, clientIds, disabled = false) => request("/api/users",
     { action: "update", id: target.id, expectedVersion: target.editVersion, role: "admin", disabled, clientIds }, authority);
   check((await updateAdmin(fullAdmin, adminCookie, [assigned.id])).status === 400, "All clients Admin cannot restrict their own access");
-  const grant = await updateAdmin(scopedAdmin, adminCookie, [hidden.id]);
-  check(grant.ok, "All clients Admin can reassign another Admin");
+  const linkLock = await pool.connect();
+  let queuedReplacement;
+  try {
+    await linkLock.query("BEGIN");
+    await linkLock.query("SELECT pg_advisory_xact_lock(724018, hashtext($1))", [assigned.id]);
+    queuedReplacement = request("/api/monitor-link", { action: "replace", generation: assignedLink.generation }, scopedAdminWorkspace);
+    let waiting = false;
+    for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+      const { rowCount } = await pool.query(
+        "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))",
+        [linkLock.processID],
+      );
+      waiting = rowCount > 0;
+      if (!waiting) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.ok(waiting, "the assigned Admin's private link replacement reached the link lock");
+    const grant = await updateAdmin(scopedAdmin, adminCookie, [hidden.id]);
+    check(grant.ok, "All clients Admin can reassign another Admin while the private link replacement is waiting");
+  } finally {
+    try { await linkLock.query("ROLLBACK"); } finally { linkLock.release(); }
+  }
+  const blockedReplacement = await queuedReplacement;
+  check(blockedReplacement.status === 401 && !Object.hasOwn(await blockedReplacement.json(), "link"),
+    "the queued private monitor link replacement is denied after revocation without issuing a key");
+  const unchangedPrivateMonitor = await request(`/api/monitor-state?client=${assigned.id}`, undefined, "", { Authorization: `Bearer ${assignedKey}` });
+  check(unchangedPrivateMonitor.ok && (await unchangedPrivateMonitor.json()).clientId === assigned.id,
+    "the assigned client's original private monitor link remains active after the denied replacement");
   check((await request("/api/state", undefined, scopedAdminWorkspace)).status === 401, "reassignment revokes the Admin's previous session");
   const reassignedCookie = await login(selectedAdminEmail);
   check((await cards(reassignedCookie)).join() === hidden.name && (await request("/api/workspaces", { clientId: assigned.id }, reassignedCookie)).status === 403,

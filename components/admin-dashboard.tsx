@@ -234,6 +234,7 @@ export default function AdminDashboard({ section, accountEmail, screenDetails, c
 
     const { screenType, ...details } = draft;
     if (await mutate({ action: editor.item ? "update" : "create", type: editor.type, id: editor.item?.id, ...details,
+      ...(editor.item ? { expectedVersion: editor.item.editVersion } : {}),
       ...(editor.type === "screen" ? { screenType: screenType || null } : {}),
       ...(editor.type === "screen" && (photoDraft.file || photoDraft.remove) ? { photoAction: photoDraft.file ? "replace" : "remove", photoExpectedKey: editor.item?.photoKey || null } : {}),
       ...(editor.type === "store" ? { locationDetails: locationDetailDraft, locationDetailsExpected: locationDetailVersion, locationPhotos: locationPhotoDraft.map((item, index) => item.id ? { id: item.id, label: item.label } : { uploadIndex: index, label: item.label }), locationPhotoExpected: locationPhotoInitial.map(({ id, label }) => ({ id, label })) } : {}),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Check, ChevronRight, Globe2, Layers3, LayoutGrid, MapPin, Monitor, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +22,86 @@ function screenPlace(screen: Entity, entities: Entity[]) {
   const location = entities.find((item) => item.id === screen.parentId);
   const region = entities.find((item) => item.id === location?.parentId);
   return [location?.name, region?.name].filter(Boolean).join(" · ");
+}
+
+const voiceSettingsPath = "/api/controller-complaint-voice";
+
+async function readVoiceSetting(response: Response) {
+  if (!response.ok) throw new Error("Complaint voice setting is unavailable.");
+  const { voiceEnabled } = await response.json() as { voiceEnabled?: unknown };
+  if (typeof voiceEnabled !== "boolean") throw new Error("Invalid complaint voice setting.");
+  return voiceEnabled;
+}
+
+function ComplaintVoiceSwitch() {
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const pending = useRef(false);
+  const revision = useRef(0);
+
+  useEffect(() => {
+    const lifecycle = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let available = true;
+    async function refresh() {
+      const startedAt = revision.current;
+      const isCurrent = () => !lifecycle.signal.aborted && startedAt === revision.current;
+      try {
+        if (pending.current) return;
+        const response = await clientFetch(voiceSettingsPath, { cache: "no-store", signal: lifecycle.signal });
+        if (response.status === 404 && isCurrent()) {
+          available = false;
+          setVoiceEnabled(null);
+          setLoadFailed(false);
+          setSaveFailed(false);
+          return;
+        }
+        const value = await readVoiceSetting(response);
+        if (isCurrent()) {
+          setVoiceEnabled(value);
+          setLoadFailed(false);
+        }
+      } catch {
+        if (isCurrent()) setLoadFailed(true);
+      } finally {
+        if (available && !lifecycle.signal.aborted) timer = setTimeout(refresh, 5000);
+      }
+    }
+    void refresh();
+    return () => { lifecycle.abort(); clearTimeout(timer); };
+  }, []);
+
+  async function save(value: boolean) {
+    if (pending.current) return;
+    pending.current = true;
+    // A read started before this write may contain the previous setting.
+    revision.current++;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+      const response = await clientFetch(voiceSettingsPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voiceEnabled: value }),
+      });
+      setVoiceEnabled(await readVoiceSetting(response));
+      setLoadFailed(false);
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  }
+
+  if (voiceEnabled === null && !loadFailed) return null;
+  return <div className="ctrl-voice-control">
+    {voiceEnabled !== null && <div className="ctrl-rotation"><span>Complaint voice alerts</span><Switch checked={voiceEnabled} disabled={saving} onCheckedChange={save} aria-label="Complaint voice alerts"/></div>}
+    {saveFailed && <span className="ctrl-voice-error" role="alert">Could not confirm the change. Check the switch before trying again.</span>}
+    {loadFailed && !saveFailed && <span className="ctrl-voice-error" role="status">Could not load complaint voice alerts. Retrying.</span>}
+  </div>;
 }
 
 export default function ControllerPanel({ state, busy, onDisplayChange }: Props) {
@@ -108,6 +188,7 @@ export default function ControllerPanel({ state, busy, onDisplayChange }: Props)
 
         <div className="ctrl-rotation"><span>Rotate pages</span><Switch checked={display.autoAdvance} disabled={busy} onCheckedChange={(checked) => onDisplayChange(selection, { autoAdvance: checked })} aria-label="Auto-rotate wall"/></div>
         <label className="ctrl-interval">Every <select aria-label="Rotation interval" disabled={busy || !display.autoAdvance} value={display.intervalSeconds} onChange={(event) => onDisplayChange(selection, { intervalSeconds: Number(event.target.value) })}>{[5, 10, 15, 20, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+        <ComplaintVoiceSwitch/>
         <Link href="/monitor" className="ctrl-open-wall"><LayoutGrid size={17}/> View monitor <ArrowRight size={16}/></Link>
       </div>
     </section>
