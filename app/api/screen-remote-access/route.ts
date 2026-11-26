@@ -1,6 +1,6 @@
-import { withWorkspace } from "@/lib/client-workspace";
+import { inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser, sameOrigin } from "@/lib/auth";
+import { currentUser, requireWorkspaceAdminWriter, sameOrigin } from "@/lib/auth";
 import { database } from "@/lib/database";
 import { readObject, requestFailure } from "@/lib/request";
 import { parseScreenRemoteAccess, type ScreenRemoteFields } from "@/lib/screen-remote-access";
@@ -26,9 +26,7 @@ async function GETHandler(request: NextRequest) {
 async function PUTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
-    const user = await currentUser(request.headers);
-    if (!user) return reply({ error: "Sign in again." }, 401);
-    if (user.role !== "admin") return reply({ error: "Admin access required." }, 403);
+    const { user, lock } = await requireWorkspaceAdminWriter(request.headers);
     const body = await readObject(request);
     if (!validId(body.screenId)) return reply({ error: "Choose a screen." }, 400);
     if (body.version !== null && (typeof body.version !== "string" || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(body.version))) return reply({ error: "Refresh remote access details and try again." }, 400);
@@ -36,6 +34,8 @@ async function PUTHandler(request: NextRequest) {
     try { fields = parseScreenRemoteAccess(body.fields); }
     catch (error) { return reply({ error: error instanceof Error ? error.message : "Enter valid remote access details." }, 400); }
     return await database().transaction(async db => {
+      await db.prepare(inventoryLockSql()).run();
+      await lock(db);
       const screen = await db.prepare("SELECT name FROM entities WHERE id = ? AND type = 'screen'").bind(body.screenId).first<{ name: string }>();
       if (!screen) return reply({ error: "Screen not found." }, 404);
       const version = crypto.randomUUID(), now = new Date().toISOString();

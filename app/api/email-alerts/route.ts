@@ -1,6 +1,6 @@
 import { withWorkspace } from "@/lib/client-workspace";
-import { currentUser, sameOrigin } from "@/lib/auth";
-import { readObject, requestFailure } from "@/lib/request";
+import { currentUser, requireWorkspaceAdminWriter, sameOrigin } from "@/lib/auth";
+import { readObject, RequestError, requestFailure } from "@/lib/request";
 import { EmailAlertInputError, parseEmailAlertSettings } from "@/lib/email-alert-shared";
 import { emailAlertSnapshot, EmailAlertServiceError, saveEmailAlertSettings } from "@/lib/email-alert-server";
 export const runtime="nodejs";
@@ -12,7 +12,7 @@ async function admin(request:Request) {
   return user;
 }
 function failure(error:unknown) {
-  if(error instanceof EmailAlertInputError || error instanceof EmailAlertServiceError) return Response.json({error:error.message},{status:error instanceof EmailAlertServiceError?error.status:400,headers});
+  if(error instanceof EmailAlertInputError || error instanceof EmailAlertServiceError || error instanceof RequestError) return Response.json({error:error.message},{status:error instanceof EmailAlertInputError?400:error.status,headers});
   return requestFailure(error);
 }
 async function GETHandler(request:Request) {
@@ -22,8 +22,8 @@ async function GETHandler(request:Request) {
 async function POSTHandler(request:Request) {
   if(!sameOrigin(request))return Response.json({error:"Invalid request origin."},{status:403,headers});
   try {
-    const user=await admin(request);if(user instanceof Response)return user;
-    await saveEmailAlertSettings(parseEmailAlertSettings(await readObject(request)),user.name);
+    const {user,lock}=await requireWorkspaceAdminWriter(request.headers);
+    await saveEmailAlertSettings(parseEmailAlertSettings(await readObject(request)),user.name,lock);
     return Response.json(await emailAlertSnapshot(),{headers});
   } catch(error){return failure(error);}
 }

@@ -1,6 +1,6 @@
 import { withWorkspace } from "@/lib/client-workspace";
-import { currentUser, sameOrigin } from "@/lib/auth";
-import { readObject, requestFailure } from "@/lib/request";
+import { currentUser, requireWorkspaceAdminWriter, sameOrigin } from "@/lib/auth";
+import { readObject, RequestError, requestFailure } from "@/lib/request";
 import { EmailAlertInputError } from "@/lib/email-alert-shared";
 import { parseWhatsAppSettings } from "@/lib/whatsapp-alert-shared";
 import { whatsappSnapshot, WhatsAppServiceError, saveWhatsAppSettings } from "@/lib/whatsapp-alert-server";
@@ -13,7 +13,7 @@ async function admin(request:Request) {
   return user;
 }
 function failure(error:unknown) {
-  if(error instanceof EmailAlertInputError || error instanceof WhatsAppServiceError) return Response.json({error:error.message},{status:error instanceof WhatsAppServiceError?error.status:400,headers});
+  if(error instanceof EmailAlertInputError || error instanceof WhatsAppServiceError || error instanceof RequestError) return Response.json({error:error.message},{status:error instanceof EmailAlertInputError?400:error.status,headers});
   return requestFailure(error);
 }
 async function GETHandler(request:Request) {
@@ -23,8 +23,8 @@ async function GETHandler(request:Request) {
 async function POSTHandler(request:Request) {
   if(!sameOrigin(request))return Response.json({error:"Invalid request origin."},{status:403,headers});
   try {
-    const user=await admin(request);if(user instanceof Response)return user;
-    await saveWhatsAppSettings(parseWhatsAppSettings(await readObject(request)),user.name);
+    const {user,lock}=await requireWorkspaceAdminWriter(request.headers);
+    await saveWhatsAppSettings(parseWhatsAppSettings(await readObject(request)),user.name,lock);
     return Response.json(await whatsappSnapshot(),{headers});
   } catch(error){return failure(error);}
 }

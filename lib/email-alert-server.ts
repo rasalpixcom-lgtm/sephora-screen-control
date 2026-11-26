@@ -2,7 +2,7 @@ import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-work
 import { withCurrentWorkerWorkspace } from "./client-worker-scope";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import { getPool } from "./database";
+import { getPool, ServerDatabase } from "./database";
 import { onSignToken } from "./onsign-stream";
 import { previewSourceFingerprint } from "./preview-incidents";
 import { RESULT_MAX_AGE_MS } from "./preview-health";
@@ -10,6 +10,7 @@ import { alertSender, AlertMailError, sendAlertMail, type AlertMail, type AlertM
 import type { EmailAlertSettings, EmailAlertSnapshot, ManualAlertPreview } from "./email-alert-shared";
 
 export class EmailAlertServiceError extends Error { constructor(message:string,public status=400){super(message);} }
+type WriteLock = (db: ServerDatabase) => Promise<void>;
 type SettingsRow={enabled:boolean;threshold_minutes:number;grouping_minutes:number;recovery_email:boolean;recipients:string[];revision:string;updated_at:Date};
 type IncidentRow=AlertMailRow & {id:string;screenId:string;sourceFingerprint:string;liveUrl:string|null;resolutionReason:string|null;previewStatus:string|null;stateFingerprint:string|null;stateCheckedAt:string|null;recoveryQueuedAt:string|null;newerIncident:boolean};
 const settingsFrom=(row:SettingsRow):EmailAlertSettings=>({enabled:row.enabled,thresholdMinutes:row.threshold_minutes,groupingMinutes:row.grouping_minutes,recoveryEmail:row.recovery_email,recipients:row.recipients,revision:row.revision,updatedAt:row.updated_at.toISOString()});
@@ -26,11 +27,13 @@ export async function emailAlertSnapshot():Promise<EmailAlertSnapshot> {
     return {settings,sender:alertSender(),deliveries};
   } finally {client.release();}
 }
-export async function saveEmailAlertSettings(settings:EmailAlertSettings,actor:string) {
+export async function saveEmailAlertSettings(settings:EmailAlertSettings,actor:string,lock?:WriteLock) {
   if (settings.enabled && !alertSender().configured) throw new EmailAlertServiceError("Configure the Gmail sender on the server before enabling alerts.");
   const client=await getPool().connect();
   try {
     await client.query("BEGIN");
+    await client.query("SELECT id FROM email_alert_settings WHERE client_id=$1 AND id='main' FOR UPDATE", [activeClientId()]);
+    await lock?.(new ServerDatabase(client));
     const updated=await client.query(`UPDATE email_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE client_id='${activeClientId()}' AND id='main' AND revision=$7 RETURNING id`,[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
     if (!updated.rowCount) throw new EmailAlertServiceError("Settings changed in another window. Reload and try again.",409);
     await client.query("INSERT INTO activity_log (id,action,entity_type,entity_name,actor,created_at) VALUES ($1,'Updated email alert settings','settings','Email alerts',$2,$3)",[crypto.randomUUID(),actor,new Date().toISOString()]);
@@ -61,10 +64,17 @@ function qualifies(row:IncidentRow,kind:"unavailable"|"recovery",settings:EmailA
   return !row.resolvedAt && Date.parse(row.startedAt)<=now.getTime()-settings.thresholdMinutes*60000 && Date.parse(row.lastCheckedAt)>=now.getTime()-RESULT_MAX_AGE_MS && Date.parse(row.lastCheckedAt)<=now.getTime() && row.previewStatus==="unavailable" && row.stateFingerprint===row.sourceFingerprint;
 }
 type Sender=(mail:AlertMail)=>Promise<MailResult>;
-async function delivery(client:PoolClient,kind:AlertMail["kind"],recipients:string[],rows:IncidentRow[],queueIds:string[],now:Date,send:Sender) {
+async function markInterruptedDeliveries(client:PoolClient) {
+  // A prior sender crashed after claiming a delivery. Do not risk sending it twice.
+  await client.query("UPDATE email_alert_delivery SET status='uncertain',error_code='uncertain',finished_at=now() WHERE status='sending'");
+  await client.query("UPDATE email_alert_queue SET status='uncertain' WHERE status='sending'");
+}
+async function delivery(client:PoolClient,kind:AlertMail["kind"],recipients:string[],rows:IncidentRow[],queueIds:string[],now:Date,send:Sender,lock?:WriteLock) {
   const id=crypto.randomUUID();
   await client.query("BEGIN");
   try {
+    await lock?.(new ServerDatabase(client));
+    if(kind==="test"||kind==="manual") await markInterruptedDeliveries(client);
     await client.query("INSERT INTO email_alert_delivery (id,kind,status,recipients,screen_count,started_at) VALUES ($1,$2,'sending',$3,$4,$5)",[id,kind,JSON.stringify(recipients),rows.length,now]);
     if (queueIds.length) await client.query("UPDATE email_alert_queue SET status='sending',delivery_id=$2,attempts=attempts+1 WHERE id=ANY($1::text[]) AND status='pending'",[queueIds,id]);
     await client.query("COMMIT");
@@ -90,9 +100,6 @@ async function withDeliveryLock<T>(work:(client:PoolClient)=>Promise<T>):Promise
   try {
     locked=(await client.query(`SELECT pg_try_advisory_lock(724020,hashtext('${activeClientId()}')) AS locked`)).rows[0].locked;
     if (!locked) return null;
-    // A prior sender crashed after claiming a delivery. Do not risk sending it twice.
-    await client.query("UPDATE email_alert_delivery SET status='uncertain',error_code='uncertain',finished_at=now() WHERE status='sending'");
-    await client.query("UPDATE email_alert_queue SET status='uncertain' WHERE status='sending'");
     return await work(client);
   } finally {
     try {if(locked) await client.query(`SELECT pg_advisory_unlock(724020,hashtext('${activeClientId()}'))`);} finally {client.release();}
@@ -100,6 +107,7 @@ async function withDeliveryLock<T>(work:(client:PoolClient)=>Promise<T>):Promise
 }
 export async function processEmailAlerts(options:{now?:Date;send?:Sender}={}) {
   return withDeliveryLock(async client=>{
+    await markInterruptedDeliveries(client);
     const now=options.now||new Date(),send=options.send||sendAlertMail;
     let settings=await settingsFor(client);
     if (!settings.enabled || !settings.recipients.length || !alertSender().configured) return;
@@ -128,14 +136,14 @@ export async function processEmailAlerts(options:{now?:Date;send?:Sender}={}) {
     }
   });
 }
-export async function sendTestAlert() {
+export async function sendTestAlert(lock?:WriteLock) {
   if (!alertSender().configured) throw new EmailAlertServiceError("Configure the Gmail sender on the server first.");
   const result=await withDeliveryLock(async client=>{
     const settings=await settingsFor(client);
     if (!settings.recipients.length) throw new EmailAlertServiceError("Save at least one recipient before sending a test.");
     const recent=(await client.query("SELECT id FROM email_alert_delivery WHERE kind='test' AND started_at>now()-interval '60 seconds' LIMIT 1")).rowCount;
     if(recent) throw new EmailAlertServiceError("Wait 60 seconds before sending another test email.",429);
-    return delivery(client,"test",settings.recipients,[],[],new Date(),sendAlertMail);
+    return delivery(client,"test",settings.recipients,[],[],new Date(),sendAlertMail,lock);
   });
   if (!result) throw new EmailAlertServiceError("An email is being sent. Try again shortly.",409);
   if(result.status==="failed"||result.status==="uncertain") throw new EmailAlertServiceError(result.code==="authentication"?"Gmail authentication failed. Check the server credentials.":result.status==="uncertain"?"Delivery could not be confirmed. Check your inbox before resending.":"The test email could not be sent. Check delivery status.",503);
@@ -161,7 +169,7 @@ export async function previewManualAlert(options:{now?:Date}={}) {
     await client.query("COMMIT");return result;
   } catch(error){await client.query("ROLLBACK");throw error;} finally{client.release();}
 }
-export async function sendManualAlert(confirmationToken:string,options:{now?:Date;send?:Sender}={}) {
+export async function sendManualAlert(confirmationToken:string,options:{now?:Date;send?:Sender;lock?:WriteLock}={}) {
   if(!alertSender().configured)throw new EmailAlertServiceError("Configure the Gmail sender on the server first.");
   const result=await withDeliveryLock(async client=>{
     const now=options.now||new Date();
@@ -174,7 +182,7 @@ export async function sendManualAlert(confirmationToken:string,options:{now?:Dat
     if(!rows.length)throw new EmailAlertServiceError("No current confirmed unavailable previews to send.");
     if(rows.length>500)throw new EmailAlertServiceError("Manual emails support up to 500 screens. Download the complete report from Reports instead.");
     // A manual report is separate from the automatic queue and its incident deduplication.
-    return {...await delivery(client,"manual",settings.recipients,rows,[],now,options.send||sendAlertMail),screenCount:rows.length};
+    return {...await delivery(client,"manual",settings.recipients,rows,[],now,options.send||sendAlertMail,options.lock),screenCount:rows.length};
   });
   if(!result)throw new EmailAlertServiceError("An email is being sent. Try again shortly.",409);
   if(result.status==="failed"||result.status==="uncertain")throw new EmailAlertServiceError(result.code==="authentication"?"Gmail authentication failed. Check the server credentials.":result.status==="uncertain"?"Delivery could not be confirmed. Check your inbox before resending.":"The manual email could not be sent. Check delivery status.",503);

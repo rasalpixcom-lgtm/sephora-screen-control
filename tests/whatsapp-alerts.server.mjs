@@ -10,6 +10,7 @@ import {fileURLToPath} from "node:url";
 import {build} from "esbuild";
 import pg from "pg";
 import {migrate} from "../scripts/migrate-postgres.mjs";
+import { queuedPostChecks } from "./fixtures/queued-write.mjs";
 const root=process.cwd(),databaseName="sephora_whatsapp_test_"+crypto.randomBytes(8).toString("hex");
 const adminUrl=new URL(process.env.DATABASE_URL);adminUrl.pathname="/postgres";
 const testUrl=new URL(process.env.DATABASE_URL);testUrl.pathname="/"+databaseName;
@@ -152,17 +153,30 @@ try{
  const origin="http://127.0.0.1:"+port,password=crypto.randomBytes(24).toString("base64url"),bootstrap=crypto.randomBytes(32).toString("hex");
  await reset();await settings({enabled:false,recipients:[one,two]});
  const serverEnv={...process.env,COMPLAINT_ALERTS_ENABLED:"false",PORT:String(port),HOSTNAME:"127.0.0.1",AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:"",ALLOW_LAN_HTTP:"false",AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),EMAIL_ALERT_WORKER_DISABLED:"true",WHATSAPP_ALERT_WORKER_DISABLED:"true",PREVIEW_HEALTH_DISABLED:"true"};
- server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:serverEnv,stdio:["ignore","pipe","pipe"]});server.stdout.on("data",chunk=>logs+=chunk);server.stderr.on("data",chunk=>logs+=chunk);
+ server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:{...serverEnv,TRUST_PROXY:"true"},stdio:["ignore","pipe","pipe"]});server.stdout.on("data",chunk=>logs+=chunk);server.stderr.on("data",chunk=>logs+=chunk);
  let ready=false;for(let attempt=0;attempt<60;attempt++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{}if(server.exitCode!==null)break;await new Promise(resolve=>setTimeout(resolve,500));}assert.ok(ready,"compiled test server starts: "+logs.slice(-1000));
  const request=(route,body,cookie="",extra={})=>fetch(origin+route,{method:body===undefined?"GET":"POST",headers:{Origin:origin,"Content-Type":"application/json",...(cookie?{Cookie:cookie}:{}),...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
  for(const [route,body] of [["/api/whatsapp-alerts",undefined],["/api/whatsapp-alerts",valid],["/api/whatsapp-alerts/test",{}],["/api/whatsapp-alerts/manual",undefined],["/api/whatsapp-alerts/manual",{confirmationToken:"0".repeat(64)}]])check((await request(route,body)).status===401,"anonymous access blocked: "+route+(body?" POST":" GET"));
  assert.equal((await request("/api/activate",{token:bootstrap,password})).status,200);const login=await request("/api/auth/sign-in/email",{email:"admin@example.test",password});const cookie=login.headers.getSetCookie().map(value=>value.split(";")[0]).join("; ");
+ const verifyPost=queuedPostChecks(request,{email:"admin@example.test",password},pool);
+ const alertSnapshot=async()=>({
+   settings:(await pool.query("SELECT * FROM whatsapp_alert_settings ORDER BY client_id,id")).rows,
+   deliveries:(await pool.query("SELECT * FROM whatsapp_alert_delivery ORDER BY id")).rows,
+   queue:(await pool.query("SELECT * FROM whatsapp_alert_queue ORDER BY id")).rows,
+   activity:(await pool.query("SELECT * FROM activity_log WHERE entity_name='WhatsApp alerts' ORDER BY id")).rows,
+   sent:requests.length,
+ });
+ const verifySend=(route,body)=>verifyPost({
+   route, body, snapshot:alertSnapshot,
+   lock:"SELECT pg_advisory_xact_lock(724021,hashtext('sephora'))",
+ });
  assert.equal((await request("/api/users",{action:"create",name:"Controller",email:"controller@example.test",role:"controller",password},cookie)).status,200);const ctl=await request("/api/auth/sign-in/email",{email:"controller@example.test",password});const ctlCookie=ctl.headers.getSetCookie().map(value=>value.split(";")[0]).join("; ");
  for(const [route,body] of [["/api/whatsapp-alerts",undefined],["/api/whatsapp-alerts",valid],["/api/whatsapp-alerts/test",{}],["/api/whatsapp-alerts/manual",undefined],["/api/whatsapp-alerts/manual",{confirmationToken:"0".repeat(64)}]])check((await request(route,body,ctlCookie)).status===403,"Controller access blocked: "+route+(body?" POST":" GET"));
  const snapshotResponse=await request("/api/whatsapp-alerts",undefined,cookie),snapshot=await snapshotResponse.json();check(snapshotResponse.status===200&&snapshotResponse.headers.get("cache-control")==="no-store"&&!JSON.stringify(snapshot).includes("fake-whatsapp-test-token"),"Admin API snapshot is uncached and excludes token");
  for(const [route,body] of [["/api/whatsapp-alerts",snapshot.settings],["/api/whatsapp-alerts/test",{}],["/api/whatsapp-alerts/manual",{confirmationToken:"0".repeat(64)}]])check((await request(route,body,cookie,{Origin:"https://attacker.test"})).status===403,"cross-origin write rejected: "+route);
  check((await request("/api/whatsapp-alerts",{...snapshot.settings,recipients:["123@g.us"]},cookie)).status===400,"API rejects group identifiers");
  check((await request("/api/whatsapp-alerts",{...snapshot.settings,thresholdMinutes:0},cookie)).status===400,"API validates timing bounds");
+ await verifyPost({route:"/api/whatsapp-alerts",body:snapshot.settings,snapshot:alertSnapshot,lock:"SELECT id FROM whatsapp_alert_settings WHERE client_id='sephora' AND id='main' FOR UPDATE"});
  check((await request("/api/whatsapp-alerts",snapshot.settings,cookie)).status===200,"Admin can save individual recipients with automatic alerts disabled");
  check((await request("/api/whatsapp-alerts",snapshot.settings,cookie)).status===409,"API rejects stale settings revision");
  check((await request("/api/whatsapp-alerts/test",{recipient:three},cookie)).status===400,"test request cannot override saved numbers");
@@ -170,12 +184,14 @@ try{
  for(const [body,status,label,type] of [["{",400,"malformed JSON","application/json"],["[]",400,"JSON arrays","application/json"],["null",400,"null JSON","application/json"],["{}",415,"non-JSON content types","text/plain"],["X".repeat(65537),413,"oversized JSON bodies","application/json"]]){
   const response=await fetch(origin+"/api/whatsapp-alerts",{method:"POST",headers:{Origin:origin,Cookie:cookie,"Content-Type":type},body});check(response.status===status,"API rejects "+label);
  }
+ await verifySend("/api/whatsapp-alerts/test",{});
  const before=requests.length;check((await request("/api/whatsapp-alerts/test",{},cookie)).status===202&&requests.length===before,"API queues tests durably without contacting the provider during the request");
  await lib.processWhatsAppAlerts();check(requests.length===before+2,"worker sends queued API tests through the local HTTP provider fixture");
  check((await request("/api/whatsapp-alerts/test",{},cookie)).status===429,"API test cooldown persists across requests");
  await lib.recordPreviewResult({screenId:"manual",token:token("manual"),checkedAt:Date.now()-30000,received:false});const manualRes=await request("/api/whatsapp-alerts/manual",undefined,cookie),apiPreview=await manualRes.json();
  check(manualRes.headers.get("cache-control")==="no-store"&&apiPreview.screenCount===1&&apiPreview.recipientCount===2&&!JSON.stringify(apiPreview).includes("whatsapp-test-"),"API confirmation contains counts without source tokens");
  check((await request("/api/whatsapp-alerts/manual",{confirmationToken:apiPreview.confirmationToken,recipient:three},cookie)).status===400,"manual request cannot override saved recipients");
+ await verifySend("/api/whatsapp-alerts/manual",{confirmationToken:apiPreview.confirmationToken});
  check((await request("/api/whatsapp-alerts/manual",{confirmationToken:apiPreview.confirmationToken},cookie)).status===202,"Admin manual API queues a current report");await lib.processWhatsAppAlerts();
  check((await pool.query("SELECT id FROM whatsapp_alert_delivery WHERE kind='manual' AND status='accepted'")).rowCount===2,"manual delivery outcomes are recorded separately for both numbers");
  check((await request("/api/whatsapp-alerts/manual",{confirmationToken:apiPreview.confirmationToken},cookie)).status===429,"API manual cooldown persists across requests");

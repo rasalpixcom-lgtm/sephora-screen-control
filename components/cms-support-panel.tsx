@@ -49,6 +49,7 @@ export default function CmsSupportPanel({ entities, members, refreshKey }: { ent
   const [resultFilters, setResultFilters] = useState(emptyCmsResultFilters);
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null), detailRequest = useRef<AbortController | null>(null);
+  const draftCreateKey = useRef<string | null>(null);
   const dirty = editing && (imageAction !== "keep" || JSON.stringify(draft) !== JSON.stringify(record?.payload || blank()));
   const active = Boolean(record || editing);
   useEffect(() => {
@@ -78,12 +79,25 @@ export default function CmsSupportPanel({ entities, members, refreshKey }: { ent
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [filters, page, revision, refreshKey, active]);
+  function showRecord(saved: CmsRecord) {
+    setRecord(saved); setDraft(saved.payload); setEditing(false); setImage(null); setImageAction("keep"); setMarked([]); setBulk(blankBulk()); setResultFilters(emptyCmsResultFilters());
+  }
   async function open(id: string) {
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setLoading(true); setError("");
-    try { const data = await json(`/api/cms-support?id=${encodeURIComponent(id)}`, { signal: controller.signal }); if (controller.signal.aborted) return; setRecord(data.record); setDraft(data.record.payload); setEditing(false); setImage(null); setImageAction("keep"); setMarked([]); setBulk(blankBulk()); setResultFilters(emptyCmsResultFilters()); }
+    try { const data = await json(`/api/cms-support?id=${encodeURIComponent(id)}`, { signal: controller.signal }); if (!controller.signal.aborted) showRecord(data.record); }
     catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load this update."); }
     finally { if (!controller.signal.aborted) setLoading(false); }
+  }
+  function editRecord() {
+    if (!record || busy) return;
+    detailRequest.current?.abort();
+    setLoading(false);
+    setError("");
+    setDraft(record.payload);
+    setEditing(true);
+    setMarked([]);
+    setBulk(blankBulk());
   }
   const inventory = useMemo(() => {
     const byId = new Map(entities.map(item => [item.id, item]));
@@ -114,10 +128,14 @@ export default function CmsSupportPanel({ entities, members, refreshKey }: { ent
   async function save(event: React.FormEvent) {
     event.preventDefault(); if (busy) return; setBusy(true); setError("");
     try {
-      const metadata = { action: record ? "update" : "create", id: record?.id, version: record?.version, payload: { ...draft, screens: draft.screens.map(({ screenId, network, scheduling, playback, checkedAt, remarks }) => ({ screenId, network, scheduling, playback, checkedAt, remarks })) }, imageAction };
+      const reference = record
+        ? { action: "update", id: record.id, version: record.version }
+        : { action: "create", createKey: draftCreateKey.current ??= Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("") };
+      const metadata = { ...reference, payload: { ...draft, screens: draft.screens.map(({ screenId, network, scheduling, playback, checkedAt, remarks }) => ({ screenId, network, scheduling, playback, checkedAt, remarks })) }, imageAction };
       let body: BodyInit = JSON.stringify(metadata); let headers: HeadersInit | undefined = { "Content-Type": "application/json" };
       if (image) { const form = new FormData(); form.set("metadata", JSON.stringify(metadata)); form.set("image", image); body = form; headers = undefined; }
-      const result = await json("/api/cms-support", { method: "POST", headers, body }); await open(result.id);
+      const { record: saved }: { record: CmsRecord } = await json("/api/cms-support", { method: "POST", headers, body });
+      showRecord(saved);
     } catch (cause) { setResultFilters(emptyCmsResultFilters()); setError(cause instanceof Error ? cause.message : "Could not save this update."); }
     finally { setBusy(false); }
   }
@@ -136,12 +154,12 @@ export default function CmsSupportPanel({ entities, members, refreshKey }: { ent
   return <div className="cms-support">
     {error && <div className="adm-error" role="alert">{error}</div>}
     {!active ? <section className="adm-panel cms-list-card" aria-label="Content updates">
-      <div className="cms-toolbar"><div className="cms-list-heading"><h2>Content updates</h2><span className="cms-loading-status" role="status" aria-live="polite" data-loading={loading}>{loading ? "Loading updates…" : ""}</span></div><button className="adm-primary-btn" disabled={loading} onClick={() => { setRecord(null); setResultFilters(emptyCmsResultFilters()); setDraft(blank()); setEditing(true); setImage(null); setImageAction("keep"); setPicker({ search: "", country: "", region: "", location: "", group: "" }); setMarked([]); setBulk(blankBulk()); setError(""); }}><Plus size={16}/>Add update</button></div>
+      <div className="cms-toolbar"><div className="cms-list-heading"><h2>Content updates</h2><span className="cms-loading-status" role="status" aria-live="polite" data-loading={loading}>{loading ? "Loading updates…" : ""}</span></div><button className="adm-primary-btn" disabled={loading} onClick={() => { draftCreateKey.current = null; setRecord(null); setResultFilters(emptyCmsResultFilters()); setDraft(blank()); setEditing(true); setImage(null); setImageAction("keep"); setPicker({ search: "", country: "", region: "", location: "", group: "" }); setMarked([]); setBulk(blankBulk()); setError(""); }}><Plus size={16}/>Add update</button></div>
       <div className="cms-filters"><label>Search<input maxLength={160} placeholder="Content, campaign or category" value={filters.search} onChange={e => { setFilters({ ...filters, search: e.target.value }); setPage(1); }}/></label><label>Country<select value={filters.country} onChange={e => { setFilters({ ...filters, country: e.target.value, location: "" }); setPage(1); }}><option value="">All countries</option>{countries.map(name => <option key={name}>{name}</option>)}</select></label><label>Location<select value={filters.location} onChange={e => { setFilters({ ...filters, location: e.target.value }); setPage(1); }}><option value="">All locations</option>{locations.map(name => <option key={name}>{name}</option>)}</select></label><label>Scheduling<select value={filters.status} onChange={e => { setFilters({ ...filters, status: e.target.value }); setPage(1); }}><option value="">All statuses</option>{["Scheduled", "Pending", "Failed", "Not required"].map(value => <option key={value}>{value}</option>)}</select></label><label>Playback status<select value={filters.playbackStatus} onChange={e => { setFilters({ ...filters, playbackStatus: e.target.value }); setPage(1); }}><option value="">All statuses</option>{cmsPlaybackStatuses.map(value => <option key={value}>{value}</option>)}</select></label><label>Playback from<input type="date" value={filters.start} onChange={e => { setFilters({ ...filters, start: e.target.value }); setPage(1); }}/></label><label>Playback to<input type="date" value={filters.end} onChange={e => { setFilters({ ...filters, end: e.target.value }); setPage(1); }}/></label><button type="button" className="adm-secondary-btn cms-clear-filters" onClick={() => { setFilters({ search: "", country: "", location: "", status: "", playbackStatus: "", start: "", end: "" }); setPage(1); }}>Clear filters</button></div>
       <div className="cms-table cms-update-table" aria-busy={loading}><table><thead><tr><th>Content / campaign</th><th>Category</th><th>Playback period</th><th title="Based on playback dates in GST; does not confirm device playback.">Playback status</th><th>Scheduling</th><th>Reports</th><th>Actions</th></tr></thead><tbody>{updates.map(row => <tr key={row.id}><td><strong>{row.contentName}</strong>{row.campaignName && <small>{row.campaignName}</small>}</td><td>{row.category}</td><td>{row.playbackStart} to {row.playbackEnd}</td><td><span className="cms-playback-status" data-status={row.playbackStatus}>{row.playbackStatus}</span></td><td>{row.scheduled} / {row.screens} scheduled</td><td>{row.reports}</td><td><button className="adm-secondary-btn" disabled={busy || loading} onClick={() => void open(row.id)}>View</button></td></tr>)}{!updates.length && <tr><td colSpan={7} className="cms-list-empty">{loading ? "Loading content updates…" : "No content updates match these filters."}</td></tr>}</tbody></table></div>
       <div className="cms-toolbar cms-pagination"><span>{total} {total === 1 ? "update" : "updates"}</span><div className="cms-actions"><button className="adm-secondary-btn" disabled={page === 1 || loading} onClick={() => setPage(value => value - 1)}>Previous</button> <span>Page {page}</span> <button className="adm-secondary-btn" disabled={page * 25 >= total || loading} onClick={() => setPage(value => value + 1)}>Next</button></div></div>
     </section> : <>
-      <div className="cms-toolbar"><button className="adm-secondary-btn" disabled={busy} onClick={leave}><ArrowLeft size={16}/>Content updates</button><div className="cms-actions"><span className="cms-loading-status" role="status" aria-live="polite" data-loading={loading}>{loading ? "Loading update…" : ""}</span>{!editing && record && <><button className="adm-secondary-btn" disabled={busy} onClick={() => void open(record.id)} aria-label="Refresh content update"><RefreshCw size={16}/></button><button className="adm-secondary-btn" disabled={busy} onClick={() => { setDraft(record.payload); setEditing(true); setMarked([]); setBulk(blankBulk()); }}>Edit</button><a className="adm-secondary-btn" href={`/api/cms-support/pdf?id=${record.id}`} target="_blank" rel="noopener">Preview PDF</a><button className="adm-primary-btn" disabled={busy} onClick={() => setFinalizeOpen(true)}>Finalize report</button></>}</div></div>
+      <div className="cms-toolbar"><button className="adm-secondary-btn" disabled={busy} onClick={leave}><ArrowLeft size={16}/>Content updates</button><div className="cms-actions"><span className="cms-loading-status" role="status" aria-live="polite" data-loading={loading}>{loading ? "Loading update…" : ""}</span>{!editing && record && <><button className="adm-secondary-btn" disabled={busy} onClick={() => void open(record.id)} aria-label="Refresh content update"><RefreshCw size={16}/></button><button className="adm-secondary-btn" disabled={busy} onClick={editRecord}>Edit</button><a className="adm-secondary-btn" href={`/api/cms-support/pdf?id=${record.id}`} target="_blank" rel="noopener">Preview PDF</a><button className="adm-primary-btn" disabled={busy} onClick={() => setFinalizeOpen(true)}>Finalize report</button></>}</div></div>
       {finalizeOpen && <section className="adm-panel cms-confirm" aria-label="Confirm report"><h2>Finalize client report?</h2><p>This saves a fixed PDF of the current details and statuses. Later edits create a new revision. Nothing is sent automatically.</p><div className="cms-actions"><button className="adm-secondary-btn" disabled={busy} onClick={() => setFinalizeOpen(false)}>Cancel</button><button className="adm-primary-btn" disabled={busy} onClick={() => void finalize()}>{busy ? "Preparing…" : "Finalize report"}</button></div></section>}
       {editing ? <form onSubmit={event => void save(event)}>
         <fieldset disabled={busy} className="adm-panel cms-fieldset"><h2>{record ? "Edit content update" : "Add content update"}</h2><div className="cms-fields">{inputs.map(input => <label key={input.key}>{input.label}<input type={input.type || "text"} maxLength={input.max} required={input.required || input.key === "scheduledAt" && draft.screens.some(row => row.scheduling === "Scheduled")} value={input.type === "datetime-local" ? localTime(draft[input.key]) : draft[input.key] || ""} onChange={event => field(input.key, input.type === "datetime-local" ? isoTime(event.target.value) : event.target.value)} min={input.key === "playbackEnd" ? draft.playbackStart : undefined}/></label>)}</div>

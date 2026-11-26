@@ -1,4 +1,4 @@
-import { selectWorkspace } from "@/lib/client-workspace";
+import { activeClientId, selectWorkspace } from "@/lib/client-workspace";
 import { workspaceCookie, verifyWorkspace } from "@/lib/workspace-cookie";
 const env = process.env;
 import { betterAuth } from "better-auth";
@@ -114,6 +114,14 @@ export async function lockWorkspaceWriter(db: ServerDatabase, session: NonNullab
 export async function currentUser(requestHeaders: Headers, renewCookie = true) {
   const session = await sessionUser(requestHeaders, renewCookie);
   return session ? sessionWorkspaceUser(requestHeaders, session) : null;
+}
+export async function requireWorkspaceAdminWriter(requestHeaders: Headers) {
+  const session = await sessionUser(requestHeaders);
+  const user = session ? await sessionWorkspaceUser(requestHeaders, session) : null;
+  if (!session || !user) throw new RequestError("Sign in again.", 401);
+  if (user.role !== "admin") throw new RequestError("Admin access required.", 403);
+  const clientId = activeClientId();
+  return { user, lock: (db: ServerDatabase) => lockWorkspaceWriter(db, session, clientId, "admin") };
 }
 export async function sessionWorkspaceUser(
   requestHeaders: Headers,

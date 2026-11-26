@@ -1,8 +1,9 @@
-import { withWorkspace } from "@/lib/client-workspace";
-import { inventoryLockSql } from "@/lib/client-workspace";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { activeClientId, inventoryLockSql, withWorkspace } from "@/lib/client-workspace";
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser, sameOrigin } from "@/lib/auth";
-import { database } from "@/lib/database";
+import { currentUser, requireWorkspaceAdminWriter, sameOrigin } from "@/lib/auth";
+import { database, type ServerDatabase } from "@/lib/database";
 import { cmsId, parseCmsPayload, type CmsPayload } from "@/lib/cms-support";
 import { RequestError, requestFailure } from "@/lib/request";
 import { normalizePrivatePhoto } from "@/lib/screen-photo";
@@ -11,8 +12,18 @@ import { renderCmsPdf } from "@/lib/cms-pdf";
 
 export const runtime = "nodejs";
 const reply = (body: object, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
-type Row = { id: string; version: string; payload: CmsPayload; image: Buffer | null; createdAt: Date; updatedAt: Date; updatedBy: string };
-const select = 'SELECT id, version, payload, image, created_at AS "createdAt", updated_at AS "updatedAt", updated_by AS "updatedBy" FROM cms_updates';
+type RecordRow = { id: string; version: string; payload: CmsPayload; hasImage: boolean; createdAt: Date; updatedAt: Date; updatedBy: string };
+type Row = RecordRow & { image: Buffer | null };
+const recordColumns = 'id, version, payload, image IS NOT NULL AS "hasImage", created_at AS "createdAt", updated_at AS "updatedAt", updated_by AS "updatedBy"';
+const select = `SELECT ${recordColumns}, image FROM cms_updates`;
+async function recordDetails(db: ServerDatabase, record: RecordRow) {
+  const reports = await db.prepare('SELECT id, revision, created_at AS "createdAt", created_by AS "createdBy" FROM cms_reports WHERE update_id = ? ORDER BY revision DESC').bind(record.id).all();
+  return { ...record, reports: reports.results };
+}
+function createRecordId(clientId: string, userId: string, key: string) {
+  const hash = createHash("sha256").update(JSON.stringify([clientId, userId, key])).digest("hex");
+  return [hash.slice(0, 8), hash.slice(8, 12), hash.slice(12, 16), hash.slice(16, 20), hash.slice(20, 32)].join("-");
+}
 async function authorize(request: NextRequest) {
   const user = await currentUser(request.headers);
   if (!user) throw new RequestError("Sign in again.", 401);
@@ -49,13 +60,12 @@ async function GETHandler(request: NextRequest) {
       if (!cmsId(id)) throw new RequestError("Invalid content reference.");
       const row = await db.prepare(select + " WHERE id = ?").bind(id).first<Row>();
       if (!row) throw new RequestError("Content update not found.", 404);
-      if (params.get("image") === "1") {
-        if (!row.image) throw new RequestError("Image not found.", 404);
-        return new Response(new Uint8Array(row.image), { headers: { "Content-Type": "image/webp", "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" } });
-      }
-      const reports = await db.prepare('SELECT id, revision, created_at AS "createdAt", created_by AS "createdBy" FROM cms_reports WHERE update_id = ? ORDER BY revision DESC').bind(id).all();
       const { image, ...record } = row;
-      return reply({ record: { ...record, hasImage: Boolean(image), reports: reports.results } });
+      if (params.get("image") === "1") {
+        if (!image) throw new RequestError("Image not found.", 404);
+        return new Response(new Uint8Array(image), { headers: { "Content-Type": "image/webp", "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" } });
+      }
+      return reply({ record: await recordDetails(db, record) });
     }
     const search = params.get("search") || "", country = params.get("country") || "", location = params.get("location") || "", status = params.get("status") || "", start = params.get("start") || "", end = params.get("end") || "";
     const playbackStatus = params.get("playbackStatus") || "", today = cmsPlaybackDay();
@@ -74,28 +84,39 @@ async function GETHandler(request: NextRequest) {
 async function POSTHandler(request: NextRequest) {
   if (!sameOrigin(request)) return reply({ error: "Invalid request origin." }, 403);
   try {
-    const user = await authorize(request);
+    const { user, lock } = await requireWorkspaceAdminWriter(request.headers);
     const { body, image } = await readMutation(request);
     const create = body.action === "create", finalize = body.action === "finalize";
     if (typeof body.action !== "string" || !["create", "update", "finalize"].includes(body.action)) throw new RequestError("Choose a valid content action.");
     if (!create && (!cmsId(body.id) || !cmsId(body.version))) throw new RequestError("Refresh this update before editing.");
+    const createKey = body.createKey;
+    if (createKey !== undefined && (!create || typeof createKey !== "string" || createKey.length !== 32 || !/^[a-f0-9]+$/.test(createKey))) {
+      throw new RequestError("Invalid new update reference.");
+    }
+    const id = create
+      ? typeof createKey === "string" ? createRecordId(activeClientId(), user.id, createKey) : crypto.randomUUID()
+      : body.id;
     const imageAction = body.imageAction ?? "keep";
     if (typeof imageAction !== "string" || !["keep", "remove", "replace"].includes(imageAction) || (imageAction === "replace") !== Boolean(image) || (finalize && image)) throw new RequestError("Choose a valid content image change.");
     const prepared = image ? (await normalizePrivatePhoto(image)).full : null;
     if (prepared && prepared.length > 5 * 1024 * 1024) throw new RequestError("Choose a smaller content image.", 413);
     return await database().transaction(async db => {
       await db.prepare(inventoryLockSql()).run();
-      const previous = create ? null : await db.prepare(select + " WHERE id = ? FOR UPDATE").bind(body.id).first<Row>();
+      const previous = await db.prepare(select + " WHERE id = ? FOR UPDATE").bind(id).first<Row>();
       if (!create && !previous) throw new RequestError("Content update not found.", 404);
-      if (previous && previous.version !== body.version) throw new RequestError("This update changed elsewhere. Reopen it before editing.", 409);
+      if (!create && previous && previous.version !== body.version) throw new RequestError("This update changed elsewhere. Reopen it before editing.", 409);
       const now = new Date().toISOString();
       if (finalize) {
         const old = await db.prepare("SELECT id FROM cms_reports WHERE update_id = ? AND source_version = ?").bind(previous!.id, previous!.version).first<{ id: string }>();
-        if (old) return reply({ reportId: old.id });
+        if (old) {
+          await lock(db);
+          return reply({ reportId: old.id });
+        }
         const revision = (await db.prepare("SELECT COALESCE(MAX(revision), 0) + 1 AS revision FROM cms_reports WHERE update_id = ?").bind(previous!.id).first<{ revision: number }>())!.revision;
         const reportId = crypto.randomUUID();
         const pdf = await renderCmsPdf(previous!.payload, previous!.image, `CMS-${previous!.id.slice(0, 8).toUpperCase()} / R${revision}`, now);
         if (pdf.length > 10 * 1024 * 1024) throw new RequestError("Report is too large. Use a smaller content image.", 413);
+        await lock(db);
         await db.prepare("INSERT INTO cms_reports (id, update_id, revision, source_version, pdf, created_by) VALUES (?, ?, ?, ?, ?, ?)").bind(reportId, previous!.id, revision, previous!.version, pdf, user.email).run();
         await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, 'finalized CMS report', 'cms', ?, ?, ?, ?)").bind(crypto.randomUUID(), previous!.id, previous!.payload.contentName, user.email, now).run();
         return reply({ reportId });
@@ -103,12 +124,23 @@ async function POSTHandler(request: NextRequest) {
       const inventory = await db.prepare('SELECT id, type, name, parent_id AS "parentId" FROM entities').all<{ id: string; type: string; name: string; parentId: string | null }>();
       let payload: CmsPayload;
       try { payload = parseCmsPayload(body.payload, inventory.results, previous?.payload); } catch (error) { throw new RequestError(error instanceof Error ? error.message : "Invalid content details."); }
-      const id = previous?.id || crypto.randomUUID(), version = crypto.randomUUID();
-      const bytes = imageAction === "remove" ? null : imageAction === "replace" ? prepared : previous?.image || null;
-      if (create) await db.prepare("INSERT INTO cms_updates (id, version, payload, image, updated_by) VALUES (?, ?, ?::jsonb, ?, ?)").bind(id, version, JSON.stringify(payload), bytes, user.email).run();
-      else await db.prepare("UPDATE cms_updates SET version = ?, payload = ?::jsonb, image = ?, updated_at = ?, updated_by = ? WHERE id = ?").bind(version, JSON.stringify(payload), bytes, now, user.email, id).run();
+      const bytes = imageAction === "replace" ? prepared : !create && imageAction === "keep" ? previous?.image ?? null : null;
+      await lock(db);
+      if (create && previous) {
+        const { image: savedImage, ...record } = previous;
+        const sameImage = bytes ? savedImage?.equals(bytes) : savedImage === null;
+        if (!sameImage || !isDeepStrictEqual(record.payload, payload)) {
+          throw new RequestError("This draft was already saved. Open it from Content updates before making further changes.", 409);
+        }
+        return reply({ id, version: record.version, record: await recordDetails(db, record) });
+      }
+      const version = crypto.randomUUID();
+      const saved = create
+        ? await db.prepare(`INSERT INTO cms_updates (id, version, payload, image, updated_by) VALUES (?, ?, ?::jsonb, ?, ?) RETURNING ${recordColumns}`).bind(id, version, JSON.stringify(payload), bytes, user.email).first<RecordRow>()
+        : await db.prepare(`UPDATE cms_updates SET version = ?, payload = ?::jsonb, image = ?, updated_at = ?, updated_by = ? WHERE id = ? RETURNING ${recordColumns}`).bind(version, JSON.stringify(payload), bytes, now, user.email, id).first<RecordRow>();
+      if (!saved) throw new RequestError("Content update not found.", 404);
       await db.prepare("INSERT INTO activity_log (id, action, entity_type, entity_id, entity_name, actor, created_at) VALUES (?, ?, 'cms', ?, ?, ?, ?)").bind(crypto.randomUUID(), create ? "created CMS update" : "updated CMS update", id, payload.contentName, user.email, now).run();
-      return reply({ id, version });
+      return reply({ id, version, record: await recordDetails(db, saved) });
     });
   } catch (error) { return requestFailure(error); }
 }

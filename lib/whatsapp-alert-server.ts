@@ -2,7 +2,7 @@ import { activeClientId, activeWorkspace, runWithWorkspace } from "./client-work
 import { withCurrentWorkerWorkspace } from "./client-worker-scope";
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import { getPool } from "./database";
+import { getPool, ServerDatabase } from "./database";
 import { onSignToken } from "./onsign-stream";
 import { previewSourceFingerprint } from "./preview-incidents";
 import { RESULT_MAX_AGE_MS } from "./preview-health";
@@ -11,6 +11,7 @@ import { WHATSAPP_REPORT_MAX_SCREENS } from "./whatsapp-alert-shared";
 import type { WhatsAppAlertSettings, WhatsAppAlertSnapshot } from "./whatsapp-alert-shared";
 import { sendWhatsAppMessage, WhatsAppSendError, whatsAppSender, type WhatsAppMessage } from "./whatsapp-message";
 export class WhatsAppServiceError extends Error{constructor(message:string,public status=400){super(message);}}
+type WriteLock = (db: ServerDatabase) => Promise<void>;
 type SettingsRow={enabled:boolean;threshold_minutes:number;grouping_minutes:number;recovery_email:boolean;recipients:string[];revision:string;updated_at:Date};
 type Row=AlertMailRow&{id:string;liveUrl:string|null;fingerprint:string;status:string|null;stateFingerprint:string|null;stateCheckedAt:Date|null;resolutionReason:string|null;newerIncident:boolean};
 type Job={id:string;recipient:string;kind:WhatsAppMessage["kind"];incident_ids:string[]};
@@ -42,10 +43,12 @@ function preview(settings:WhatsAppAlertSettings,rows:Row[]){
 export async function whatsappSnapshot():Promise<WhatsAppAlertSnapshot>{
   const client=await getPool().connect();try{return {settings:await settingsFor(client),sender:whatsAppSender(),deliveries:(await client.query('SELECT id,recipient,kind,status,screen_count AS "screenCount",queued_at AS "startedAt",error_code AS "errorCode",provider_id AS "providerId" FROM whatsapp_alert_delivery ORDER BY queued_at DESC,id DESC LIMIT 10')).rows};}finally{client.release();}
 }
-export async function saveWhatsAppSettings(settings:WhatsAppAlertSettings,actor:string){
+export async function saveWhatsAppSettings(settings:WhatsAppAlertSettings,actor:string,lock?:WriteLock){
   if(settings.enabled&&!whatsAppSender().configured)throw new WhatsAppServiceError("Configure UltraMsg on the server before enabling WhatsApp alerts.");
   const client=await getPool().connect();try{
     await client.query("BEGIN");
+    await client.query("SELECT id FROM whatsapp_alert_settings WHERE client_id=$1 AND id='main' FOR UPDATE", [activeClientId()]);
+    await lock?.(new ServerDatabase(client));
     const result=await client.query(`UPDATE whatsapp_alert_settings SET enabled=$1,threshold_minutes=$2,grouping_minutes=$3,recovery_email=$4,recipients=$5,revision=$6,updated_at=now() WHERE client_id='${activeClientId()}' AND id='main' AND revision=$7 RETURNING id`,[settings.enabled,settings.thresholdMinutes,settings.groupingMinutes,settings.recoveryEmail,JSON.stringify(settings.recipients),crypto.randomUUID(),settings.revision]);
     if(!result.rowCount)throw new WhatsAppServiceError("Settings changed in another window. Reload and try again.",409);
     await client.query("INSERT INTO activity_log(id,action,entity_type,entity_name,actor,created_at) VALUES($1,'Updated WhatsApp alert settings','settings','WhatsApp alerts',$2,$3)",[crypto.randomUUID(),actor,new Date().toISOString()]);
@@ -64,7 +67,7 @@ async function insertJob(client:PoolClient,kind:Job["kind"],recipient:string,ids
   const id=crypto.randomUUID();
   await client.query("INSERT INTO whatsapp_alert_delivery(id,batch_id,recipient,kind,incident_ids,screen_count,queued_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[id,batchId,recipient,kind,JSON.stringify(ids),ids.length,now]);return id;
 }
-export async function queueWhatsAppSend(kind:"test"|"manual",confirmationToken?:string,options:{now?:Date}={}){
+export async function queueWhatsAppSend(kind:"test"|"manual",confirmationToken?:string,options:{now?:Date;lock?:WriteLock}={}){
   if(!whatsAppSender().configured)throw new WhatsAppServiceError("Configure the UltraMsg instance and token on the server first.");
   const client=await getPool().connect();try{
     await client.query("BEGIN");await client.query(`SELECT pg_advisory_xact_lock(724021,hashtext('${activeClientId()}'))`);
@@ -75,6 +78,7 @@ export async function queueWhatsAppSend(kind:"test"|"manual",confirmationToken?:
     if(kind==="manual"&&preview(settings,rows).confirmationToken!==confirmationToken)throw new WhatsAppServiceError("Screens or recipients changed. Review the counts and try again.",409);
     if(kind==="manual"&&!rows.length)throw new WhatsAppServiceError("No current confirmed unavailable previews to send.");
     if(kind==="manual"&&rows.length>WHATSAPP_REPORT_MAX_SCREENS)throw new WhatsAppServiceError("PDF reports support up to 5,000 screens. Narrow the report in Reports instead.");
+    await options.lock?.(new ServerDatabase(client));
     const batchId=crypto.randomUUID();
     for(const number of settings.recipients)await insertJob(client,kind,number,rows.map(row=>row.id),batchId,now);
     await client.query("COMMIT");return {status:"queued",screenCount:rows.length,recipientCount:settings.recipients.length};

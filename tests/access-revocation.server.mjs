@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { migrate } from "../scripts/migrate-postgres.mjs";
 import { closeTestPool } from "./fixtures/postgres-pool.mjs";
+import { verifyQueuedWriteRevocation } from "./fixtures/queued-write.mjs";
 
 const base = new URL(process.env.DATABASE_URL);
 assert.ok(["127.0.0.1", "localhost"].includes(base.hostname) && base.port === "55432", "Use the separate local development PostgreSQL service only");
@@ -83,6 +84,8 @@ try {
       hardware: await rows("SELECT * FROM screen_hardware_sections WHERE screen_id=$1 ORDER BY section", [screenId]),
       inspections: await rows("SELECT * FROM screen_ppm_inspections WHERE screen_id=$1", [screenId]),
       photos: await rows("SELECT * FROM screen_reference_photos WHERE screen_id=$1 ORDER BY category", [screenId]),
+      notes: await rows("SELECT * FROM screen_notes WHERE screen_id=$1", [screenId]),
+      remoteAccess: await rows("SELECT * FROM screen_remote_access WHERE screen_id=$1", [screenId]),
       activity: await rows("SELECT * FROM activity_log WHERE entity_id=$1 ORDER BY id", [screenId]),
     };
   }
@@ -90,33 +93,15 @@ try {
   async function verifyRevocation({ route, method = "PUT", body, lock, snapshot }) {
     const cookie = await signIn();
     assert.notEqual(cookie, activeCookie, "queued write uses a different session from the control request");
+    await verifyQueuedWriteRevocation({
+      pool, label: route, lock, snapshot,
+      request: () => request(route, { method, body, cookie }),
+      revoke: () => request("/api/auth/sign-out", { method: "POST", body: {}, cookie }),
+    });
     const before = await snapshot();
-    const locker = await pool.connect();
-    let pending;
-    try {
-      await locker.query("BEGIN");
-      await locker.query(lock);
-      pending = request(route, { method, body, cookie });
-      pending.catch(() => {});
-      let waiting = false;
-      for (let attempt = 0; attempt < 160 && !waiting; attempt++) {
-        const result = await pool.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))", [locker.processID]);
-        waiting = result.rowCount > 0;
-        if (!waiting) await delay(25);
-      }
-      assert.ok(waiting, route + " waits for its transaction lock");
-      const signOut = await request("/api/auth/sign-out", { method: "POST", body: {}, cookie });
-      assert.equal(signOut.status, 200, "the exact queued session has signed out");
-    } finally {
-      try { await locker.query("ROLLBACK"); } finally { locker.release(); }
-    }
-
-    assert.equal((await pending).status, 401, route + " requires the queued session to still be active");
-    assert.deepEqual(await snapshot(), before, route + " preserves the existing rows and activity");
     const active = await request(route, { method, body, cookie: activeCookie });
     assert.equal(active.status, 200, route + " still accepts the same change from another active session");
     assert.notDeepEqual(await snapshot(), before, route + " has valid input for an actual change");
-    console.log("PASS " + route + " rechecks the original session when the queued operation proceeds");
   }
 
   const inventoryLock = "SELECT pg_advisory_xact_lock(724017,hashtext('sephora'))";
@@ -124,6 +109,8 @@ try {
   await verifyRevocation({ ...screenWrite, route: "/api/screen-hardware", body: { screenId, section: "ledDisplay", fields: { manufacturer: "Fixture manufacturer" }, version: null } });
   await verifyRevocation({ ...screenWrite, route: "/api/screen-ppm-inspection", body: { screenId, fields: { findings: "Fixture inspection" }, version: null } });
   await verifyRevocation({ ...screenWrite, route: "/api/screen-gallery", body: { screenId, category: "media_player", action: "remove", expectedKey: photoKey } });
+  await verifyRevocation({ ...screenWrite, route: "/api/screen-notes", body: { screenId, note: "Fixture note", version: null } });
+  await verifyRevocation({ ...screenWrite, route: "/api/screen-remote-access", body: { screenId, fields: { teamViewerId: "123 456 789", anyDeskId: "123456789" }, version: null } });
 
   const text = await readFile("tests/fixtures/survey-led.txt", "utf8");
   const survey = { screenId, text };

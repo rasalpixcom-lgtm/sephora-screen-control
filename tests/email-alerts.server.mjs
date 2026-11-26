@@ -10,6 +10,7 @@ import { build } from "esbuild";
 import pg from "pg";
 import { migrate } from "../scripts/migrate-postgres.mjs";
 import { closeTestPool } from "./fixtures/postgres-pool.mjs";
+import { queuedPostChecks } from "./fixtures/queued-write.mjs";
 
 const root=process.cwd(),databaseName="sephora_email_test_"+crypto.randomBytes(8).toString("hex");
 const adminUrl=new URL(process.env.DATABASE_URL);adminUrl.pathname="/postgres";
@@ -204,7 +205,7 @@ try {
   const portProbe=net.createServer();await new Promise(resolve=>portProbe.listen(0,"127.0.0.1",resolve));const port=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
   const origin="http://127.0.0.1:"+port,password=crypto.randomBytes(24).toString("base64url"),bootstrap=crypto.randomBytes(32).toString("hex");
   const serverEnv={...process.env,COMPLAINT_ALERTS_ENABLED:"false",PORT:String(port),HOSTNAME:"127.0.0.1",DATABASE_URL:testUrl.toString(),AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:"",ALLOW_LAN_HTTP:"false",AUTH_SECRET:crypto.randomBytes(48).toString("hex"),AUTH_ADMIN_EMAIL:"admin@example.test",AUTH_BOOTSTRAP_HASH:crypto.createHash("sha256").update(bootstrap).digest("hex"),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),EMAIL_ALERT_WORKER_DISABLED:"true",WHATSAPP_ALERT_WORKER_DISABLED:"true"};
-  server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:serverEnv,stdio:["ignore","pipe","pipe"]});server.stdout.on("data",chunk=>logs+=chunk);server.stderr.on("data",chunk=>logs+=chunk);
+  server=spawn(process.execPath,[path.join(root,".next/standalone/server.js")],{cwd:root,env:{...serverEnv,TRUST_PROXY:"true"},stdio:["ignore","pipe","pipe"]});server.stdout.on("data",chunk=>logs+=chunk);server.stderr.on("data",chunk=>logs+=chunk);
   let ready=false;for(let attempt=0;attempt<60;attempt++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{}if(server.exitCode!==null)break;await new Promise(resolve=>setTimeout(resolve,500));}
   assert.ok(ready,"compiled test server starts: "+logs.slice(-1000));
   const request=(route,body,cookie="",extra={})=>fetch(origin+route,{method:body===undefined?"GET":"POST",headers:{Origin:origin,"Content-Type":"application/json",...(cookie?{Cookie:cookie}:{}),...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -212,6 +213,18 @@ try {
   check((await request("/api/email-alerts/test",{})).status===401,"anonymous test sends are blocked");
   assert.equal((await request("/api/activate",{token:bootstrap,password})).status,200);
   const login=await request("/api/auth/sign-in/email",{email:"admin@example.test",password});const cookie=login.headers.getSetCookie().map(value=>value.split(";")[0]).join("; ");
+  const verifyPost=queuedPostChecks(request,{email:"admin@example.test",password},pool);
+  const alertSnapshot=async()=>({
+    settings:(await pool.query("SELECT * FROM email_alert_settings ORDER BY client_id,id")).rows,
+    deliveries:(await pool.query("SELECT * FROM email_alert_delivery ORDER BY id")).rows,
+    queue:(await pool.query("SELECT * FROM email_alert_queue ORDER BY id")).rows,
+    activity:(await pool.query("SELECT * FROM activity_log WHERE entity_name='Email alerts' ORDER BY id")).rows,
+    sent:smtpMessages.length,
+  });
+  const verifySend=(route,body)=>verifyPost({
+    route, body, snapshot:alertSnapshot,
+    lock:"SELECT id FROM auth_user WHERE email=$1 FOR UPDATE", lockParams:["admin@example.test"],
+  });
   check((await request("/api/users",{action:"create",name:"Controller",email:"controller@example.test",role:"controller",password},cookie)).status===200,"Controller fixture is created");
   const controllerLogin=await request("/api/auth/sign-in/email",{email:"controller@example.test",password});const controllerCookie=controllerLogin.headers.getSetCookie().map(value=>value.split(";")[0]).join("; ");
   check((await request("/api/email-alerts",undefined,controllerCookie)).status===403&&(await request("/api/email-alerts/test",{},controllerCookie)).status===403,"Controller cannot read recipients or send test emails");
@@ -220,11 +233,16 @@ try {
   check((await request("/api/email-alerts",snapshot.settings,cookie,{Origin:"https://attacker.test"})).status===403,"cross-origin settings writes are rejected");
   check((await request("/api/email-alerts/test",{},cookie,{Origin:"https://attacker.test"})).status===403,"cross-origin email sends are rejected");
   check((await request("/api/email-alerts",{...snapshot.settings,thresholdMinutes:0},cookie)).status===400,"API validates alert duration bounds");
-  const saved=await request("/api/email-alerts",{...snapshot.settings,enabled:false,recipients:["one@example.test","two@example.test"]},cookie);check(saved.status===200,"Admin can save multiple recipients while alerts are disabled");
+  const settingsEdit={...snapshot.settings,enabled:false,recipients:["one@example.test","two@example.test"]};
+  await verifyPost({route:"/api/email-alerts",body:settingsEdit,snapshot:alertSnapshot,lock:"SELECT id FROM email_alert_settings WHERE client_id='sephora' AND id='main' FOR UPDATE"});
+  const saved=await request("/api/email-alerts",settingsEdit,cookie);check(saved.status===200,"Admin can save multiple recipients while alerts are disabled");
   check((await request("/api/email-alerts",snapshot.settings,cookie)).status===409,"API rejects a stale settings revision");
   check((await request("/api/email-alerts/test",{recipient:"outside@example.test"},cookie)).status===400,"test sends cannot override the saved recipients");
+  await pool.query("INSERT INTO email_alert_delivery (id,kind,status,recipients,screen_count,started_at) VALUES ('interrupted-fixture','test','sending','[]',0,now()-interval '2 minutes')");
+  await verifySend("/api/email-alerts/test",{});
   const smtpBefore=smtpMessages.length;
   check((await request("/api/email-alerts/test",{},cookie)).status===200&&smtpMessages.length===smtpBefore+1,"test endpoint sends one real message to the local SMTP fixture");
+  check((await pool.query("SELECT status FROM email_alert_delivery WHERE id='interrupted-fixture'")).rows[0].status==="uncertain","an authorized send still recovers an interrupted delivery");
   check((await request("/api/email-alerts/test",{},cookie)).status===429,"test sends are rate limited across requests");
   check((await request("/api/email-alerts/manual")).status===401&&(await request("/api/email-alerts/manual",{confirmationToken:"0".repeat(64)})).status===401,"anonymous manual previews and sends are blocked");
   check((await request("/api/email-alerts/manual",undefined,controllerCookie)).status===403&&(await request("/api/email-alerts/manual",{confirmationToken:"0".repeat(64)},controllerCookie)).status===403,"Controller cannot preview or send manual reports");
@@ -235,6 +253,7 @@ try {
   check(manualApiResponse.status===200&&manualApiResponse.headers.get("cache-control")==="no-store"&&manualApi.screenCount===1&&!JSON.stringify(manualApi).includes("email-test-"),"manual confirmation provides uncached counts without preview secrets");
   // Return the fake-clock delivery history to wall time before API assertions.
   await pool.query("UPDATE email_alert_delivery SET started_at=now()-interval '2 minutes'");
+  await verifySend("/api/email-alerts/manual",{confirmationToken:manualApi.confirmationToken});
   const beforeManualSmtp=smtpMessages.length;
   check((await request("/api/email-alerts/manual",{confirmationToken:manualApi.confirmationToken},cookie)).status===200&&smtpMessages.length===beforeManualSmtp+1,"Admin manual endpoint sends the current report through local SMTP");
   check((await request("/api/email-alerts/manual",{confirmationToken:manualApi.confirmationToken},cookie)).status===429,"manual rate limit persists across API requests");

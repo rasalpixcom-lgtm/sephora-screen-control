@@ -8,6 +8,8 @@ import path from 'node:path';
 import pg from 'pg';
 import sharp from 'sharp';
 import {migrate} from '../scripts/migrate-postgres.mjs';
+import {queuedPostChecks} from './fixtures/queued-write.mjs';
+import {closeTestPool} from './fixtures/postgres-pool.mjs';
 const name='sephora_cms_test_'+crypto.randomBytes(8).toString('hex');
 const adminUrl=new URL(process.env.DATABASE_URL); adminUrl.pathname='/postgres';
 const testUrl=new URL(process.env.DATABASE_URL); testUrl.pathname='/'+name;
@@ -19,7 +21,7 @@ try {
  await admin.query(`CREATE DATABASE "${name}"`);created=true;await migrate(pool);await migrate(pool);
  const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
  const origin=`http://127.0.0.1:${port}`,token=crypto.randomBytes(32).toString('hex'),password='CMS-UI-Test-2026!';
- server=spawn(process.execPath,[path.resolve('.next/standalone/server.js')],{env:{...process.env,COMPLAINT_ALERTS_ENABLED:'false',PORT:String(port),HOSTNAME:'127.0.0.1',DATABASE_URL:testUrl.href,AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:'',AUTH_SECRET:crypto.randomBytes(48).toString('hex'),AUTH_ADMIN_EMAIL:'cms-admin@example.test',AUTH_BOOTSTRAP_HASH:crypto.createHash('sha256').update(token).digest('hex'),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),ONSIGN_API_TOKEN:'',ALERT_EMAIL_USER:'',ALERT_EMAIL_APP_PASSWORD:'',ULTRAMSG_TOKEN:''},stdio:['ignore','pipe','pipe']});
+ server=spawn(process.execPath,[path.resolve('.next/standalone/server.js')],{env:{...process.env,COMPLAINT_ALERTS_ENABLED:'false',PORT:String(port),HOSTNAME:'127.0.0.1',DATABASE_URL:testUrl.href,AUTH_URL:origin,AUTH_ADDITIONAL_ORIGINS:'',TRUST_PROXY:'true',AUTH_SECRET:crypto.randomBytes(48).toString('hex'),AUTH_ADMIN_EMAIL:'cms-admin@example.test',AUTH_BOOTSTRAP_HASH:crypto.createHash('sha256').update(token).digest('hex'),AUTH_BOOTSTRAP_EXPIRES:String(Date.now()+600000),ONSIGN_API_TOKEN:'',ALERT_EMAIL_USER:'',ALERT_EMAIL_APP_PASSWORD:'',ULTRAMSG_TOKEN:''},stdio:['ignore','pipe','pipe']});
  server.stdout.on('data',b=>logs+=b);server.stderr.on('data',b=>logs+=b);
  let ready=false;for(let i=0;i<100;i++){try{if((await fetch(origin+'/api/health')).ok){ready=true;break}}catch{} await new Promise(r=>setTimeout(r,250));}
  assert.ok(ready,'server health: '+logs.slice(-2000));
@@ -28,12 +30,22 @@ try {
  check((await request('/api/cms-support',{action:'create'})).status===401,'write requires a session');
  assert.ok((await request('/api/activate',{token,password})).ok);
  const login=await request('/api/auth/sign-in/email',{email:'cms-admin@example.test',password});assert.ok(login.ok);const cookie=login.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
+ const verifyPost=queuedPostChecks(request,{email:'cms-admin@example.test',password},pool);
+ const verifyCms=(body)=>verifyPost({
+   route:'/api/cms-support', label:'CMS '+body.action, body,
+   lock:"SELECT pg_advisory_xact_lock(724017,hashtext('sephora'))",
+   snapshot:async()=>({
+     updates:(await pool.query('SELECT * FROM cms_updates ORDER BY id')).rows,
+     reports:(await pool.query('SELECT * FROM cms_reports ORDER BY id')).rows,
+     activity:(await pool.query("SELECT * FROM activity_log WHERE entity_type='cms' ORDER BY id")).rows,
+   }),
+ });
  const create=async(type,label,parentId=null)=>{const r=await request('/api/state',{action:'create',type,name:label,parentId},cookie);assert.ok(r.ok,await r.clone().text());return(await r.json()).entities.find(e=>e.name===label&&e.type===type)};
  const country=await create('country','UAE'),region=await create('region','Dubai',country.id),location=await create('store','Dubai Mall',region.id),screen=await create('screen','Popup Screen 01',location.id),screen2=await create('screen','Cash Screen 02',location.id);
  const now=new Date().toISOString();
  const payload={contentName:'Kayali',campaignName:'November campaign',videoUrl:'https://media.example.test/campaign.mp4?token=fixture',category:'Regional popup',receivedAt:'2026-10-19T17:21:00+04:00',missingReceivedAt:'2026-10-22T14:26:00+04:00',scheduledAt:'2026-10-23T10:00:00+04:00',playbackStart:'2026-10-24',playbackEnd:'2026-11-12',approvedBy:'Client approver',resizedBy:'Not required',remarks:'Updated content scheduled for selected screens.',internalNotes:'INTERNAL-ONLY-NOTE-123',screens:[{screenId:screen.id,network:'Online',scheduling:'Scheduled',playback:'Verified',checkedAt:now,remarks:'Checked by CMS team'},{screenId:screen2.id,network:'Unstable',scheduling:'Pending',playback:'Not verified',checkedAt:'',remarks:'Awaiting connectivity'}]};
  check((await request('/api/cms-support',{action:'create',payload:{...payload,videoUrl:'javascript:alert(1)'}},cookie)).status===400,'unsafe video URL rejected');
- const metadata={action:'create',payload,imageAction:'replace'};
+ const metadata={action:'create',createKey:crypto.randomBytes(16).toString('hex'),payload,imageAction:'replace'};
  const bytes=await sharp({create:{width:900,height:500,channels:3,background:'#d5b67f'}}).png().toBuffer();fs.writeFileSync(path.join(root,'content-fixture.png'),bytes);
  const upload=(meta=metadata,buffer=bytes,type='image/png',session=cookie)=>{const f=new FormData();f.set('metadata',JSON.stringify(meta));f.set('image',new Blob([buffer],{type}),'campaign.png');return fetch(origin+'/api/cms-support',{method:'POST',headers:{Origin:origin,Cookie:session},body:f})};
  check((await request('/api/cms-support',{action:'create',payload},cookie,{Origin:'https://attacker.test'})).status===403,'cross-origin mutation blocked');
@@ -42,9 +54,24 @@ try {
  check((await upload(metadata,bytes,'image/gif')).status===415,'unsupported image MIME rejected');
  check((await request('/api/cms-support',{action:'create',payload:{...payload,screens:[]}},cookie)).status===400,'empty screen set rejected');
  check((await request('/api/cms-support',{action:'create',payload:{...payload,playbackEnd:'2026-10-01'}},cookie)).status===400,'reversed playback period rejected');
- const response=await upload();assert.ok(response.ok,await response.clone().text());const saved=await response.json();
+ await verifyCms({action:'create',payload});
+ for(const createKey of [null,[], 'ab'.repeat(16)+'\n','0'.repeat(31)]) {
+  check((await upload({...metadata,createKey})).status===400,'malformed create key rejected');
+ }
+ const [response,retry]=await Promise.all([upload(),upload()]);
+ assert.ok(response.ok,await response.clone().text());
+ assert.ok(retry.ok,await retry.clone().text());
+ const saved=await response.json();
+ assert.deepEqual(await retry.json(),saved,'overlapping retries return the original record, image status and version');
+ check((await pool.query("SELECT count(*)::int AS total FROM cms_updates")).rows[0].total===1,'overlapping creates with one key save one record');
+ check((await pool.query("SELECT count(*)::int AS total FROM activity_log WHERE entity_type='cms' AND entity_id=$1",[saved.id])).rows[0].total===1,'overlapping creates with one key write one audit entry');
+ check((await upload({...metadata,payload:{...payload,contentName:'Changed draft'}})).status===409,'reusing a key with changed details cannot overwrite the saved record');
+ const changedImage=await sharp({create:{width:900,height:500,channels:3,background:'#423000'}}).png().toBuffer();
+ check((await upload(metadata,changedImage)).status===409,'reusing a key with changed image cannot overwrite the saved record');
  const get=async()=>{const r=await request('/api/cms-support?id='+saved.id,undefined,cookie);assert.ok(r.ok,await r.clone().text());return(await r.json()).record};
  let record=await get();check(record.hasImage&&record.payload.screens.length===2,'campaign image and screen records saved together');
+ assert.deepEqual(saved.record, record, 'the create response contains the same record as the details endpoint');
+ check(saved.id===record.id&&saved.version===record.version&&!Object.hasOwn(saved.record,'image'),'create returns the saved identity and private-image status');
  const cmsBefore=JSON.stringify((await pool.query('SELECT to_jsonb(t) AS row FROM cms_updates t WHERE id=$1',[saved.id])).rows);
  const cmsAuditBefore=(await pool.query("SELECT count(*)::int AS n FROM activity_log WHERE entity_type='cms'")).rows[0].n;
  for(const action of [['create'],['update'],['finalize'],{},null,123])check((await request('/api/cms-support',{action,id:saved.id,version:record.version,payload},cookie)).status===400,'CMS rejects non-string actions');
@@ -82,13 +109,19 @@ try {
  check((await request(filteredQuery.replace(record.version,crypto.randomUUID()),undefined,cookie)).status===409,'stale filtered export rejected');
  check((await request(filteredQuery)).status===401,'filtered export requires authentication');
  const finalize=()=>request('/api/cms-support',{action:'finalize',id:saved.id,version:record.version},cookie);
+ await verifyCms({action:'finalize',id:saved.id,version:record.version});
  const finals=await Promise.all([finalize(),finalize()]);assert.ok(finals.every(r=>r.ok));const ids=await Promise.all(finals.map(r=>r.json()));check(ids[0].reportId===ids[1].reportId,'concurrent finalization does not duplicate a revision');
  const reportId=ids[0].reportId;const final=await request('/api/cms-support/pdf?reportId='+reportId,undefined,cookie);const finalBytes=Buffer.from(await final.arrayBuffer());check(final.ok&&finalBytes.subarray(0,4).toString()==='%PDF','final client PDF downloads');fs.writeFileSync(path.join(root,'client-report.pdf'),finalBytes);
  check((await request('/api/cms-support/pdf?reportId='+reportId+'&filtered=1',undefined,cookie)).status===400,'finalized report cannot be silently filtered');
  check(finalBytes.includes(Buffer.from('/URI ('+payload.videoUrl+')')),'PDF includes the clickable video destination');
  check((await request('/api/cms-support/pdf?reportId='+reportId)).status===401,'report download protected');
  check((await request('/api/cms-support',{action:'update',id:saved.id,version:crypto.randomUUID(),payload},cookie)).status===409,'stale update rejected');
- const changed=await request('/api/cms-support',{action:'update',id:saved.id,version:record.version,payload:{...payload,videoUrl:'https://media.example.test/revised.mp4',contentName:'Kayali revised'}},cookie);assert.ok(changed.ok,await changed.clone().text());
+ const edit={action:'update',id:saved.id,version:record.version,payload:{...payload,videoUrl:'https://media.example.test/revised.mp4',contentName:'Kayali revised'}};
+ await verifyCms(edit);
+ const changed=await request('/api/cms-support',edit,cookie);assert.ok(changed.ok,await changed.clone().text());const updated=await changed.json();
+ assert.deepEqual(updated.record,await get(),'the update response includes the new version and existing reports');
+ check((await upload()).status===409,'an older create replay cannot undo a later edit');
+ assert.deepEqual(await get(),updated.record);
  const finalAgain=await request('/api/cms-support/pdf?reportId='+reportId,undefined,cookie);check(Buffer.from(await finalAgain.arrayBuffer()).equals(finalBytes),'editing does not change finalized PDF bytes');
  record=await get();check(record.reports.length===1&&record.hasImage,'ordinary edit preserves image and report history');
  await pool.query('DELETE FROM entities WHERE id=$1',[screen.id]);
@@ -135,4 +168,17 @@ try {
  check((await request('/api/health')).ok,'health recovers with CMS tables');
  console.log(`${checks} CMS server checks passed.`);
  if(process.argv.includes('--ui')){fs.writeFileSync(path.join(root,'ui.json'),JSON.stringify({origin,email:'cms-admin@example.test',password,fixture:path.join(root,'content-fixture.png')}));console.log('UI fixture: '+origin+'/login');const finished=path.join(root,'finished');fs.rmSync(finished,{force:true});const deadline=Date.now()+900000;while(Date.now()<deadline&&!fs.existsSync(finished))await new Promise(r=>setTimeout(r,500));}
-} catch(error){console.error(logs.slice(-1500));throw error} finally {if(server&&server.exitCode===null){const end=once(server,'exit');server.kill();await end}await pool.end();if(created)await admin.query(`DROP DATABASE "${name}" WITH(FORCE)`);await admin.end()}
+} catch(error) {
+ console.error(logs.slice(-1500));
+ throw error;
+} finally {
+ if(server&&server.exitCode===null&&server.signalCode===null){
+  const end=once(server,'exit');server.kill();await end;
+ }
+ try {
+  await closeTestPool(pool);
+  if(created)await admin.query(`DROP DATABASE "${name}" WITH(FORCE)`);
+ } finally {
+  await admin.end();
+ }
+}
